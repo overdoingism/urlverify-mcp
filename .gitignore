@@ -1,0 +1,17 @@
+.venv/
+.venv.linux-bak/
+__pycache__/
+*.pyc
+config.yaml
+*.sqlite3
+.pytest_cache/
+dist/
+.claude/
+
+# local-only: personal launchers (still evolving), logs, backups, working docs
+start.ps1
+start*.bat
+*.bak
+*.log
+reports/
+README.work.md

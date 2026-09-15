@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>URLVerify_MCP admin</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#f6f7f9; --fg:#1b1f24; --muted:#6b7280; --card:#fff; --line:#e5e7eb; --ok:#15803d; --bad:#b91c1c; --warn:#b45309; --accent:#2563eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --fg:#e5e7eb; --muted:#9ca3af; --card:#171a21; --line:#2a2f3a; --accent:#60a5fa; } }
+  body { margin:0; font:14px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; }
+  header h1 { font-size:16px; margin:0; }
+  nav button { background:none; border:1px solid var(--line); color:var(--fg); padding:6px 12px; border-radius:6px; cursor:pointer; }
+  nav button.active { border-color:var(--accent); color:var(--accent); }
+  main { padding:20px; max-width:1100px; margin:0 auto; }
+  section { display:none; } section.active { display:block; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
+  label { display:block; font-size:12px; color:var(--muted); margin-top:8px; }
+  input, textarea, select { width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
+  textarea { min-height:120px; font-family:ui-monospace, monospace; font-size:12px; }
+  button.primary { background:var(--accent); color:#fff; border:0; padding:8px 14px; border-radius:6px; cursor:pointer; margin-top:10px; }
+  button.small { font-size:12px; padding:2px 8px; border:1px solid var(--line); background:none; color:var(--fg); border-radius:4px; cursor:pointer; }
+  table { width:100%; border-collapse:collapse; font-size:13px; } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .verdict { font-weight:600; } .VERIFIED_TRUE { color:var(--ok);} .VERIFIED_FALSE { color:var(--bad);} .UNVERIFIABLE { color:var(--warn);}
+  pre { background:var(--bg); padding:10px; border-radius:6px; overflow:auto; font-size:12px; max-height:480px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; } @media (max-width:800px){ .grid{grid-template-columns:1fr;} }
+  .muted { color:var(--muted); font-size:12px; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; border:1px solid var(--line); font-size:11px; margin-right:4px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>URLVerify_MCP</h1>
+  <nav>
+    <button data-tab="test" class="active">Test</button>
+    <button data-tab="history">History</button>
+    <button data-tab="config">Config</button>
+    <button data-tab="lists">Allow / Deny</button>
+    <button data-tab="cache">Caches</button>
+  </nav>
+  <span id="env" class="muted" style="margin-left:auto"></span>
+</header>
+<main>
+  <section id="tab-test" class="active">
+    <div class="card">
+      <div class="grid">
+        <div><label>Project</label><input id="t-project" placeholder="LM Studio"></div>
+        <div><label>URL</label><input id="t-url" placeholder="https://lmstudio.ai/download"></div>
+      </div>
+      <label>Description</label><input id="t-desc" placeholder="Linux x64 AppImage installer">
+      <div class="grid">
+        <div><label>min_sources (blank = config)</label><input id="t-min" type="number" min="1"></div>
+        <div><label>allow_tier3</label><select id="t-t3"><option value="">config</option><option value="true">true</option><option value="false">false</option></select></div>
+      </div>
+      <button class="primary" id="t-run">Verify</button> <span id="t-status" class="muted"></span>
+    </div>
+    <div class="card" id="t-result" style="display:none">
+      <div><span class="verdict" id="r-verdict"></span> <span class="muted" id="r-conf"></span> <span class="muted" id="r-meta"></span></div>
+      <p id="r-reason"></p>
+      <div id="r-checks"></div>
+      <details><summary>Evidence</summary><div id="r-evidence"></div></details>
+      <details><summary>Engine notes</summary><ul id="r-notes"></ul></details>
+      <details><summary>Raw JSON</summary><pre id="r-raw"></pre></details>
+    </div>
+  </section>
+
+  <section id="tab-history"><div class="card"><table id="h-table"><thead><tr><th>Time</th><th>Project</th><th>URL</th><th>Verdict</th><th>Conf</th><th></th></tr></thead><tbody></tbody></table></div>
+    <div class="card" id="h-detail" style="display:none"><pre id="h-raw"></pre></div></section>
+
+  <section id="tab-config"><div class="card">
+    <p class="muted">Loaded from: <span id="c-path"></span>. Edit YAML-equivalent JSON below; saving writes the config file and reloads.</p>
+    <textarea id="c-json" style="min-height:420px"></textarea>
+    <button class="primary" id="c-save">Save</button> <span id="c-status" class="muted"></span>
+  </div></section>
+
+  <section id="tab-lists"><div class="grid">
+    <div class="card"><h3>Allowlist</h3><p class="muted">{project, domain}. project "*" = any.</p>
+      <table id="al-table"><tbody></tbody></table>
+      <div class="grid"><input id="al-project" placeholder="project or *"><input id="al-domain" placeholder="domain"></div>
+      <button class="primary" id="al-add">Add</button></div>
+    <div class="card"><h3>Denylist</h3><p class="muted">hosts / eTLD+1 that are always VERIFIED_FALSE.</p>
+      <table id="dl-table"><tbody></tbody></table>
+      <input id="dl-domain" placeholder="evil-download.example"><button class="primary" id="dl-add">Add</button></div>
+  </div></section>
+
+  <section id="tab-cache">
+    <div class="card"><h3>Identity graph cache <button class="small" data-clear="identity_cache">clear</button></h3><table id="ic-table"><tbody></tbody></table></div>
+    <div class="card"><h3>Certificate cache <button class="small" data-clear="cert_cache">clear</button></h3><table id="cc-table"><tbody></tbody></table></div>
+    <div class="card"><h3>Platform anchors</h3><table id="ac-table"><tbody></tbody></table></div>
+  </section>
+</main>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const api = async (path, opt={}) => { const r = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opt}); if(!r.ok) throw new Error(await r.text()); return r.json(); };
+let cfg = null;
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('active')); b.classList.add('active');
+  document.querySelectorAll('section').forEach(s => s.classList.remove('active')); $('#tab-'+b.dataset.tab).classList.add('active');
+  ({history: loadHistory, config: loadConfig, lists: loadLists, cache: loadCaches})[b.dataset.tab]?.();
+});
+
+async function loadEnv(){ try { const e = await api('/api/env'); $('#env').textContent = `LLM ${e.llm.ok?'✓':'✗'} · search ${e.search.ok?'✓':'✗'}` + (e.llm.models?.length? ` · ${e.llm.models[0]}`:''); } catch(err){ $('#env').textContent = 'env check failed'; } }
+
+$('#t-run').onclick = async () => {
+  const body = { project: $('#t-project').value, url: $('#t-url').value, description: $('#t-desc').value, options: {} };
+  if ($('#t-min').value) body.options.min_sources = +$('#t-min').value;
+  if ($('#t-t3').value) body.options.allow_tier3 = $('#t-t3').value === 'true';
+  $('#t-status').textContent = 'running… (can take 1-3 minutes)'; $('#t-run').disabled = true;
+  try { const r = await api('/api/verify', {method:'POST', body: JSON.stringify(body)}); showResult(r); $('#t-status').textContent = ''; }
+  catch(e){ $('#t-status').textContent = 'error: ' + e.message; }
+  $('#t-run').disabled = false;
+};
+function showResult(r){
+  $('#t-result').style.display = 'block';
+  const v = $('#r-verdict'); v.textContent = r.verdict; v.className = 'verdict ' + r.verdict;
+  $('#r-conf').textContent = `confidence ${r.confidence}`; $('#r-meta').textContent = `· ${r.duration_s}s · trace ${r.trace_id} · cache: ${(r.cache_hits||[]).join(', ')||'none'}`;
+  $('#r-reason').textContent = r.reason;
+  $('#r-checks').innerHTML = Object.entries(r.checks||{}).map(([k,c]) => `<span class="pill" title="${esc(c.message)}">${k}: <b class="${c.status==='pass'?'VERIFIED_TRUE':c.status==='fail'?'VERIFIED_FALSE':'UNVERIFIABLE'}">${c.status}</b></span>`).join(' ');
+  $('#r-evidence').innerHTML = '<table><tr><th>T</th><th>kind</th><th>claim</th><th>source</th><th>quote ok</th><th>notes</th></tr>' + (r.evidence||[]).map(e => `<tr><td>${e.tier}</td><td>${esc(e.kind)}</td><td>${esc(e.claim)}</td><td><a href="${esc(e.source)}" target="_blank">${esc(e.source).slice(0,60)}</a></td><td>${e.verified_quote?'✓':'✗'}</td><td class="muted">${esc((e.notes||[]).join('; '))}</td></tr>`).join('') + '</table>';
+  $('#r-notes').innerHTML = (r.engine_notes||[]).map(n => `<li>${esc(n)}</li>`).join('');
+  $('#r-raw').textContent = JSON.stringify(r, null, 2);
+}
+
+async function loadHistory(){ const rows = await api('/api/history'); $('#h-table tbody').innerHTML = rows.map(h => `<tr><td>${new Date(h.ts*1000).toLocaleString()}</td><td>${esc(h.project)}</td><td class="muted">${esc(h.url).slice(0,70)}</td><td class="${h.verdict}">${h.verdict}</td><td>${h.confidence}</td><td><button class="small" data-trace="${h.trace_id}">view</button></td></tr>`).join('');
+  $('#h-table').querySelectorAll('button').forEach(b => b.onclick = async () => { const d = await api('/api/history/'+b.dataset.trace); $('#h-detail').style.display='block'; $('#h-raw').textContent = JSON.stringify(d.result, null, 2); }); }
+
+async function loadConfig(){ cfg = await api('/api/config'); $('#c-path').textContent = cfg._source_path || '(defaults; save will create ~/.urlverify_mcp/config.yaml)'; const c = {...cfg}; delete c._source_path; $('#c-json').value = JSON.stringify(c, null, 2); }
+$('#c-save').onclick = async () => { try { const r = await api('/api/config', {method:'PUT', body: $('#c-json').value}); $('#c-status').textContent = 'saved to ' + r.path; loadEnv(); } catch(e){ $('#c-status').textContent = 'error: ' + e.message; } };
+
+async function loadLists(){ cfg = await api('/api/config');
+  $('#al-table tbody').innerHTML = cfg.lists.allowlist.map((a,i) => `<tr><td>${esc(a.project)}</td><td>${esc(a.domain)}</td><td><button class="small" data-i="${i}">remove</button></td></tr>`).join('');
+  $('#dl-table tbody').innerHTML = cfg.lists.denylist.map((d,i) => `<tr><td>${esc(d)}</td><td><button class="small" data-i="${i}">remove</button></td></tr>`).join('');
+  $('#al-table').querySelectorAll('button').forEach(b => b.onclick = () => { cfg.lists.allowlist.splice(+b.dataset.i,1); saveLists(); });
+  $('#dl-table').querySelectorAll('button').forEach(b => b.onclick = () => { cfg.lists.denylist.splice(+b.dataset.i,1); saveLists(); }); }
+async function saveLists(){ const c = {...cfg}; delete c._source_path; await api('/api/config', {method:'PUT', body: JSON.stringify(c)}); loadLists(); }
+$('#al-add').onclick = () => { if(!$('#al-domain').value) return; cfg.lists.allowlist.push({project: $('#al-project').value || '*', domain: $('#al-domain').value}); $('#al-domain').value=''; saveLists(); };
+$('#dl-add').onclick = () => { if(!$('#dl-domain').value) return; cfg.lists.denylist.push($('#dl-domain').value); $('#dl-domain').value=''; saveLists(); };
+
+async function loadCaches(){
+  const ic = await api('/api/cache/identity_cache'); $('#ic-table tbody').innerHTML = ic.map(r => `<tr><td><b>${esc(r.project)}</b><br><span class="muted">${esc(r.data.developer||'')}</span></td><td>${(r.data.official_domains||[]).map(d=>`<span class="pill">${esc(d)}</span>`).join('')}${Object.entries(r.data.official_orgs||{}).map(([p,o])=>`<span class="pill">${p}: ${esc(o.join(','))}</span>`).join('')}</td><td class="muted">exp ${new Date(r.expires*1000).toLocaleDateString()}</td><td><button class="small" data-t="identity_cache" data-k="${esc(r.key)}">invalidate</button></td></tr>`).join('') || '<tr><td class="muted">empty</td></tr>';
+  const cc = await api('/api/cache/cert_cache'); $('#cc-table tbody').innerHTML = cc.map(r => `<tr><td>${esc(r.host)}</td><td>${esc(r.data.validation_level||'')} · ${esc(r.data.issuer_org||r.data.issuer||'')}${r.data.subject_org? ' · O='+esc(r.data.subject_org):''}</td><td class="muted">exp ${new Date(r.expires*1000).toLocaleDateString()}</td><td><button class="small" data-t="cert_cache" data-k="${esc(r.host)}">drop</button></td></tr>`).join('') || '<tr><td class="muted">empty</td></tr>';
+  const ac = await api('/api/cache/anchor_cache'); $('#ac-table tbody').innerHTML = ac.map(r => `<tr><td>${esc(r.etld1)}</td><td>${esc(r.data.platform||'')}${r.data.seed?' <span class="pill">seed</span>':''}</td><td class="muted">${esc((r.data.expected_issuers||[]).join(', '))}</td></tr>`).join('');
+  document.querySelectorAll('#tab-cache button[data-k]').forEach(b => b.onclick = async () => { await api(`/api/cache/${b.dataset.t}/${encodeURIComponent(b.dataset.k)}`, {method:'DELETE'}); loadCaches(); });
+  document.querySelectorAll('#tab-cache button[data-clear]').forEach(b => b.onclick = async () => { if(confirm('Clear '+b.dataset.clear+'?')){ await api('/api/cache/'+b.dataset.clear, {method:'DELETE'}); loadCaches(); } });
+}
+loadEnv();
+</script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+# Live regression cases (need network + LLM). Run: python -m pytest tests/test_live.py --live
+# Each check family should have at least one true and one false case.
+- id: lmstudio-official
+  project: LM Studio
+  url: https://lmstudio.ai/download
+  description: LM Studio desktop app download page
+  expect: VERIFIED_TRUE
+- id: lmstudio-github-org
+  project: LM Studio
+  url: https://github.com/lmstudio-ai/lms
+  description: lms CLI repository
+  expect: VERIFIED_TRUE
+- id: lmstudio-typosquat
+  project: LM Studio
+  url: https://lmstudio-download.com/
+  description: LM Studio installer
+  expect: VERIFIED_FALSE          # brand-in-label + not established (may resolve to UNVERIFIABLE if domain does not exist)
+- id: qwen-hf-official
+  project: Qwen3
+  url: https://huggingface.co/Qwen/Qwen3-8B
+  description: Qwen3 8B model weights
+  expect: VERIFIED_TRUE
+- id: qwen-hf-third-party-gguf
+  project: Qwen3
+  url: https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF
+  description: Qwen3 8B GGUF quantisation
+  expect: VERIFIED_FALSE          # not the official org (a legitimate quantiser, but not official)
+- id: vlc-official
+  project: VLC media player
+  url: https://www.videolan.org/vlc/
+  description: VLC download page
+  expect: VERIFIED_TRUE
+- id: http-scheme
+  project: VLC media player
+  url: http://www.videolan.org/vlc/
+  description: VLC download page over plain http
+  expect: VERIFIED_FALSE
+- id: homoglyph
+  project: LM Studio
+  url: https://lmstudіo.ai/
+  description: cyrillic i homoglyph
+  expect: VERIFIED_FALSE

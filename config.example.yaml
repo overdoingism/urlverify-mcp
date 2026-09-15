@@ -1,0 +1,76 @@
+# URLVerify_MCP configuration. Copy to config.yaml (or set URLVERIFY_CONFIG=/path/to/file).
+llm:
+  base_url: "http://127.0.0.1:8080/v1"   # any OpenAI-compatible endpoint (llama-server, LM Studio, vLLM, OpenAI, ...)
+  api_key: "not-needed"
+  model: "halogen-qwen3.8-flash-next"   # llama-server ignores this; halogen reports this id
+  supports_tools: auto                    # true | false | auto (probe once, then remember)
+  temperature: 0.1
+  max_iterations: 24
+  timeout_s: 180
+
+search:
+  provider: mcp                           # mcp | searxng_http
+  mcp:
+    url: "http://127.0.0.1:3000/mcp"      # existing SearXNG MCP (Streamable HTTP)
+    search_tool: "searxng_web_search"
+    fetch_tool: "web_url_read"
+  searxng_http:
+    base_url: "http://127.0.0.1:8888"
+
+budget:
+  max_searches: 8
+  max_fetches: 10
+  max_api_calls: 20
+  fetch_max_chars: 12000
+
+identity:
+  min_sources: 2            # independent third-party sources required (tier 1/2)
+  allow_tier3: false        # forums / blogs / reddit
+  history_days: 90          # Wikipedia / Wikidata stability window
+  min_stable_revisions: 3
+  new_domain_days: 180      # CT first-seen / org creation younger than this = risk signal
+  github_token: ""          # optional, raises API rate limit
+  # Source tiers are additive to the built-in lists (identity/sources.py). eTLD+1 or full host.
+  # tier1: structured / human-reviewed (wikidata, distro manifests, registries)  tier2: reputable media & vendor docs
+  # tier3: forums, social, personal blogs (excluded unless allow_tier3)
+  extra_tier1: []
+  extra_tier2: ["docs.vultr.com", "learn.microsoft.com", "developer.nvidia.com"]
+  extra_tier3: []
+  # Temporal provenance: a tier-3 post (forum / social) proven older than this is promoted to tier 2.
+  # Dates come from platform APIs / post ids / Wayback, never from the LLM. Login-walled platforms are never promoted.
+  tier3_min_age_days: 365
+  tier3_aged_max_count: 1
+  domain_age_contradiction_years: 3
+  aging_sources: {}          # domain -> reddit_api | hn_api | stackexchange_api | snowflake | discourse | github_api | jsonld | wayback | none
+
+net:
+  timeout_s: 15
+  user_agent: "URLVerify-MCP/0.1 (+source verification agent)"
+
+cache:
+  cert_ttl_hours: 168
+  identity_ttl_hours: 720
+  anchor_refresh_days: 30
+
+storage:
+  path: "~/.urlverify_mcp/urlverify.sqlite3"
+
+lists:
+  allowlist: []             # eTLD+1 or full hosts always considered official for a project: {project: "...", domain: "..."}
+  denylist: []              # hosts / eTLD+1 always FALSE
+
+injection_patterns:         # regex, case-insensitive; a hit on the target site => VERIFIED_FALSE
+  - "\\b(ai|llm|language model|assistant|agent|verifier|claude|gpt|chatgpt|copilot)\\b[^.\\n]{0,80}\\b(this (site|website|page|domain) is|we are|trust|official|legitimate|safe|verified)"
+  - "\\b(ignore|disregard) (all |any )?(previous|prior|above) (instructions|rules|prompts)"
+  - "\\bto (any|all) (ai|llm|language models?|assistants?|agents?|bots?)\\b"
+  - "\\b(system|developer) (prompt|instruction|override)\\b"
+  - "\\bplease (report|respond|answer|mark|classify)[^.\\n]{0,60}\\b(verified|official|true|legitimate|safe)\\b"
+
+server:                     # the MCP server itself (urlverify-mcp serve); CLI flags override these
+  transport: stdio          # stdio | http   (http = Streamable HTTP at http://host:port/mcp)
+  host: "127.0.0.1"
+  port: 8766
+
+admin:                      # management web UI (urlverify-mcp admin)
+  host: "127.0.0.1"
+  port: 8765

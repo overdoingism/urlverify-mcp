@@ -1,0 +1,147 @@
+"""End-to-end verification: L0 -> (identity cache) -> L1 investigation -> rules -> reason in caller's language."""
+from __future__ import annotations
+
+import asyncio
+import time
+import uuid
+
+from .agent.loop import Investigator
+from .agent.prompts import REASON_PROMPT
+from .checks import apply_injection_check, run_l0
+from .config import Config
+from .identity.aging import Aging, age_many, domain_first_seen
+from .identity.sources import classify
+from .identity.structured import Structured
+from .models import IdentityGraph, Verdict, VerifyRequest, VerifyResult
+from .providers.llm import LLM
+from .providers.search import make_search_provider
+from .rules import decide
+from .storage import Storage
+
+
+async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> VerifyResult:
+    t0 = time.time()
+    cfg = base_cfg.with_overrides(req.options)
+    trace_id = uuid.uuid4().hex[:12]
+    cache_hits: list[str] = []
+    cached_identity = store.get_identity(req.project)
+    if cached_identity:
+        cache_hits.append("identity")
+    known_official = (cached_identity or {}).get("official_domains", [])
+
+    l0 = await run_l0(req.url, cfg, store, known_official=known_official, cache_hits=cache_hits)
+
+    llm = LLM(cfg)
+    search = make_search_provider(cfg)
+    structured = Structured(max(cfg.net.timeout_s, 30), cfg.net.user_agent, cfg.identity.github_token)  # archive.org / wikimedia can be slow
+    inv = Investigator(cfg, llm, search, structured)
+    engine_notes: list[str] = []
+    try:
+        # Always fetch the target page ourselves for injection screening (does not consume the LLM's budget).
+        page = None
+        try:
+            page = await search.fetch(l0.final_url or l0.normalized_url)
+        except Exception as e:  # noqa: BLE001
+            engine_notes.append(f"target page fetch via search provider failed: {type(e).__name__}: {e}; falling back to direct fetch")
+            try:
+                page = await _direct_fetch(l0.final_url or l0.normalized_url, cfg)
+            except Exception as e2:  # noqa: BLE001
+                engine_notes.append(f"direct target page fetch failed: {type(e2).__name__}: {e2}")
+        if page is not None:
+            inv.target_page_text = page[: cfg.budget.fetch_max_chars]
+            inv.evidence_store[l0.normalized_url] = inv.target_page_text
+        apply_injection_check(l0, inv.target_page_text, cfg.injection_patterns)
+
+        if l0.fatal_failures:
+            # No need to spend LLM budget: deterministic failure is final.
+            from .models import LLMSubmission
+            sub = LLMSubmission(identity=IdentityGraph(product=req.project))
+            engine_notes.append("L1 skipped: fatal L0 failure")
+        else:
+            try:
+                sub = await inv.investigate(req.project, req.url, req.description, l0, cached_identity)
+            except Exception as e:  # noqa: BLE001
+                from .models import LLMSubmission
+                sub = LLMSubmission(identity=IdentityGraph(product=req.project))
+                engine_notes.append(f"investigation failed: {type(e).__name__}: {e}")
+        # temporal provenance for tier-3 sources the LLM cited (deterministic; no LLM involved)
+        ages: dict = {}
+        target_age: dict | None = None
+        tier3_urls = [e.source for e in sub.evidence if classify(e.source, e.tier, cfg.identity)[0] == 3]
+        if tier3_urls and not cfg.identity.allow_tier3:
+            aging = Aging(max(cfg.net.timeout_s, 30), cfg.net.user_agent, structured, cfg.identity.aging_sources)
+            try:
+                ct_detail = next((c.detail for c in l0.checks if c.name == "ct_first_seen"), None)
+                ages, target_age = await asyncio.gather(
+                    age_many(aging, list(dict.fromkeys(tier3_urls))),
+                    domain_first_seen(l0.etld1, ct_detail, structured) if not l0.platform else asyncio.sleep(0, result=None))
+            except Exception as e:  # noqa: BLE001
+                engine_notes.append(f"aging lookup failed: {type(e).__name__}: {e}")
+            finally:
+                await aging.close()
+            for u, a in ages.items():
+                engine_notes.append(f"aging {u[:80]}: " + (f"{a.get('age_days')}d via {a.get('method')} ({a.get('strength')})" if a.get("created_ts") else f"undated ({a.get('error')})"))
+        dec = decide(cfg, l0, sub, inv.evidence_store, req.project, cached_identity, ages, target_age)
+        engine_notes.extend(dec.notes)
+        if dec.verdict == Verdict.TRUE and any(c.name == "injection" and c.status == "skip" for c in l0.checks):
+            dec.confidence = max(0.5, dec.confidence - 0.1)
+            engine_notes.append("injection screening could not run (target page not fetched); confidence reduced by 0.1")
+
+        # identity cache: only persist when independently established
+        if dec.established_domains or dec.established_orgs:
+            store.put_identity(req.project, {
+                "developer": sub.identity.developer, "aliases": sub.identity.aliases,
+                "official_domains": sorted(set(dec.established_domains)), "official_orgs": dec.established_orgs,
+                "evidence": [e.model_dump() for e in dec.evidence if e.verified_quote],
+                "established_at": time.time(),
+            }, cfg.cache.identity_ttl_hours * 3600)
+
+        reason = await _write_reason(llm, req, dec.verdict, dec.confidence, engine_notes, l0, sub)
+        result = VerifyResult(
+            verdict=dec.verdict, confidence=round(dec.confidence, 2), reason=reason,
+            evidence=dec.evidence, checks={c.name: {"status": c.status, "fatal": c.fatal, "message": c.message, "detail": c.detail} for c in l0.checks},
+            identity=sub.identity, risk_signals=l0.risk_signals + sub.risk_notes, cache_hits=sorted(set(cache_hits)),
+            engine_notes=engine_notes, trace_id=trace_id, duration_s=round(time.time() - t0, 1),
+        )
+    finally:
+        await search.close()
+        await structured.close()
+    store.add_history(trace_id, req.project, req.url, req.description, result.verdict.value, result.confidence, result.model_dump(mode="json"))
+    return result
+
+
+async def _write_reason(llm: LLM, req: VerifyRequest, verdict: Verdict, confidence: float, notes: list[str], l0, sub) -> str:
+    findings = "\n".join(f"- {n}" for n in notes)
+    findings += "\n" + "\n".join(f"- check {c.name}: {c.status}{' (' + c.message + ')' if c.message else ''}" for c in l0.checks)
+    prompt = REASON_PROMPT.format(project=req.project, url=req.url, description=req.description, verdict=verdict.value,
+                                  confidence=confidence, findings=findings, narrative=sub.identity.narrative or sub.proposed_reason)
+    try:
+        msg = await llm.chat([{"role": "user", "content": prompt}], temperature=0.2)
+        text = (msg.content or "").strip()
+        import re
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+        if text:
+            return text
+    except Exception:  # noqa: BLE001
+        pass
+    return f"{verdict.value}: " + "; ".join(notes[:6])
+
+
+async def _direct_fetch(url: str, cfg: Config) -> str:
+    """Fallback page fetch when the search provider cannot fetch: HTML -> text, never downloads binaries."""
+    import httpx
+    from .providers.search import _strip_html
+    async with httpx.AsyncClient(timeout=cfg.net.timeout_s, headers={"User-Agent": cfg.net.user_agent}, follow_redirects=True) as c:
+        async with c.stream("GET", url) as r:
+            ct = r.headers.get("content-type", "")
+            if not any(t in ct for t in ("text", "json", "xml")):
+                return f"(binary content-type {ct}, {r.headers.get('content-length')} bytes; body not downloaded)"
+            chunks = []
+            size = 0
+            async for chunk in r.aiter_bytes():
+                chunks.append(chunk)
+                size += len(chunk)
+                if size > 2_000_000:
+                    break
+            body = b"".join(chunks).decode(r.encoding or "utf-8", errors="replace")
+    return _strip_html(body) if "html" in ct else body
