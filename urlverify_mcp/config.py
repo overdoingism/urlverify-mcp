@@ -108,6 +108,8 @@ class ServerConfig(BaseModel):
     transport: Literal["stdio", "http"] = "stdio"
     host: str = "127.0.0.1"
     port: int = 8766          # Streamable HTTP endpoint: http://host:port/mcp
+    max_concurrent: int = 1        # verify_source calls running at once; extra callers queue (protects a local LLM)
+    auth_token: str = ""           # optional shared secret for the HTTP transport: clients must send "Authorization: Bearer <token>"
     progress_events: bool = True   # send MCP progress notifications at each pipeline step (clients that honour them reset their timeout)
     heartbeat_s: int = 15          # additionally send a progress heartbeat every N seconds while a verification runs; 0 disables
 
@@ -115,6 +117,17 @@ class ServerConfig(BaseModel):
 class AdminConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8765
+    auth_file: str = "~/.urlverify_mcp/admin.auth"   # PBKDF2 hash + salt + session key; delete it to reset the password to "admin"
+    session_days: int = 7
+
+
+class RegistryFastPathConfig(BaseModel):
+    enabled: bool = True
+    min_age_days: int = 365        # package must have existed this long
+    min_releases: int = 3
+    toplist_refresh_days: int = 30 # popular-package lists are refreshed from the network at most this often (bundled snapshot as fallback)
+    confidence: float = 0.8
+    mode: Literal["auto", "quick", "full"] = "auto"   # auto: fast path, fall back to full; quick: fast path only; full: skip fast path
 
 
 class Config(BaseModel):
@@ -133,6 +146,7 @@ class Config(BaseModel):
         r"\b(system|developer) (prompt|instruction|override)\b",
         r"\bplease (report|respond|answer|mark|classify)[^.\n]{0,60}\b(verified|official|true|legitimate|safe)\b",
     ])
+    registry_fast_path: RegistryFastPathConfig = RegistryFastPathConfig()
     full_log: FullLogConfig = FullLogConfig()
     prompts: PromptsConfig = PromptsConfig()
     server: ServerConfig = ServerConfig()
@@ -153,6 +167,8 @@ class Config(BaseModel):
         for k in ("min_sources", "allow_tier3", "history_days"):
             if k in options:
                 data["identity"][k] = options[k]
+        if options.get("mode") in ("quick", "full", "auto"):
+            data["registry_fast_path"]["mode"] = options["mode"]
         cfg = Config.model_validate(data)
         cfg.source_path = self.source_path
         return cfg

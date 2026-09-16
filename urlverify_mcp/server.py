@@ -39,6 +39,8 @@ def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: 
     cfg, store = _init(config_path)
     configure_from(cfg)
     prompts = get_store(cfg.prompts.dir)
+    import asyncio
+    slots = asyncio.Semaphore(max(1, cfg.server.max_concurrent))
     # MCP-facing texts are read once here: editing them in the admin UI requires a server restart.
     mcp = FastMCP("URLVerify_MCP", host=host, port=port, instructions=prompts.get("mcp_instructions"))
 
@@ -55,7 +57,10 @@ def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: 
         tok = progress_mod.bind(prog)
         prog.start_heartbeat()
         try:
-            res = await verify(VerifyRequest(project=project, url=url, description=description, options=options), live_cfg, store)
+            if slots.locked():
+                await prog.report("queued: waiting for a free verification slot", 0.0)
+            async with slots:
+                res = await verify(VerifyRequest(project=project, url=url, description=description, options=options), live_cfg, store)
         finally:
             await prog.stop()
             progress_mod.unbind(tok)

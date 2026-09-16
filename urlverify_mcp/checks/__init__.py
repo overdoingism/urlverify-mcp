@@ -14,6 +14,7 @@ from . import dns as dns_mod
 from . import redirects as redir_mod
 from . import tls as tls_mod
 from .injection import find_injection
+from .private import looks_local_hostname, non_public
 from .urltools import analyse_host, etld1_of, host_of, normalize_url
 
 
@@ -72,8 +73,21 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
     res.checks.append(CheckResult(name="host_structure", status="fail" if fatal_struct else ("warn" if struct_msgs else "pass"),
                                   fatal=fatal_struct, detail=hf, message="; ".join(struct_msgs)))
 
-    # --- DNS, TLS (cached), redirects, CT in parallel
-    dns_task = dns_mod.resolve(host)
+    # --- address class first: never probe loopback / private / link-local targets
+    dns_r = await dns_mod.resolve(host)
+    bad_ips = non_public(dns_r.get("addresses", [])) if dns_r.get("resolved") else []
+    if looks_local_hostname(host) or bad_ips or hf["ip_literal"] and non_public([host.strip("[]")]):
+        res.checks.append(CheckResult(name="public_address", status="fail", fatal=True,
+                                      detail={"addresses": dns_r.get("addresses", []), "non_public": bad_ips},
+                                      message="non-public address (loopback / private / link-local); nothing to verify here"))
+        res.checks.append(CheckResult(name="dns", status="pass" if dns_r.get("resolved") else "fail", fatal=not dns_r.get("resolved"), detail=dns_r))
+        for name in ("tls", "redirects", "ct_first_seen"):
+            res.checks.append(CheckResult(name=name, status="skip", message="skipped: non-public target"))
+        return res
+    res.checks.append(CheckResult(name="public_address", status="pass", detail={"addresses": dns_r.get("addresses", [])}))
+
+    # --- TLS (cached), redirects, CT in parallel
+    dns_task = asyncio.sleep(0, result=dns_r)
     cert_cached = store.get_cert(host)
     if cert_cached:
         cache_hits.append("cert")
@@ -121,6 +135,10 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
         detail = {k: redir_r.get(k) for k in ("chain", "final_url", "final_status", "content_type", "content_length", "hops", "error")}
         if redir_r.get("error") and not redir_r.get("chain"):
             res.checks.append(CheckResult(name="redirects", status="error", detail=detail, message=redir_r["error"]))
+        elif res.final_url and host_of(res.final_url) != host and (looks_local_hostname(host_of(res.final_url)) or
+                                                                    non_public((await dns_mod.resolve(host_of(res.final_url))).get("addresses", []))):
+            res.checks.append(CheckResult(name="redirects", status="fail", fatal=True, detail=detail,
+                                          message=f"redirects to a non-public address: {host_of(res.final_url)}"))
         elif res.final_etld1 and res.final_etld1 != e1:
             fa = anchor_for(res.final_etld1)
             same_platform = anchor and fa and fa.platform == anchor.platform

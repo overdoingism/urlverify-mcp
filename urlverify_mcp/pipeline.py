@@ -12,6 +12,7 @@ from .tracelog import TRACE, configure_from, reset_trace_id, set_trace_id
 from .checks import apply_injection_check, run_l0
 from .config import Config
 from .identity.aging import Aging, age_many, domain_first_seen
+from .identity.registry import RegistryFastPath
 from .identity.sources import classify
 from .identity.structured import Structured
 from .models import IdentityGraph, Verdict, VerifyRequest, VerifyResult
@@ -42,7 +43,7 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
             TRACE.log("verify_timeout", max_total_s=cfg.budget.max_total_s, stage=stage)
             result = VerifyResult(verdict=Verdict.UNVERIFIABLE, confidence=0.0, reason=reason,
                                   engine_notes=[f"total deadline {cfg.budget.max_total_s}s exceeded at: {stage}"],
-                                  trace_id=trace_id, duration_s=round(time.time() - t0, 1))
+                                  trace_id=trace_id, duration_s=round(time.time() - t0, 1), path="timeout")
             store.add_history(trace_id, req.project, req.url, req.description, result.verdict.value, 0.0, result.model_dump(mode="json"))
             return result
     finally:
@@ -88,6 +89,31 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         apply_injection_check(l0, inv.target_page_text, cfg.injection_patterns)
         TRACE.log("target_page", url=l0.final_url or l0.normalized_url, chars=len(inv.target_page_text or ""), text=inv.target_page_text,
                   injection=next((c.model_dump() for c in l0.checks if c.name == "injection"), None))
+
+        fp = cfg.registry_fast_path
+        if not l0.fatal_failures and fp.enabled and fp.mode != "full" and l0.platform in ("pypi", "npm"):
+            await progress.report(f"registry fast path ({l0.platform})", 0.12)
+            try:
+                fast = await RegistryFastPath(cfg, structured).run(l0, t0, trace_id)
+            except Exception as e:  # noqa: BLE001
+                fast = None
+                engine_notes.append(f"registry fast path error: {type(e).__name__}: {e}")
+            if fast is not None:
+                fast.cache_hits = sorted(set(cache_hits))
+                fast.engine_notes = engine_notes + fast.engine_notes
+                await progress.report("done (registry fast path)", 1.0)
+                store.add_history(trace_id, req.project, req.url, req.description, fast.verdict.value, fast.confidence, fast.model_dump(mode="json"))
+                TRACE.log("verify_end", result=fast.model_dump(mode="json"))
+                return fast
+            engine_notes.append("registry fast path inconclusive; running the full investigation")
+            if fp.mode == "quick":
+                res = VerifyResult(verdict=Verdict.UNVERIFIABLE, confidence=0.2, path="registry_fast_path",
+                                   reason="UNVERIFIABLE: registry fast path was inconclusive and options.mode='quick' forbids the full investigation. "
+                                          + "; ".join(engine_notes[-3:]),
+                                   checks={c.name: {"status": c.status, "fatal": c.fatal, "message": c.message, "detail": c.detail} for c in l0.checks},
+                                   risk_signals=l0.risk_signals, engine_notes=engine_notes, trace_id=trace_id, duration_s=round(time.time() - t0, 1))
+                store.add_history(trace_id, req.project, req.url, req.description, res.verdict.value, res.confidence, res.model_dump(mode="json"))
+                return res
 
         if l0.fatal_failures:
             # No need to spend LLM budget: deterministic failure is final.
@@ -148,6 +174,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             evidence=dec.evidence, checks={c.name: {"status": c.status, "fatal": c.fatal, "message": c.message, "detail": c.detail} for c in l0.checks},
             identity=sub.identity, risk_signals=l0.risk_signals + sub.risk_notes, cache_hits=sorted(set(cache_hits)),
             engine_notes=engine_notes, trace_id=trace_id, duration_s=round(time.time() - t0, 1),
+            path="l0_fatal" if l0.fatal_failures else "full",
         )
     finally:
         await search.close()

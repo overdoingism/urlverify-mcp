@@ -4,8 +4,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+
+from .auth import COOKIE, AdminAuth
 from pydantic import BaseModel
 
 from ..config import Config, load_config, save_config
@@ -33,6 +35,15 @@ class PromptBody(BaseModel):
     text: str
 
 
+class LoginBody(BaseModel):
+    password: str
+
+
+class PasswordBody(BaseModel):
+    current: str
+    new: str
+
+
 class State:
     def __init__(self, config_path: str | None):
         self.config_path = config_path
@@ -40,6 +51,7 @@ class State:
         self.store = Storage(self.cfg.storage.resolved())
         configure_from(self.cfg)
         self.prompts = get_store(self.cfg.prompts.dir)
+        self.auth = AdminAuth(self.cfg.admin.auth_file, self.cfg.admin.session_days)
 
     def reload(self):
         self.cfg = load_config(self.config_path)
@@ -50,6 +62,46 @@ class State:
 def create_app(config_path: str | None = None) -> FastAPI:
     st = State(config_path)
     app = FastAPI(title="URLVerify_MCP admin")
+
+    @app.middleware("http")
+    async def require_login(request: Request, call_next):
+        path = request.url.path
+        if path in ("/login", "/api/login") or st.auth.check_session(request.cookies.get(COOKIE)):
+            return await call_next(request)
+        if path.startswith("/api/"):
+            return JSONResponse({"error": "login required"}, status_code=401)
+        return RedirectResponse("/login", status_code=303)
+
+    @app.get("/login", response_class=HTMLResponse)
+    async def login_page():
+        return (STATIC / "login.html").read_text(encoding="utf-8")
+
+    @app.post("/api/login")
+    async def login(body: LoginBody, response: Response):
+        if not st.auth.verify_password(body.password):
+            raise HTTPException(401, "wrong password")
+        response.set_cookie(COOKIE, st.auth.issue_session(), max_age=st.auth.session_seconds, httponly=True, samesite="lax")
+        return {"ok": True, "default_password": st.auth.is_default()}
+
+    @app.post("/api/logout")
+    async def logout(response: Response):
+        response.delete_cookie(COOKIE)
+        return {"ok": True}
+
+    @app.get("/api/auth")
+    async def auth_status():
+        return {"default_password": st.auth.is_default(), "auth_file": str(st.auth.path), "session_days": st.cfg.admin.session_days}
+
+    @app.put("/api/password")
+    async def change_password(body: PasswordBody, response: Response):
+        if not st.auth.verify_password(body.current):
+            raise HTTPException(401, "current password is wrong")
+        try:
+            st.auth.set_password(body.new)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        response.set_cookie(COOKIE, st.auth.issue_session(), max_age=st.auth.session_seconds, httponly=True, samesite="lax")
+        return {"ok": True}
 
     @app.get("/", response_class=HTMLResponse)
     async def index():

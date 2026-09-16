@@ -80,9 +80,21 @@ server:                     # the MCP server itself (urlverify-mcp serve); CLI f
   transport: stdio          # stdio | http   (http = Streamable HTTP at http://host:port/mcp)
   host: "127.0.0.1"
   port: 8766
+  max_concurrent: 1         # verify_source calls at once; others queue (protects a local LLM)
+  auth_token: ""            # optional: require "Authorization: Bearer <token>" on /mcp (HTTP transport)
   progress_events: true     # MCP progress notifications at each step (clients honouring them reset their timeout)
   heartbeat_s: 15           # progress heartbeat while a verification runs; 0 disables. Safe because every wait is bounded.
 
-admin:                      # management web UI (urlverify-mcp admin)
+admin:                      # management web UI (urlverify-mcp admin); password-only login, default "admin"
   host: "127.0.0.1"
   port: 8765
+  auth_file: "~/.urlverify_mcp/admin.auth"   # PBKDF2 hash + salt + session key; delete to reset the password
+  session_days: 7
+
+registry_fast_path:         # PyPI / npm: structured check first, LLM only when inconclusive
+  enabled: true
+  mode: auto                # auto | quick | full (callers may override with options.mode)
+  min_age_days: 365
+  min_releases: 3
+  toplist_refresh_days: 30
+  confidence: 0.8

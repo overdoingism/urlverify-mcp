@@ -41,7 +41,17 @@
     <button data-tab="logs">Logs</button>
   </nav>
   <span id="env" class="muted" style="margin-left:auto"></span>
+  <button class="small" id="pw-btn" title="change admin password">Password</button>
+  <button class="small" id="logout">Sign out</button>
 </header>
+<div id="pw-banner" style="display:none;background:#b45309;color:#fff;padding:6px 20px;font-size:13px">Default admin password is in use. Change it (Password button) if this UI is reachable by anyone else.</div>
+<dialog id="pw-dialog" style="border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);padding:20px;width:320px">
+  <h3 style="margin-top:0">Change password</h3>
+  <label>Current</label><input type="password" id="pw-cur" autocomplete="current-password">
+  <label>New</label><input type="password" id="pw-new" autocomplete="new-password">
+  <div style="margin-top:12px;display:flex;gap:8px"><button class="primary" id="pw-save" style="margin:0">Save</button><button class="small" id="pw-cancel">Cancel</button></div>
+  <div class="muted" id="pw-status" style="margin-top:8px"></div>
+</dialog>
 <main>
   <section id="tab-test" class="active">
     <div class="card">
@@ -120,6 +130,7 @@
 
   <section id="tab-logs">
     <div class="card"><h3>Full data log files</h3>
+      <p class="muted">These files contain the complete content of every page fetched and every LLM message, including the model's reasoning. Review before sharing.</p>
       <div class="muted" id="l-status"></div>
       <table id="l-table"><thead><tr><th>File</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody></tbody></table></div>
     <div class="card" id="l-view" style="display:none">
@@ -223,6 +234,12 @@ async function viewLog(name){ const r = await api('/api/fulllog/'+name); $('#l-v
   const render = () => { if(!$('#l-pretty').checked){ $('#l-text').textContent = r.text; return; }
     $('#l-text').textContent = r.text.split('\n').filter(Boolean).map(l => { try { const j = JSON.parse(l); const {ts, trace_id, kind, ...rest} = j; return `${ts}  [${trace_id}]  ${kind}\n` + JSON.stringify(rest, null, 1).split('\n').map(x=>'    '+x).join('\n'); } catch(e){ return l; } }).join('\n\n'); };
   $('#l-pretty').onchange = render; render(); }
+async function loadAuth(){ try { const a = await api('/api/auth'); $('#pw-banner').style.display = a.default_password ? 'block' : 'none'; } catch(e){} }
+$('#logout').onclick = async () => { await api('/api/logout', {method:'POST'}); location.href = '/login'; };
+$('#pw-btn').onclick = () => { $('#pw-status').textContent=''; $('#pw-dialog').showModal(); };
+$('#pw-cancel').onclick = () => $('#pw-dialog').close();
+$('#pw-save').onclick = async () => { try { await api('/api/password', {method:'PUT', body: JSON.stringify({current: $('#pw-cur').value, new: $('#pw-new').value})}); $('#pw-dialog').close(); $('#pw-cur').value=$('#pw-new').value=''; loadAuth(); } catch(e){ $('#pw-status').textContent = 'error: ' + e.message; } };
+loadAuth();
 loadEnv();
 </script>
 </body>

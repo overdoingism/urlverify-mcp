@@ -92,6 +92,21 @@ Callers may override `min_sources`, `allow_tier3`, `history_days` and the `ident
 
 List of case-insensitive regexes. A match in the **target page** means "text addressed to AI agents / verifiers" and yields `VERIFIED_FALSE`. Ordinary "this is the official site" wording is deliberately not matched (it carries zero weight instead).
 
+## `registry_fast_path` — PyPI / npm shortcut
+
+| Field | Type / default | Meaning |
+|---|---|---|
+| `enabled` | bool · `true` | Try the structured registry check before the LLM investigation for `pypi.org/project/<name>` and `npmjs.com/package/<name>` targets. |
+| `mode` | `auto` / `quick` / `full` · `auto` | `auto`: fast path, then the full pipeline if inconclusive. `quick`: fast path only (inconclusive → `UNVERIFIABLE`). `full`: skip the fast path. Callers may override per call with `options.mode`. |
+| `min_age_days` | int · `365` | The package's first release must be at least this old. |
+| `min_releases` | int · `3` | Minimum number of releases. |
+| `toplist_refresh_days` | int · `30` | The PyPI monthly top-5000 list is re-fetched at most this often (cached in `~/.urlverify_mcp/pypi_top.json`; a bundled snapshot is the fallback). |
+| `confidence` | float · `0.8` | Confidence assigned to a fast-path `VERIFIED_TRUE`. |
+
+Any signal that is unknown (API down, scoped npm package, no linked repository on an unpopular package) or suspicious
+(a far more popular package one edit away) makes the fast path inconclusive and hands the case to the full pipeline with
+the suspicion attached as a risk signal. The fast path can therefore only speed things up, never decide wrongly.
+
 ## `full_log` — full data log
 
 | Field | Type / default | Meaning |
@@ -112,6 +127,8 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 |---|---|---|
 | `transport` | `stdio` / `http` · `stdio` | `stdio` for hosts that launch the process; `http` exposes Streamable HTTP at `http://host:port/mcp`. CLI flags `--transport/--host/--port` override. |
 | `host` / `port` | str · `127.0.0.1` / int · `8766` | Bind address for HTTP transport. No authentication: keep it on localhost or a trusted LAN. |
+| `max_concurrent` | int · `1` | `verify_source` calls allowed to run at once; further callers wait (they see a "queued" progress message). Raise it for cloud LLMs or big hardware. |
+| `auth_token` | str · `""` | Optional shared secret for the HTTP transport. When set, every request to `/mcp` must carry `Authorization: Bearer <token>`. Empty = no authentication (fine on 127.0.0.1). |
 | `progress_events` | bool · `true` | Send an MCP progress notification at each pipeline step (L0, each LLM turn, each tool call, aging, rules, done). Clients that honour `resetTimeoutOnProgress` restart their request timer on each one. No-op when the client sent no progress token. |
 | `heartbeat_s` | int · `15` | While a verification runs, also send a progress heartbeat every N seconds so a single long LLM turn cannot trip a short client timeout. `0` disables. Safe because every wait is bounded (`llm.timeout_s`, `search.call_timeout_s`, `net.timeout_s`) and the whole run by `budget.max_total_s`. |
 
@@ -120,6 +137,8 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 | Field | Type / default | Meaning |
 |---|---|---|
 | `host` / `port` | str · `127.0.0.1` / int · `8765` | Bind address. The UI can edit this file, open the log folder and run verifications: keep it local. |
+| `auth_file` | str · `~/.urlverify_mcp/admin.auth` | JSON file with the PBKDF2-HMAC-SHA256 password hash, its random salt and the session-signing key. Created on first use with the default password `admin`; **delete it to reset the password** (all sessions are invalidated). |
+| `session_days` | int · `7` | Lifetime of the login cookie. |
 
 ---
 
@@ -127,9 +146,9 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 
 | Change | Takes effect |
 |---|---|
-| Anything under `llm`, `search`, `budget`, `identity`, `net`, `cache`, `lists`, `injection_patterns`, `full_log` | Next `verify_source` call (the server re-reads the file per call) |
+| Anything under `llm`, `search`, `budget`, `identity`, `net`, `cache`, `lists`, `injection_patterns`, `full_log`, `registry_fast_path` | Next `verify_source` call (the server re-reads the file per call) |
 | `agent_*` prompts | Next verification |
-| `mcp_*` prompts, `server.*`, `admin.*`, `storage.path`, `prompts.dir` | Restart the affected process |
+| `mcp_*` prompts, `server.*` (incl. `max_concurrent`, `auth_token`), `admin.*`, `storage.path`, `prompts.dir` | Restart the affected process |
 
 ## Timeout map (why nothing can hang forever)
 

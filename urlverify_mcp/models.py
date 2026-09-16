@@ -78,7 +78,11 @@ class LLMSubmission(BaseModel):
     risk_notes: list[str] = Field(default_factory=list)
 
 
+SCHEMA_VERSION = 1
+
+
 class VerifyResult(BaseModel):
+    schema_version: int = SCHEMA_VERSION
     verdict: Verdict
     confidence: float
     reason: str
@@ -90,3 +94,4 @@ class VerifyResult(BaseModel):
     engine_notes: list[str] = Field(default_factory=list)
     trace_id: str = ""
     duration_s: float = 0.0
+    path: str = "full"                     # full | registry_fast_path | l0_fatal | timeout

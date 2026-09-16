@@ -106,6 +106,50 @@ Tool exposed: `verify_source(project, url, description, options?)` → `{verdict
 
 Defaults ship in `urlverify_mcp/prompt_defaults/`; *Reset to default* deletes the override. Required placeholders (e.g. `{findings}` in the reason prompt) are validated on save.
 
+### Registry fast path (PyPI / npm)
+
+A package URL (`pypi.org/project/<name>`, `npmjs.com/package/<name>`) asks a narrower question than a website: *is this the
+real package or a look-alike?* That is answered from registry data alone, in a few seconds and without the LLM: the package
+exists, its first release is older than `registry_fast_path.min_age_days`, it has enough releases, no far-more-popular package
+sits one edit away (typosquat check against the monthly PyPI top list / npm download counts of near-names), and its linked
+repository is real, not a fork and not brand new. All signals good → `VERIFIED_TRUE` (confidence `registry_fast_path.confidence`,
+`path: registry_fast_path`). A missing package → `VERIFIED_FALSE`. Anything unknown or suspicious → the full investigation runs,
+with the suspicion attached as a risk signal. `options.mode` = `auto` (default) | `quick` (fast path only) | `full` (skip it).
+
+### Security notes
+
+- **Non-public targets are refused.** Loopback, private, link-local and `.local`-style hosts, and redirects that land on
+  them, fail L0 with `public_address` and never get probed. A verification server should not be usable for LAN reconnaissance.
+- **Admin UI**: password-only login (default `admin`, change it in the UI). The hash (PBKDF2-HMAC-SHA256, random salt) and the
+  session-signing key live in `admin.auth_file`; delete that file to reset. Sessions last `admin.session_days`. The UI can edit
+  the config, open folders and run verifications: keep it on `127.0.0.1` and closed when not in use.
+- **HTTP transport**: no authentication unless `server.auth_token` is set, in which case every request must carry
+  `Authorization: Bearer <token>` (most MCP hosts accept custom headers per server). Default bind is `127.0.0.1`.
+- **Concurrency**: `server.max_concurrent` (default 1) queues extra `verify_source` calls so a local LLM is never hit twice at once.
+
+### Threat model & limitations
+
+What it is good at: look-alike domains (homoglyph, typosquat, brand-in-label, subdomain abuse), non-official orgs on hosting
+platforms (forks, community re-uploads, wrong GitHub / Hugging Face owner), non-existent or typosquatted packages, pages that
+try to talk to AI agents, plain-HTTP or untrusted-certificate downloads.
+
+What it does **not** do: it never downloads or inspects the file itself (no hash, signature or malware check); it does not
+prove a site is *safe*, only that it is the project's own channel; `UNVERIFIABLE` means "not enough independent evidence",
+not "dangerous". Results depend on the LLM you point it at and on third-party services (Wikipedia, Wikidata, archive.org,
+GitHub, registries) being reachable and rate-limit friendly.
+
+Known weak spots: very new projects and projects without a Wikipedia / Wikidata presence tend to come back `UNVERIFIABLE`
+(a design choice: absence of independent evidence is not evidence); dynamic download pages may show a different OS's link
+than the one described; tier-3 sources only count when their age can be proven, so a project known only from forums stays
+unverifiable; Reddit dating uses the public RSS feed, which lacks the edit timestamp.
+
+### Data flow (what leaves your machine)
+
+Project name and URL go to the search engines behind your SearXNG, to Wikipedia / Wikidata, archive.org, GitHub, Hugging Face,
+PyPI / npm, crt.sh and (for tier-3 dating) Reddit / HN / Stack Exchange as needed. Fetched page text and the investigator's
+messages go to the LLM endpoint you configured: with a local model nothing else leaves; with a cloud API the provider sees them.
+Nothing is sent anywhere else, and no telemetry exists.
+
 ### Network footprint
 
 The agent never renders pages: it requests the HTML/JSON document only, so images, CSS, scripts and fonts are never downloaded.
@@ -123,6 +167,10 @@ scraping; Reddit requests are serialized; and `net.user_agent` identifies the to
 | Unit | `uv run pytest -q` | nothing (offline) | seconds |
 | Pipeline (scripted LLM, real network) | included in `uv run pytest -q`; auto-skips when offline | network | ~1 min |
 | Live regression | `uv run pytest tests/test_live.py --live -s` | LLM + search + network | 10–15 min |
+
+`uv run urlverify-mcp check-env` probes the LLM, the search backend and the third-party APIs (Wikipedia, Wayback, GitHub,
+PyPI, npm); run it first when something looks off. Results carry `schema_version` (currently 1); a breaking change to the
+result shape bumps it.
 
 Windows without uv: `.venv\Scripts\python -m pytest -q` (same flags).
 

@@ -23,6 +23,8 @@ def _plain_logs() -> None:
 def main(argv: list[str] | None = None) -> int:
     _plain_logs()
     ap = argparse.ArgumentParser(prog="urlverify-mcp", description="URLVerify_MCP — source-of-origin verification MCP server")
+    from . import __version__
+    ap.add_argument("--version", action="version", version=f"urlverify-mcp {__version__}")
     ap.add_argument("-c", "--config", help="path to config.yaml (default: ./config.yaml, $URLVERIFY_CONFIG, ~/.urlverify_mcp/config.yaml)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
@@ -61,7 +63,17 @@ def main(argv: list[str] | None = None) -> int:
         if transport == "http":
             print(f"URLVerify_MCP Streamable HTTP endpoint: http://{host}:{port}/mcp", file=sys.stderr)
         try:
-            srv.run(transport="stdio" if transport == "stdio" else "streamable-http")
+            if transport == "stdio":
+                srv.run(transport="stdio")
+            else:
+                import uvicorn
+                app = srv.streamable_http_app()
+                if cfg.server.auth_token:
+                    app = _bearer_guard(app, cfg.server.auth_token)
+                    print("bearer token required on /mcp (server.auth_token)", file=sys.stderr)
+                elif host not in ("127.0.0.1", "localhost", "::1"):
+                    print(f"WARNING: /mcp is bound to {host} without server.auth_token; anyone who can reach it can run verifications", file=sys.stderr)
+                uvicorn.run(app, host=host, port=port, log_level="info", use_colors=False)
         except KeyboardInterrupt:
             print("URLVerify_MCP server stopped (Ctrl+C)", file=sys.stderr)
             return 0
@@ -102,6 +114,24 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
+def _bearer_guard(app, token: str):
+    """ASGI wrapper: require `Authorization: Bearer <token>` on every HTTP request (constant-time compare)."""
+    import hmac
+
+    async def guarded(scope, receive, send):
+        if scope["type"] == "http":
+            hdrs = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+            auth = hdrs.get("authorization", "")
+            ok = auth.startswith("Bearer ") and hmac.compare_digest(auth[7:].strip(), token)
+            if not ok:
+                await send({"type": "http.response.start", "status": 401,
+                            "headers": [(b"content-type", b"application/json"), (b"www-authenticate", b"Bearer")]})
+                await send({"type": "http.response.body", "body": b'{"error": "unauthorized"}'})
+                return
+        await app(scope, receive, send)
+    return guarded
+
+
 async def _check_env(cfg) -> None:
     import httpx
     print(f"LLM  {cfg.llm.base_url} model={cfg.llm.model}: ", end="")
@@ -112,6 +142,23 @@ async def _check_env(cfg) -> None:
             print(f"OK {ids}")
     except Exception as e:  # noqa: BLE001
         print(f"FAIL ({type(e).__name__}: {e})")
+    async def probe(label, coro, ok):
+        print(f"{label}: ", end="", flush=True)
+        try:
+            r = await coro
+            print("OK" if ok(r) else f"FAIL ({r.get('error') or r})")
+        except Exception as e:  # noqa: BLE001
+            print(f"FAIL ({type(e).__name__}: {e})")
+    from .identity.structured import Structured
+    st = Structured(30, cfg.net.user_agent, cfg.identity.github_token)
+    try:
+        await probe("wikipedia (UA policy)", st.wikipedia_history("Python (programming language)", 30, 1), lambda r: r.get("ok") and r.get("found"))
+        await probe("wayback CDX", st.wayback_first_seen("python.org"), lambda r: r.get("ok") and r.get("found"))
+        await probe("github API", st.github("python"), lambda r: r.get("ok"))
+        await probe("pypi API", st.pypi("requests"), lambda r: r.get("ok"))
+        await probe("npm registry", st.npm("lodash"), lambda r: r.get("ok"))
+    finally:
+        await st.close()
     print(f"search provider={cfg.search.provider}: ", end="")
     try:
         from .providers.search import make_search_provider

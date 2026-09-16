@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>URLVerify_MCP admin · login</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#f6f7f9; --fg:#1b1f24; --muted:#6b7280; --card:#fff; --line:#e5e7eb; --accent:#2563eb; --bad:#b91c1c; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1115; --fg:#e5e7eb; --muted:#9ca3af; --card:#171a21; --line:#2a2f3a; --accent:#60a5fa; } }
+  body { margin:0; font:14px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); display:flex; align-items:center; justify-content:center; height:100vh; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:24px; width:320px; }
+  input { width:100%; box-sizing:border-box; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; margin:8px 0; }
+  button { width:100%; background:var(--accent); color:#fff; border:0; padding:9px; border-radius:6px; cursor:pointer; font:inherit; }
+  .muted { color:var(--muted); font-size:12px; } .err { color:var(--bad); font-size:12px; min-height:16px; }
+</style></head>
+<body><form class="card" id="f">
+  <h2 style="margin:0 0 4px">URLVerify_MCP admin</h2>
+  <p class="muted">Password only (default <code>admin</code>). Delete the auth file to reset. Keep this UI closed when not in use.</p>
+  <input type="password" id="pw" placeholder="password" autofocus autocomplete="current-password">
+  <div class="err" id="err"></div>
+  <button type="submit">Sign in</button>
+</form>
+<script>
+document.getElementById('f').onsubmit = async (e) => { e.preventDefault();
+  const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({password: document.getElementById('pw').value})});
+  if (r.ok) location.href = '/'; else document.getElementById('err').textContent = 'wrong password'; };
+</script></body></html>
