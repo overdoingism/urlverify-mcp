@@ -5,16 +5,16 @@ from ..promptstore import get_store
 
 
 def system_prompt() -> str:
-    return get_store().get("agent_system")
+    return get_store().render("agent_system")
 
 
 def fallback_action_instructions() -> str:
-    return get_store().get("agent_fallback_actions")
+    return get_store().render("agent_fallback_actions")
 
 
 def submission_schema_text() -> str:
-    return get_store().get("agent_submission_schema")
+    return get_store().render("agent_submission_schema")
 
 
 def reason_prompt() -> str:
-    return get_store().get("agent_reason")
+    return get_store().render("agent_reason")

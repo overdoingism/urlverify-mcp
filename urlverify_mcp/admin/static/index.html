@@ -209,7 +209,8 @@ async function loadPrompts(){ const list = await api('/api/prompts');
 async function openPrompt(name){ const p = await api('/api/prompts/'+name); curPrompt = name;
   $('#p-editor').style.display = 'block'; $('#p-title').textContent = p.meta.title; $('#p-audience').textContent = p.meta.audience;
   $('#p-live').textContent = p.meta.live ? 'live on next verification' : 'needs server restart'; $('#p-over').textContent = p.overridden ? 'override active' : 'default';
-  $('#p-ph').textContent = p.meta.placeholders.length ? 'required placeholders: ' + p.meta.placeholders.map(x=>'{'+x+'}').join(' ') : '';
+  $('#p-ph').textContent = (p.meta.placeholders.length ? 'required placeholders: ' + p.meta.placeholders.map(x=>'{'+x+'}').join(' ') + ' · ' : '')
+    + 'optional tokens filled at run time: ' + (p.meta.optional_tokens||[]).map(x=>'{'+x+'}').join(' ') + (p.meta.audience==='agent' ? '' : ' (agent prompts only)');
   $('#p-text').value = p.effective; $('#p-default').textContent = p.default; $('#p-default').style.display = 'none'; $('#p-status').textContent = ''; }
 $('#p-save').onclick = async () => { try { const r = await api('/api/prompts/'+curPrompt, {method:'PUT', body: JSON.stringify({text: $('#p-text').value})}); $('#p-status').textContent = 'saved to ' + r.path + (r.live ? '' : ' — restart the MCP server to apply'); loadPrompts(); openPrompt(curPrompt); } catch(e){ $('#p-status').textContent = 'error: ' + e.message; } };
 $('#p-reset').onclick = async () => { if(!confirm('Remove override and return to the built-in default?')) return; await api('/api/prompts/'+curPrompt, {method:'DELETE'}); loadPrompts(); openPrompt(curPrompt); };

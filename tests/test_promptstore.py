@@ -44,3 +44,19 @@ def test_agent_prompt_accessors_use_store(tmp_path, monkeypatch):
     ps.get_store(str(tmp_path)).set("agent_system", "CUSTOM SYSTEM\n")
     assert prompts.system_prompt() == "CUSTOM SYSTEM\n"
     assert "{tool_list}" in prompts.fallback_action_instructions()
+
+
+def test_optional_tokens_render_and_leave_json_intact(tmp_path):
+    from urlverify_mcp.promptstore import render_tokens
+    text = 'Date {current_date} tz {timezone}; schema {"a": {"b": 1}}; keep {findings} and {confidence:.2f}'
+    out = render_tokens(text, {"current_date": "2026-09-16", "current_datetime": "x", "timezone": "UTC"})
+    assert out == 'Date 2026-09-16 tz UTC; schema {"a": {"b": 1}}; keep {findings} and {confidence:.2f}'
+    s = PromptStore(tmp_path)
+    rendered = s.render("agent_system")
+    assert "{current_date}" not in rendered and "Current date: 20" in rendered
+    # reason prompt still formats after rendering (required placeholders survive)
+    r = s.render("agent_reason").format(project="p", url="u", description="d", verdict="V", confidence=0.5, findings="f", narrative="n")
+    assert "Current date: 20" in r and "{" not in r.split("Current date")[0]
+    # tokens are optional: removing them from an override must not fail validation
+    s.set("agent_system", "no tokens at all\n")
+    assert s.render("agent_system") == "no tokens at all\n"

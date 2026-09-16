@@ -19,7 +19,7 @@ Environment overrides: `URLVERIFY_LLM_BASE_URL`, `URLVERIFY_LLM_API_KEY`, `URLVE
 | `supports_tools` | `true` / `false` / `auto` · `auto` | Native tool calling. `auto` tries tools once and falls back to JSON-action mode if the backend rejects them. Set `false` for models known to emit broken tool calls. |
 | `temperature` | float · `0.1` | Sampling temperature for investigation turns. Keep low; the rules engine needs consistent, verifiable output. |
 | `max_iterations` | int · `24` | Maximum LLM turns per verification before the agent is forced to submit. Lowering it reduces review depth. |
-| `timeout_s` | int · `180` | Per-request timeout for one LLM call. A slow 27B on a laptop may need 240–300. |
+| `timeout_s` | int · `300` | Per-request timeout for one LLM call. Sized for a 27B model on consumer hardware; raise it if single turns still time out. |
 
 ## `search` — how the agent searches and fetches pages
 
@@ -40,7 +40,7 @@ Environment overrides: `URLVERIFY_LLM_BASE_URL`, `URLVERIFY_LLM_API_KEY`, `URLVE
 | `max_fetches` | int · `10` | Page fetches the agent may run (the target page fetched for injection screening does not count). |
 | `max_api_calls` | int · `20` | Structured lookups (Wikidata, Wikipedia, Wayback, GitHub, Hugging Face, PyPI/npm). |
 | `fetch_max_chars` | int · `12000` | Characters of a fetched page shown to the LLM (bodies are additionally capped at 2 MB on the wire). |
-| `max_total_s` | int · `600` | Deadline for the whole verification. When exceeded the result is `UNVERIFIABLE` with the last stage in the reason. This is what makes the progress heartbeat safe: the heartbeat can never outlive this deadline. |
+| `max_total_s` | int · `900` | Deadline for the whole verification. When exceeded the result is `UNVERIFIABLE` with the last stage in the reason. This is what makes the progress heartbeat safe: the heartbeat can never outlive this deadline. |
 
 Callers may override `min_sources`, `allow_tier3`, `history_days` and the `identity` / `budget` sections per call through the tool's `options` argument; nothing else is overridable per call.
 
@@ -104,7 +104,7 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 
 | Field | Type / default | Meaning |
 |---|---|---|
-| `dir` | str · `~/.urlverify_mcp/prompts` | Where edited prompts are stored (admin Prompts tab). Defaults live in `urlverify_mcp/prompt_defaults/`. `agent_*` prompts apply on the next verification; `mcp_*` texts are registered at server start. |
+| `dir` | str · `~/.urlverify_mcp/prompts` | Where edited prompts are stored (admin Prompts tab). Defaults live in `urlverify_mcp/prompt_defaults/`. `agent_*` prompts apply on the next verification; `mcp_*` texts are registered at server start. Agent prompts may use the optional tokens `{current_date}`, `{current_datetime}`, `{timezone}` (filled at run time, UTC); other braces are left untouched. |
 
 ## `server` — the MCP server (`urlverify-mcp serve`)
 
@@ -136,8 +136,8 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 ```
 client timeout  ──reset by──▶ progress events + heartbeat (server.progress_events / heartbeat_s)
                                    │ bounded by
-verification    ──────────────▶ budget.max_total_s (600)
-  ├─ each LLM call ────────────▶ llm.timeout_s (180)
+verification    ──────────────▶ budget.max_total_s (900)
+  ├─ each LLM call ────────────▶ llm.timeout_s (300)
   ├─ each search / fetch ──────▶ search.call_timeout_s (45)
   ├─ L0 checks, MCP handshake ─▶ net.timeout_s (15)
   └─ structured APIs, aging ───▶ max(net.timeout_s, 30), Wayback ≤ 5 retries

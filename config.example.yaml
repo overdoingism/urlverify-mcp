@@ -6,7 +6,7 @@ llm:
   supports_tools: auto                    # true | false | auto (probe once, then remember)
   temperature: 0.1
   max_iterations: 24
-  timeout_s: 180
+  timeout_s: 300
 
 search:
   provider: mcp                           # mcp | searxng_http
@@ -23,7 +23,7 @@ budget:
   max_fetches: 10
   max_api_calls: 20
   fetch_max_chars: 12000
-  max_total_s: 600          # whole-verification deadline (seconds); past it the verdict is UNVERIFIABLE
+  max_total_s: 900          # whole-verification deadline (seconds); past it the verdict is UNVERIFIABLE
 
 identity:
   min_sources: 2            # independent third-party sources required (tier 1/2)

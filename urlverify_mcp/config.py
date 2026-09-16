@@ -18,7 +18,7 @@ class LLMConfig(BaseModel):
     supports_tools: bool | Literal["auto"] = "auto"
     temperature: float = 0.1
     max_iterations: int = 24
-    timeout_s: int = 180
+    timeout_s: int = 300
 
 
 class MCPSearchConfig(BaseModel):
@@ -43,7 +43,7 @@ class BudgetConfig(BaseModel):
     max_fetches: int = 10
     max_api_calls: int = 20
     fetch_max_chars: int = 12000
-    max_total_s: int = 600                # whole-verification deadline; past it the result is UNVERIFIABLE
+    max_total_s: int = 900                # whole-verification deadline; past it the result is UNVERIFIABLE
 
 
 class IdentityConfig(BaseModel):

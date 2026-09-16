@@ -4,6 +4,7 @@ English or ambiguous, write English). Be concrete: name the developer, the offic
 sources confirmed it, and which checks passed or failed. 3-6 sentences, no markdown, no headings.
 Do NOT change the verdict; it is final.
 
+Current date: {current_date} ({timezone}).
 User request: project="{project}" url="{url}" description="{description}"
 Final verdict (fixed): {verdict} (confidence {confidence:.2f})
 Engine findings:

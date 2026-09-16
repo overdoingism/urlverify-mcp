@@ -12,6 +12,26 @@ from pathlib import Path
 DEFAULTS_DIR = Path(__file__).parent / "prompt_defaults"
 
 
+OPTIONAL_TOKENS = ("current_date", "current_datetime", "timezone")
+_TOKEN_RE = re.compile(r"\{(" + "|".join(OPTIONAL_TOKENS) + r")\}")
+
+
+def runtime_values() -> dict[str, str]:
+    """Values for the optional {current_date} / {current_datetime} / {timezone} tokens (UTC, matching age_days maths)."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    return {"current_date": now.strftime("%Y-%m-%d"), "current_datetime": now.strftime("%Y-%m-%d %H:%M UTC"), "timezone": "UTC"}
+
+
+def render_tokens(text: str, values: dict[str, str] | None = None) -> str:
+    """Replace only the known optional tokens; every other brace (JSON examples, required placeholders) is left intact.
+    Never use str.format here: the prompts contain JSON."""
+    vals = values or runtime_values()
+    return _TOKEN_RE.sub(lambda m: vals[m.group(1)], text)
+
+
+
+
 @dataclass(frozen=True)
 class PromptMeta:
     name: str
@@ -65,6 +85,10 @@ class PromptStore:
         self._cache.pop(name, None)
         return self.default(name)
 
+    def render(self, name: str) -> str:
+        """Effective text with the optional runtime tokens filled in. Required placeholders (e.g. {findings}) stay."""
+        return render_tokens(self.get(name))
+
     def is_overridden(self, name: str) -> bool:
         return self.override_path(name).is_file()
 
@@ -99,7 +123,8 @@ class PromptStore:
         out = []
         for name, meta in PROMPTS.items():
             out.append({"name": name, "title": meta.title, "audience": meta.audience, "live": meta.live,
-                        "placeholders": list(meta.placeholders), "overridden": self.is_overridden(name),
+                        "placeholders": list(meta.placeholders), "optional_tokens": list(OPTIONAL_TOKENS),
+                        "overridden": self.is_overridden(name),
                         "override_path": str(self.override_path(name))})
         return out
 
