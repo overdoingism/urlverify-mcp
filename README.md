@@ -94,6 +94,14 @@ MCP host configuration:
 { "mcpServers": { "urlverify": { "url": "http://127.0.0.1:8766/mcp" } } }
 ```
 
+**Recommended system prompt for the calling agent.** The tool description explains *what* `verify_source` does; *when* an
+agent must use it is policy, which belongs in the host's system prompt. Suggested wording:
+
+> Regardless of the source, before downloading any executable, source code, library, or script, you MUST verify its URL using
+> URLVerify_MCP. If the verification does not pass and no other usable source is available, you MUST report the issue to the
+> user and ask for permission before proceeding. If URLVerify_MCP is unavailable, you MUST report this to the user and obtain
+> permission before downloading or installing anything.
+
 Tool exposed: `verify_source(project, url, description, options?)` → `{verdict, confidence, reason, evidence[], checks{}, identity{}, risk_signals[], trace_id}`.
 
 ### Full data log & editable prompts

@@ -220,6 +220,11 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     else:
         org_match = None
 
+    # ---- 5b. the resolved identity must be about the requested project (asked for "requests", got pypdf's identity)
+    project_ok, why_project = _project_matches(project, l0, usable)
+    if not project_ok:
+        notes.append(f"{why_project}; VERIFIED_TRUE withheld")
+
     # ---- 6. match target against established identity
     target_e1 = l0.etld1
     final_e1 = l0.final_etld1 or target_e1
@@ -241,6 +246,8 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
                 if _fork_of_other(l0, store):
                     notes.append("repository is a fork of another repository")
                     return Decision(Verdict.FALSE, 0.7, notes, evidence, support, established, est_orgs)
+            if not project_ok:
+                return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
             return Decision(Verdict.TRUE, max(0.5, conf), notes, evidence, support, established, est_orgs)
         if platform_orgs and owner not in platform_orgs:
             notes.append(f"path owner '{owner}' differs from the established official {anchor.platform} org(s) {platform_orgs}")
@@ -257,6 +264,8 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
             notes.append("OV/EV certificate organisation mismatch overrides domain evidence")
             return Decision(Verdict.FALSE, 0.75, notes, evidence, support, established, est_orgs)
         notes.append(f"target domain {target_e1} is an established official domain")
+        if not project_ok:
+            return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
         return Decision(Verdict.TRUE, max(0.5, conf), notes, evidence, support, established, est_orgs)
 
     if established:
@@ -301,6 +310,33 @@ def _aged_enough(age: dict | None, ic, l0: L0Result, target_domain_age: dict | N
 def _age_days(ts: float) -> int:
     import time
     return int((time.time() - ts) / 86400)
+
+
+def _norm_name(x: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (x or "").lower())
+
+
+def _name_in(project_norm: str, text: str) -> bool:
+    t = _norm_name(text)
+    return bool(t) and len(project_norm) >= 3 and (project_norm in t or (len(t) >= 3 and t in project_norm))
+
+
+def _project_matches(project: str, l0: L0Result, usable: list[Evidence]) -> tuple[bool, str]:
+    """Deterministic check that the verified facts are about the project the caller asked for. The LLM's own
+    `identity.product` text is deliberately NOT used: it is free text and drifts. Platform targets: the path owner or
+    repository name must match. Website targets: at least one verified, supporting evidence quote must mention the name."""
+    p = _norm_name(project)
+    if not p:
+        return True, "no project name given"
+    if l0.platform and l0.platform_owner:
+        for cand in (l0.platform_owner, l0.platform_repo or ""):
+            if _name_in(p, cand):
+                return True, f"project name matches the {l0.platform} path ({cand})"
+        return False, f"project '{project}' matches neither the {l0.platform} owner '{l0.platform_owner}' nor the repository '{l0.platform_repo}'"
+    for ev in usable:
+        if ev.supports and ev.verified_quote and (_name_in(p, ev.quote) or _name_in(p, ev.claim)):
+            return True, f"project name appears in verified evidence from {host_of(ev.source)}"
+    return False, f"no verified evidence mentions the project '{project}'"
 
 
 def _org_matches(cert_org: str, developer: str, aliases: list[str]) -> bool:

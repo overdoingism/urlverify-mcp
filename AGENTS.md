@@ -136,7 +136,8 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 | 對 AI 說話的文字 → FALSE | 判斷某來源**是否真的支持**該主張（同時提到兩個名字 ≠ 支持） |
 | 來源計數與 Tier 門檻（算術） | 為未知來源提議 Tier2/3 |
 | Tier1 白名單固定 | 憑證 Organization 與開發者名稱的模糊比對（"Element Labs, Inc." vs "Element Labs"），須附連結證據 |
-| L0 失敗 → 不得 TRUE | 撰寫 reason（呼叫方語言）與風險敘述 |
+| L0 失敗 → 不得 TRUE |
+| 解析出的產品身分與呼叫方 `project` 明顯不同 → 不得 TRUE（降為 UNVERIFIABLE） | 撰寫 reason（呼叫方語言）與風險敘述 |
 | 時間穩定性（§4.1）的數值判定 | 解讀歷史變更的意義（改名、搬家、被竄改） |
 | **證據可驗證性**：網頁/媒體類 evidence 的 `quote` 必須逐字存在於抓回的內容中；結構化來源（wikidata/wikipedia/github/hf/wayback/registry）改為**事實錨定**：主張中的網域或組織名必須出現在該來源的原始工具輸出中。不符者丟棄 | |
 

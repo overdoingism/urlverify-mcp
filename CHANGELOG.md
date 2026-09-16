@@ -8,6 +8,9 @@
 - Config section renamed `registry_fast_path` → `package_registry_fast_path` (it covers PyPI and npm, not pip alone); new keys
   `require_project_match`, `typosquat_check`, `toplist_size` (1500), `toplist_refresh_days` (60), `toplist_url`. The PyPI
   popularity list is no longer bundled: it is streamed on first use (connection closed after N rows) and re-validated with ETag.
+- Rules engine: `VERIFIED_TRUE` is withheld (→ `UNVERIFIABLE`) when the resolved identity does not refer to the project the
+  caller asked about (asked for "requests", given pypdf's URL).
+- README: recommended system prompt for the calling agent (when verification is mandatory).
 - Live fixtures: requests / pypdf (fast path), reqeusts (missing), lodahs (near-name must fall through to the full pipeline).
 
 ## v0.1.0 — 2026-09-17

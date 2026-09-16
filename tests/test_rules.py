@@ -129,3 +129,40 @@ def test_config_extra_tiers_are_used():
         _ev("https://someforum.example/thread/1", "official domain is lmstudio.ai", "lmstudio.ai is legit trust me", tier=3)],
         proposed_verdict="VERIFIED_TRUE")
     assert decide(cfg, _l0(), sub, store, "LM Studio").verdict == Verdict.TRUE
+
+
+def test_project_mismatch_withholds_true():
+    from urlverify_mcp.rules import _project_matches
+    ok, _ = _project_matches("LM Studio", _l0(host="github.com", platform="github", owner="lmstudio-ai", repo="lms"), [])
+    assert ok
+    ok, _ = _project_matches("VLC media player", _l0(host="github.com", platform="github", owner="videolan", repo="vlc"), [])
+    assert ok
+    ok, _ = _project_matches("Qwen3", _l0(host="huggingface.co", platform="huggingface", owner="Qwen", repo="Qwen3-8B"), [])
+    assert ok
+    ok, why = _project_matches("requests", _l0(host="pypi.org", platform="pypi", owner="pypdf"), [])
+    assert not ok and "pypdf" in why
+    ev = _ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac"); ev.verified_quote = True
+    ok, _ = _project_matches("LM Studio", _l0(), [ev])
+    assert ok
+    ok, _ = _project_matches("requests", _l0(), [ev])
+    assert not ok
+    # full decision: LM Studio's identity + evidence, but the caller asked about "requests" -> TRUE withheld
+    sub = LLMSubmission(identity=IDENT, evidence=[
+        _ev("https://www.wikidata.org/wiki/Q123", "official domain is lmstudio.ai", '"official_website": ["https://lmstudio.ai"]', kind="wikidata", tier=1),
+        _ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac"),
+    ], proposed_verdict="VERIFIED_TRUE")
+    d = decide(Config(), _l0(), sub, STORE, "requests")
+    assert d.verdict == Verdict.UNVERIFIABLE and any("VERIFIED_TRUE withheld" in n for n in d.notes)
+
+
+def test_project_mismatch_withheld_on_platform_branch():
+    base = [_ev("https://www.wikidata.org/wiki/Q123", "official domain is lmstudio.ai", '"official_website": ["https://lmstudio.ai"]', kind="wikidata", tier=1),
+            _ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac"),
+            _ev("https://github.com/lmstudio-ai", "github org lmstudio-ai links to lmstudio.ai", '"blog": "https://lmstudio.ai", "is_verified": true', kind="github", tier=2)]
+    store = dict(STORE); store["https://lmstudio.ai/"] = "Download LM Studio. Source on GitHub: github.com/lmstudio-ai"
+    sub = LLMSubmission(identity=IDENT, evidence=base, proposed_verdict="VERIFIED_TRUE")
+    l0 = _l0(host="github.com", platform="github", owner="lmstudio-ai", repo="lms")
+    assert decide(Config(), l0, sub, store, "requests").verdict == Verdict.UNVERIFIABLE     # org is established, but not the project asked for
+    sub = LLMSubmission(identity=IDENT, evidence=base, proposed_verdict="VERIFIED_TRUE")
+    for e in sub.evidence: e.verified_quote = None; e.notes = []
+    assert decide(Config(), l0, sub, store, "LM Studio").verdict == Verdict.TRUE
