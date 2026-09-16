@@ -9,7 +9,19 @@ import sys
 from pathlib import Path
 
 
+def _plain_logs() -> None:
+    """Disable ANSI colours in uvicorn's log formatters. Windows consoles drop VT processing after a child
+    process has run, which turns colour codes into literal '[32m' noise; plain text is also friendlier for files."""
+    try:
+        import uvicorn.config as uc
+        for name in ("default", "access"):
+            uc.LOGGING_CONFIG["formatters"][name]["use_colors"] = False
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _plain_logs()
     ap = argparse.ArgumentParser(prog="urlverify-mcp", description="URLVerify_MCP — source-of-origin verification MCP server")
     ap.add_argument("-c", "--config", help="path to config.yaml (default: ./config.yaml, $URLVERIFY_CONFIG, ~/.urlverify_mcp/config.yaml)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -48,7 +60,11 @@ def main(argv: list[str] | None = None) -> int:
         srv = build_server(args.config, host, port)
         if transport == "http":
             print(f"URLVerify_MCP Streamable HTTP endpoint: http://{host}:{port}/mcp", file=sys.stderr)
-        srv.run(transport="stdio" if transport == "stdio" else "streamable-http")
+        try:
+            srv.run(transport="stdio" if transport == "stdio" else "streamable-http")
+        except KeyboardInterrupt:
+            print("URLVerify_MCP server stopped (Ctrl+C)", file=sys.stderr)
+            return 0
         return 0
 
     if args.cmd == "admin":
@@ -57,7 +73,10 @@ def main(argv: list[str] | None = None) -> int:
         from .config import load_config
         cfg = load_config(args.config)
         app = create_app(args.config)
-        uvicorn.run(app, host=args.host or cfg.admin.host, port=args.port or cfg.admin.port, log_level="info")
+        try:
+            uvicorn.run(app, host=args.host or cfg.admin.host, port=args.port or cfg.admin.port, log_level="info", use_colors=False)
+        except KeyboardInterrupt:
+            print("URLVerify_MCP admin stopped (Ctrl+C)", file=sys.stderr)
         return 0
 
     if args.cmd == "verify":

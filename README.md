@@ -41,7 +41,8 @@ Without uv, replace `uv run urlverify-mcp` with `.venv/bin/urlverify-mcp` in eve
 
 Windows notes:
 - No Docker? Skip the MCP search server and point the HTTP fallback at a local SearXNG: `search.provider: searxng_http`, `search.searxng_http.base_url: http://127.0.0.1:8888` (SearXNG must have `search.formats: [html, json]`).
-- Keep console output UTF-8 (`chcp 65001`) so non-ASCII reasons render correctly.
+- Keep console output UTF-8 (`chcp 65001`) so non-ASCII reasons render correctly. Logs are plain text (no ANSI colours) on every platform.
+- In `config.yaml`, write Windows paths with forward slashes or in single quotes (`'C:\\tools\\logs'`); inside double quotes YAML treats `\` as an escape character.
 - A launcher must **not** pass `--transport` unless it means to override `config.yaml`; CLI flags win over the config file.
 
 ### The three endpoints in `config.yaml`

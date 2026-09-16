@@ -24,6 +24,15 @@ def _init(config_path: str | None = None) -> tuple[Config, Storage]:
     return _cfg, _store  # type: ignore[return-value]
 
 
+def _reload(current: Config) -> Config:
+    try:
+        fresh = load_config(str(current.source_path) if current.source_path else None)
+        configure_from(fresh)
+        return fresh
+    except Exception:  # noqa: BLE001  (a half-saved config must not take the server down)
+        return current
+
+
 def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: int = 8766) -> FastMCP:
     cfg, store = _init(config_path)
     configure_from(cfg)
@@ -33,8 +42,11 @@ def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: 
 
     @mcp.tool(description=prompts.get("mcp_tool_verify_source"))
     async def verify_source(project: str, url: str, description: str = "", options: dict[str, Any] | None = None) -> dict[str, Any]:
+        # Re-read config.yaml on every call so edits made in the admin UI (endpoints, thresholds, lists,
+        # full_log toggle) apply to a running server. MCP-facing prompts stay fixed until restart.
+        live_cfg = _reload(cfg)
         TRACE.log("mcp_request", tool="verify_source", args={"project": project, "url": url, "description": description, "options": options})
-        res = await verify(VerifyRequest(project=project, url=url, description=description, options=options), cfg, store)
+        res = await verify(VerifyRequest(project=project, url=url, description=description, options=options), live_cfg, store)
         out = res.model_dump(mode="json")
         TRACE.log("mcp_response", tool="verify_source", trace_id_result=res.trace_id, verdict=res.verdict.value, response=out)
         return out
