@@ -106,6 +106,8 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - `allowlist / denylist`
 - `cache.cert_ttl_hours`、`cache.identity_ttl_hours`、`cache.anchor_refresh_days`
 - `net.timeout_s`
+- `server.transport / host / port`（MCP server 本體，預設 stdio；http 時端點為 `http://host:port/mcp`，預設 8766；CLI 旗標優先於設定檔）
+- `admin.host / port`（管理介面，預設 8765）
 - 輸出語言：**跟隨呼叫方輸入語言**，無需設定
 
 ## 6. 快取（三種，生命週期不同）
