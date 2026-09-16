@@ -145,12 +145,19 @@ class Structured:
     async def wayback_first_seen(self, domain: str) -> dict[str, Any]:
         try:
             r = None
-            for attempt in range(3):
-                r = await self.client.get("https://web.archive.org/cdx/search/cdx",
-                                          params={"url": domain, "limit": 1, "fl": "timestamp,original", "filter": "statuscode:200", "output": "json"})
-                if r.status_code < 500:
+            last_exc = None
+            for attempt in range(5):          # archive.org throttles with 503 / slow reads; back off 2s, 4s, 6s, 8s
+                try:
+                    r = await self.client.get("https://web.archive.org/cdx/search/cdx",
+                                              params={"url": domain, "limit": 1, "fl": "timestamp,original", "filter": "statuscode:200", "output": "json"})
+                except httpx.TimeoutException as e:
+                    last_exc = e
+                    r = None
+                if r is not None and r.status_code < 500 and r.status_code != 429:
                     break
-                await asyncio.sleep(1.5 * (attempt + 1))
+                await asyncio.sleep(2.0 * (attempt + 1))
+            if r is None:
+                return {"ok": False, "error": f"timeout after retries: {type(last_exc).__name__}"}
             if r.status_code != 200:
                 return {"ok": False, "error": f"HTTP {r.status_code}"}
             rows = r.json()

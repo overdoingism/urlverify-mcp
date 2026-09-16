@@ -20,6 +20,28 @@ def _online() -> bool:
         return False
 
 
+def _preflight() -> str | None:
+    """The scripted run needs at least two of {wikipedia, github, wayback} to survive fact-anchoring.
+    Wikipedia (UA policy / 403) and Wayback (503 throttling) are third-party conditions, not regressions:
+    when both are down, skip with a clear reason instead of failing."""
+    from urlverify_mcp.identity.structured import Structured
+    cfg = load_config()
+
+    async def probe():
+        st = Structured(30, cfg.net.user_agent)
+        try:
+            w = await st.wikipedia_history("LM Studio", 90, 3)
+            b = await st.wayback_first_seen("lmstudio.ai")
+        finally:
+            await st.close()
+        return w, b
+    w, b = asyncio.run(probe())
+    w_ok, b_ok = bool(w.get("ok") and w.get("found")), bool(b.get("ok") and b.get("found"))
+    if not w_ok and not b_ok:
+        return f"wikipedia ({w.get('error')}) and wayback ({b.get('error')}) both unavailable"
+    return None
+
+
 class ScriptedLLM:
     """Emulates native tool calling. Reads tool outputs to build verbatim quotes."""
     supports_tools = True
@@ -66,6 +88,9 @@ class ScriptedLLM:
 
 @pytest.mark.skipif(not _online(), reason="offline")
 def test_pipeline_with_scripted_llm(monkeypatch, tmp_path):
+    reason = _preflight()
+    if reason:
+        pytest.skip(reason)
     from urlverify_mcp import pipeline
     monkeypatch.setattr(pipeline, "LLM", ScriptedLLM)
     cfg = load_config()

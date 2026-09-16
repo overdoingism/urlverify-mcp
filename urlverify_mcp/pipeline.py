@@ -153,7 +153,9 @@ async def _direct_fetch(url: str, cfg: Config) -> str:
     """Fallback page fetch when the search provider cannot fetch: HTML -> text, never downloads binaries."""
     import httpx
     from .providers.search import _strip_html
-    async with httpx.AsyncClient(timeout=cfg.net.timeout_s, headers={"User-Agent": cfg.net.user_agent}, follow_redirects=True) as c:
+    async with httpx.AsyncClient(timeout=cfg.net.timeout_s, follow_redirects=True,
+                                 headers={"User-Agent": cfg.net.user_agent,
+                                          "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.1"}) as c:
         async with c.stream("GET", url) as r:
             ct = r.headers.get("content-type", "")
             if not any(t in ct for t in ("text", "json", "xml")):

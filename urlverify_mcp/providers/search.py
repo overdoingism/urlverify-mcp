@@ -13,6 +13,9 @@ from ..config import Config
 from ..tracelog import TRACE
 
 
+MAX_FETCH_BYTES = 2_000_000   # hard cap for any page body we pull ourselves
+
+
 class SearchUnavailable(RuntimeError):
     """The configured search backend cannot be reached. Ordinary Exception, so callers can degrade gracefully."""
 
@@ -176,10 +179,19 @@ class SearxngHTTPProvider:
         return text
 
     async def fetch(self, url: str) -> str:
+        """Document only: no images / CSS / scripts are ever requested; binaries are not downloaded; body capped at 2 MB."""
         TRACE.log("search_request", provider="searxng_http", tool="fetch", args={"url": url})
-        r = await self.client.get(url)
-        ct = r.headers.get("content-type", "")
-        body = r.text if ("text" in ct or "json" in ct or "xml" in ct) else f"(binary content-type {ct}, {r.headers.get('content-length')} bytes)"
+        async with self.client.stream("GET", url, headers={"Accept": "text/html,application/xhtml+xml,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.1"}) as r:
+            ct = r.headers.get("content-type", "")
+            if not any(t in ct for t in ("text", "json", "xml")):
+                body = f"(binary content-type {ct}, {r.headers.get('content-length')} bytes; body not downloaded)"
+            else:
+                chunks, size = [], 0
+                async for chunk in r.aiter_bytes():
+                    chunks.append(chunk); size += len(chunk)
+                    if size > MAX_FETCH_BYTES:
+                        break
+                body = b"".join(chunks).decode(r.encoding or "utf-8", errors="replace")
         text = _strip_html(body) if "html" in ct else body
         TRACE.log("search_response", provider="searxng_http", tool="fetch", status=r.status_code, content_type=ct, chars=len(text), text=text)
         return text

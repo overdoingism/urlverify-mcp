@@ -11,7 +11,7 @@ MAX_HOPS = 10
 async def expand(url: str, timeout: float, user_agent: str) -> dict[str, Any]:
     chain: list[dict[str, Any]] = []
     current = url
-    headers = {"User-Agent": user_agent, "Accept": "*/*"}
+    headers = {"User-Agent": user_agent, "Accept": "text/html,*/*;q=0.1"}
     content_type = None
     content_length = None
     status = None

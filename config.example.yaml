@@ -45,7 +45,7 @@ identity:
 
 net:
   timeout_s: 15
-  user_agent: "URLVerify-MCP/0.1 (+source verification agent)"
+  user_agent: "URLVerify-MCP/0.1 (+https://github.com/overdoingism/urlverify-mcp)"   # keep a contact URL or email: Wikipedia returns 403 without one
 
 cache:
   cert_ttl_hours: 168

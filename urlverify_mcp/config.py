@@ -64,7 +64,7 @@ class IdentityConfig(BaseModel):
 
 class NetConfig(BaseModel):
     timeout_s: int = 15
-    user_agent: str = "URLVerify-MCP/0.1 (+source verification agent)"
+    user_agent: str = "URLVerify-MCP/0.1 (+https://github.com/overdoingism/urlverify-mcp)"   # Wikimedia UA policy: must carry a contact URL/email
 
 
 class CacheConfig(BaseModel):

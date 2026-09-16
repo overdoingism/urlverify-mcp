@@ -98,6 +98,16 @@ Tool exposed: `verify_source(project, url, description, options?)` → `{verdict
 
 Defaults ship in `urlverify_mcp/prompt_defaults/`; *Reset to default* deletes the override. Required placeholders (e.g. `{findings}` in the reason prompt) are validated on save.
 
+### Network footprint
+
+The agent never renders pages: it requests the HTML/JSON document only, so images, CSS, scripts and fonts are never downloaded.
+Other measures that keep traffic small and polite: redirect chains are walked with `HEAD` (a `GET` is streamed and closed
+immediately if `HEAD` is refused); files under verification are never downloaded (binary content-types are reported, not read);
+page bodies are capped at 2 MB and truncated to `budget.fetch_max_chars` before the LLM sees them; per-verification budgets
+(`budget.max_searches` / `max_fetches` / `max_api_calls`) bound the number of requests; certificates and resolved identities are
+cached (`cache.*`); Wikipedia / Wikidata / GitHub / Hugging Face / registries are queried through their JSON APIs instead of
+scraping; Reddit requests are serialized; and `net.user_agent` identifies the tool with a contact URL, which Wikimedia requires.
+
 ## Tests / 測試
 
 | Suite | Command | Needs | Time |
