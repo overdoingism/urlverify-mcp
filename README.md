@@ -17,26 +17,87 @@ Verdicts `VERIFIED_TRUE` · `VERIFIED_FALSE` · `UNVERIFIABLE`, each with a conf
 
 ## Quick start / 快速開始
 
-```bash
-# 1. dependencies — or: .\setup-venv.ps1 (Windows) · ./setup-venv.sh (Linux/macOS)
-uv sync --extra dev            # or: python -m venv .venv && pip install -e ".[dev]"
+Requirements: **Python ≥ 3.11** (or [uv](https://docs.astral.sh/uv/), preferred), an **OpenAI-compatible LLM endpoint** (llama-server, LM Studio, vLLM, Ollama, OpenAI…), and a **SearXNG** instance reachable either through the [mcp-searxng](https://github.com/ihor-sokoliuk/mcp-searxng) MCP server or its plain JSON API.
 
-# 2. configuration — point at your LLM + search endpoints / 設定你的 LLM 與搜尋端點
-cp config.example.yaml config.yaml    # Windows: copy / Copy-Item
+### Linux / macOS
 
-# 3. probe, then run / 探測後啟動
-uv run urlverify-mcp check-env
-uv run urlverify-mcp admin            # admin UI at http://127.0.0.1:8765
-uv run urlverify-mcp serve            # MCP over stdio (or --transport http)
-uv run urlverify-mcp verify "LM Studio" https://lmstudio.ai/download "Linux AppImage"
+| Step | Command | What it does |
+|---|---|---|
+| 1. Install | `./setup-venv.sh` | Creates `.venv` with uv (uses `uv.lock`) or falls back to `python -m venv` + pip. Re-run any time; the old `.venv` is backed up. |
+| 2. Configure | `cp config.example.yaml config.yaml` | `config.yaml` is git-ignored and machine-specific. Edit at least the three endpoints below. |
+| 3. Probe | `uv run urlverify-mcp check-env` | Confirms the LLM answers `/v1/models` and the search backend returns results. Fix these before going further. |
+| 4. Run | see *Running* below | Admin UI, MCP server, or a one-shot verification. |
+
+Without uv, replace `uv run urlverify-mcp` with `.venv/bin/urlverify-mcp` in every command.
+
+### Windows
+
+| Step | Command (PowerShell) | What it does |
+|---|---|---|
+| 1. Install | `.\setup-venv.ps1` | Same as the shell script: uv if present, otherwise venv + pip. A `.venv` copied from Linux is detected and moved aside. |
+| 2. Configure | `Copy-Item config.example.yaml config.yaml` | Then edit the endpoints below. |
+| 3. Probe | `uv run urlverify-mcp check-env` | Same probe. Without uv: `.venv\Scripts\urlverify-mcp check-env`. |
+| 4. Run | see *Running* below | |
+
+Windows notes:
+- No Docker? Skip the MCP search server and point the HTTP fallback at a local SearXNG: `search.provider: searxng_http`, `search.searxng_http.base_url: http://127.0.0.1:8888` (SearXNG must have `search.formats: [html, json]`).
+- Keep console output UTF-8 (`chcp 65001`) so non-ASCII reasons render correctly.
+- A launcher must **not** pass `--transport` unless it means to override `config.yaml`; CLI flags win over the config file.
+
+### The three endpoints in `config.yaml`
+
+```yaml
+llm:
+  base_url: "http://127.0.0.1:8080/v1"   # any OpenAI-compatible server
+  model: "your-model-id"                  # some servers ignore this and serve whatever is loaded
+
+search:
+  provider: mcp                           # mcp (default) | searxng_http (fallback)
+  mcp:
+    url: "http://127.0.0.1:3000/mcp"      # mcp-searxng, Streamable HTTP
+  searxng_http:
+    base_url: "http://127.0.0.1:8888"     # SearXNG JSON API
+
+server:
+  transport: stdio                        # stdio | http  →  http://host:port/mcp
+  port: 8766
+admin:
+  port: 8765
 ```
+
+### Running
+
+| Goal | Command | Notes |
+|---|---|---|
+| Admin UI | `uv run urlverify-mcp admin` | http://127.0.0.1:8765 — config editor, allow/deny lists, caches, history, manual test. |
+| MCP server (stdio) | `uv run urlverify-mcp serve` | For hosts that spawn the process themselves (Claude Desktop, Claude Code, …). Nothing is printed; that is expected. |
+| MCP server (HTTP) | `uv run urlverify-mcp serve --transport http` | Streamable HTTP at `http://127.0.0.1:8766/mcp` for URL-based hosts (LibreChat, …). Set `server.transport: http` to make it the default. Browsers show 400/406 on this URL; test with a POST. |
+| One-shot check | `uv run urlverify-mcp verify "LM Studio" https://lmstudio.ai/download "Linux AppImage"` | Prints the full JSON result. Exit code 0 only for `VERIFIED_TRUE`. |
+
+MCP host configuration:
+
+```jsonc
+// stdio — the host launches the server
+{ "mcpServers": { "urlverify": {
+    "command": "uv", "args": ["--directory", "/path/to/urlverify-mcp", "run", "urlverify-mcp", "serve"] } } }
+
+// HTTP — the server is already running with --transport http
+{ "mcpServers": { "urlverify": { "url": "http://127.0.0.1:8766/mcp" } } }
+```
+
+Tool exposed: `verify_source(project, url, description, options?)` → `{verdict, confidence, reason, evidence[], checks{}, identity{}, risk_signals[], trace_id}`.
 
 ## Tests / 測試
 
-```bash
-uv run pytest                          # offline unit tests (+ network pipeline test, auto-skips when offline)
-uv run pytest tests/test_live.py --live -s   # live regression (needs LLM + search + network)
-```
+| Suite | Command | Needs | Time |
+|---|---|---|---|
+| Unit | `uv run pytest -q` | nothing (offline) | seconds |
+| Pipeline (scripted LLM, real network) | included in `uv run pytest -q`; auto-skips when offline | network | ~1 min |
+| Live regression | `uv run pytest tests/test_live.py --live -s` | LLM + search + network | 10–15 min |
+
+Windows without uv: `.venv\Scripts\python -m pytest -q` (same flags).
+
+The unit suite covers URL/homoglyph analysis, the rules engine (quote verification, source counting, tier promotion by age, temporal contradictions), injection detection, and the search provider's failure handling. The live suite runs the cases in `tests/fixtures/cases.yaml`; every check family has at least one true and one false case, and any change to prompts or rules should be validated against it.
 
 ## Docs & license / 文件與授權
 
