@@ -90,11 +90,11 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         TRACE.log("target_page", url=l0.final_url or l0.normalized_url, chars=len(inv.target_page_text or ""), text=inv.target_page_text,
                   injection=next((c.model_dump() for c in l0.checks if c.name == "injection"), None))
 
-        fp = cfg.registry_fast_path
+        fp = cfg.package_registry_fast_path
         if not l0.fatal_failures and fp.enabled and fp.mode != "full" and l0.platform in ("pypi", "npm"):
             await progress.report(f"registry fast path ({l0.platform})", 0.12)
             try:
-                fast = await RegistryFastPath(cfg, structured).run(l0, t0, trace_id)
+                fast = await RegistryFastPath(cfg, structured).run(l0, t0, trace_id, req.project)
             except Exception as e:  # noqa: BLE001
                 fast = None
                 engine_notes.append(f"registry fast path error: {type(e).__name__}: {e}")

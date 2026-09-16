@@ -92,22 +92,28 @@ Callers may override `min_sources`, `allow_tier3`, `history_days` and the `ident
 
 List of case-insensitive regexes. A match in the **target page** means "text addressed to AI agents / verifiers" and yields `VERIFIED_FALSE`. Ordinary "this is the official site" wording is deliberately not matched (it carries zero weight instead).
 
-## `registry_fast_path` — PyPI / npm shortcut
+## `package_registry_fast_path` — PyPI / npm shortcut
 
 | Field | Type / default | Meaning |
 |---|---|---|
-| `enabled` | bool · `true` | Try the structured registry check before the LLM investigation for `pypi.org/project/<name>` and `npmjs.com/package/<name>` targets. |
+| `enabled` | bool · `true` | Try the structured registry check before the LLM investigation for `pypi.org/project/<name>` and `npmjs.com/package/<name>` targets. `false` = always run the full investigation. |
 | `mode` | `auto` / `quick` / `full` · `auto` | `auto`: fast path, then the full pipeline if inconclusive. `quick`: fast path only (inconclusive → `UNVERIFIABLE`). `full`: skip the fast path. Callers may override per call with `options.mode`. |
 | `min_age_days` | int · `365` | The package's first release must be at least this old. |
 | `min_releases` | int · `3` | Minimum number of releases. |
-| `toplist_refresh_days` | int · `30` | The PyPI monthly top-5000 list is re-fetched at most this often (cached in `~/.urlverify_mcp/pypi_top.json`; a bundled snapshot is the fallback). |
 | `confidence` | float · `0.8` | Confidence assigned to a fast-path `VERIFIED_TRUE`. |
+| `require_project_match` | bool · `true` | The caller's `project` must match the package name (normalised, substring either way). A mismatch (asked for "requests", given `reqests-utils`) sends the case to the full pipeline with a `project_package_mismatch` risk signal. |
+| `typosquat_check` | bool · `true` | Compare the name against far more popular near-names (PyPI: popularity list; npm: bulk download counts of generated variants). `false` skips it and relies on the bidirectional repository link alone — you accept the look-alike risk. |
+| `toplist_size` | int · `1500` | Rows kept from the PyPI popularity list, ~60 bytes each (1500 ≈ 90 KB). The file is sorted by downloads and streamed: the connection is closed after N rows, the rest is never downloaded. Nothing is bundled with the package. |
+| `toplist_refresh_days` | int · `60` | The cached list (`~/.urlverify_mcp/pypi_top.json`) is re-validated at most this often, with `If-None-Match`; an unchanged list costs a 304 and no body. The first download happens on the first PyPI target, never at install or start-up. |
+| `toplist_url` | str · hugovk top-pypi-packages | Source of the list (JSON rows `{download_count, project}` sorted descending). |
 
-`VERIFIED_TRUE` needs existence + age + release count + a **bidirectional** repository link (registry → GitHub repo whose
-manifest declares the package) + a clean typosquat check. Popularity is only the denominator of the typosquat ratio, never a
-signal by itself. Any unknown (API down, scoped npm package, no repository, unreadable manifest) or suspicious signal (a far
-more popular package one edit away) makes the fast path inconclusive and hands the case to the full pipeline with the
-suspicion attached as a risk signal. The fast path can therefore only speed things up, never decide wrongly.
+`VERIFIED_TRUE` needs existence + age + release count + project-name match + a **bidirectional** repository link (registry →
+GitHub repo whose manifest declares the package) + a clean typosquat check. Popularity is only the denominator of the
+typosquat ratio, never a signal by itself. Any unknown (API or list unavailable, scoped npm package, no repository,
+unreadable manifest) or suspicious signal makes the fast path inconclusive and hands the case to the full pipeline with the
+suspicion attached as a risk signal. The fast path can therefore only speed things up, never decide wrongly. A malicious
+package that imitates nothing and has its own consistent repository passes both paths as "official for its own project";
+that is the boundary of source verification, not a gap (file contents are out of scope).
 
 ## `full_log` — full data log
 
@@ -148,7 +154,7 @@ suspicion attached as a risk signal. The fast path can therefore only speed thin
 
 | Change | Takes effect |
 |---|---|
-| Anything under `llm`, `search`, `budget`, `identity`, `net`, `cache`, `lists`, `injection_patterns`, `full_log`, `registry_fast_path` | Next `verify_source` call (the server re-reads the file per call) |
+| Anything under `llm`, `search`, `budget`, `identity`, `net`, `cache`, `lists`, `injection_patterns`, `full_log`, `package_registry_fast_path` | Next `verify_source` call (the server re-reads the file per call) |
 | `agent_*` prompts | Next verification |
 | `mcp_*` prompts, `server.*` (incl. `max_concurrent`, `auth_token`), `admin.*`, `storage.path`, `prompts.dir` | Restart the affected process |
 

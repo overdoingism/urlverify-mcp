@@ -5,6 +5,9 @@
 - Registry fast path: `VERIFIED_TRUE` now requires a **bidirectional** repository link (registry metadata → GitHub repo
   whose manifest declares the package; pyproject/setup.cfg/setup.py/package.json parsed properly). Popularity is no longer a
   signal on its own (download counts can be inflated); it only serves as the denominator of the typosquat ratio.
+- Config section renamed `registry_fast_path` → `package_registry_fast_path` (it covers PyPI and npm, not pip alone); new keys
+  `require_project_match`, `typosquat_check`, `toplist_size` (1500), `toplist_refresh_days` (60), `toplist_url`. The PyPI
+  popularity list is no longer bundled: it is streamed on first use (connection closed after N rows) and re-validated with ETag.
 - Live fixtures: requests / pypdf (fast path), reqeusts (missing), lodahs (near-name must fall through to the full pipeline).
 
 ## v0.1.0 — 2026-09-17

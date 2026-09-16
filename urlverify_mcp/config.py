@@ -121,13 +121,18 @@ class AdminConfig(BaseModel):
     session_days: int = 7
 
 
-class RegistryFastPathConfig(BaseModel):
+class PackageRegistryFastPathConfig(BaseModel):
+    """PyPI / npm shortcut: structured registry checks first, LLM only when inconclusive."""
     enabled: bool = True
+    mode: Literal["auto", "quick", "full"] = "auto"   # auto: fast path, fall back to full; quick: fast path only; full: skip fast path
     min_age_days: int = 365        # package must have existed this long
     min_releases: int = 3
-    toplist_refresh_days: int = 30 # popular-package lists are refreshed from the network at most this often (bundled snapshot as fallback)
     confidence: float = 0.8
-    mode: Literal["auto", "quick", "full"] = "auto"   # auto: fast path, fall back to full; quick: fast path only; full: skip fast path
+    require_project_match: bool = True   # the caller's project name must match the package or repository name
+    typosquat_check: bool = True         # compare against popular near-names; false = rely on the repository link only
+    toplist_size: int = 1500             # rows kept from the PyPI popularity list (~60 bytes each); streamed, rest not downloaded
+    toplist_refresh_days: int = 60       # conditional (ETag) re-fetch at most this often; first download on first PyPI target
+    toplist_url: str = "https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json"
 
 
 class Config(BaseModel):
@@ -146,7 +151,7 @@ class Config(BaseModel):
         r"\b(system|developer) (prompt|instruction|override)\b",
         r"\bplease (report|respond|answer|mark|classify)[^.\n]{0,60}\b(verified|official|true|legitimate|safe)\b",
     ])
-    registry_fast_path: RegistryFastPathConfig = RegistryFastPathConfig()
+    package_registry_fast_path: PackageRegistryFastPathConfig = PackageRegistryFastPathConfig()
     full_log: FullLogConfig = FullLogConfig()
     prompts: PromptsConfig = PromptsConfig()
     server: ServerConfig = ServerConfig()
@@ -168,7 +173,7 @@ class Config(BaseModel):
             if k in options:
                 data["identity"][k] = options[k]
         if options.get("mode") in ("quick", "full", "auto"):
-            data["registry_fast_path"]["mode"] = options["mode"]
+            data["package_registry_fast_path"]["mode"] = options["mode"]
         cfg = Config.model_validate(data)
         cfg.source_path = self.source_path
         return cfg

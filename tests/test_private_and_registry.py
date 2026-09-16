@@ -28,3 +28,10 @@ def test_manifest_names_parse_properly():
     assert _manifest_names("setup.py", 'setup(name="requests", version="2")') == ["requests"]
     assert _manifest_names("package.json", '{"name": "lodash", "version": "4"}') == ["lodash"]
     assert _manifest_names("pyproject.toml", "not toml at all name = 'x'") == ["x"]   # regex fallback
+
+
+def test_project_name_match():
+    from urlverify_mcp.identity.registry import _names_match
+    assert _names_match("requests", "requests") and _names_match("LM Studio", "lmstudio") and _names_match("pypdf", "PyPDF")
+    assert _names_match("dateutil", "python-dateutil")
+    assert not _names_match("requests", "reqests-utils") and not _names_match("numpy", "pandas")

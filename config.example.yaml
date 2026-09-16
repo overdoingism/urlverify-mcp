@@ -91,10 +91,14 @@ admin:                      # management web UI (urlverify-mcp admin); password-
   auth_file: "~/.urlverify_mcp/admin.auth"   # PBKDF2 hash + salt + session key; delete to reset the password
   session_days: 7
 
-registry_fast_path:         # PyPI / npm: structured check first, LLM only when inconclusive
+package_registry_fast_path:   # PyPI / npm: structured checks first, LLM only when inconclusive
   enabled: true
-  mode: auto                # auto | quick | full (callers may override with options.mode)
+  mode: auto                  # auto | quick | full (callers may override with options.mode)
   min_age_days: 365
   min_releases: 3
-  toplist_refresh_days: 30
   confidence: 0.8
+  require_project_match: true # caller's project name must match the package / repository name
+  typosquat_check: true       # false = skip near-name comparison, rely on the bidirectional repo link only
+  toplist_size: 1500          # rows kept from the PyPI popularity list (~90 KB); streamed, the rest is never downloaded
+  toplist_refresh_days: 60    # conditional re-fetch (ETag) at most this often; first download on first PyPI target
+  toplist_url: "https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json"

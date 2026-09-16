@@ -110,13 +110,15 @@ Defaults ship in `urlverify_mcp/prompt_defaults/`; *Reset to default* deletes th
 
 A package URL (`pypi.org/project/<name>`, `npmjs.com/package/<name>`) asks a narrower question than a website: *is this the
 real package or a look-alike?* That is answered from registry data alone, in a few seconds and without the LLM. `VERIFIED_TRUE`
-(confidence `registry_fast_path.confidence`, `path: registry_fast_path`) requires all of:
+(confidence `package_registry_fast_path.confidence`, `path: registry_fast_path`) requires all of:
 
-- the package exists, its first release is older than `registry_fast_path.min_age_days`, and it has `min_releases` releases;
+- the package exists, its first release is older than `package_registry_fast_path.min_age_days`, and it has `min_releases` releases;
 - **bidirectional repository link**: the registry metadata points at a GitHub repository whose own manifest
   (`pyproject.toml` / `setup.cfg` / `setup.py`, or `package.json`) declares this package name, and the repository is not a fork;
-- **no typosquat**: no package one edit away (two for long names) is more than 20× as popular (PyPI: monthly top-5000 list;
-  npm: bulk download counts of generated near-names).
+- **project name matches** the package or repository name (the caller asked for this package, not a near-miss);
+- **no typosquat**: no package one edit away (two for long names) is more than 20× as popular (PyPI: the top-1500 popularity
+  list, streamed on first use and re-validated every 60 days with ETag, ~90 KB and nothing bundled; npm: bulk download counts of
+  generated near-names).
 
 Popularity is deliberately *not* a signal on its own (download counts can be inflated); it only serves as the denominator in
 the typosquat ratio. A missing package → `VERIFIED_FALSE`. Anything unknown (API down, no repository, unreadable manifest,

@@ -20,8 +20,6 @@ from ..models import Evidence, IdentityGraph, L0Result, Verdict, VerifyResult
 from ..tracelog import TRACE
 from .structured import Structured
 
-PYPI_TOP_URL = "https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json"
-BUNDLED_PYPI = Path(__file__).parent.parent / "data" / "pypi_top.json"
 NPM_BULK = "https://api.npmjs.org/downloads/point/last-week/"
 
 
@@ -64,6 +62,13 @@ def _variants(name: str) -> set[str]:
     return {v for v in out if v and re.fullmatch(r"[a-z0-9][a-z0-9._-]*", v)}
 
 
+def _names_match(project: str, package: str) -> bool:
+    """Caller's project name vs package name: equal after normalisation, or one contains the other (\"LM Studio\" / lmstudio)."""
+    a = re.sub(r"[^a-z0-9]", "", project.lower())
+    b = re.sub(r"[^a-z0-9]", "", package.lower())
+    return bool(a and b) and (a == b or a in b or b in a)
+
+
 def _manifest_names(filename: str, text: str) -> list[str]:
     """Package names declared by a manifest file (best effort, parser first, regex fallback)."""
     names: list[str] = []
@@ -101,24 +106,54 @@ class RegistryFastPath:
         self.client = structured.client
 
     # ---------------- popularity data
-    async def pypi_top(self) -> dict[str, int]:
+    async def pypi_top(self) -> dict[str, int] | None:
+        """Top-N PyPI packages by monthly downloads. Downloaded on first use only, streamed and closed after N rows
+        (the file is sorted by downloads), re-validated at most every toplist_refresh_days with If-None-Match so an
+        unchanged list costs a 304 and no body. Returns None when nothing is available (signal unknown)."""
+        fp = self.cfg.package_registry_fast_path
         cache = Path(os.path.expanduser("~/.urlverify_mcp/pypi_top.json"))
-        ttl = self.cfg.registry_fast_path.toplist_refresh_days * 86400
-        if cache.is_file() and time.time() - cache.stat().st_mtime < ttl:
+        cached: dict[str, Any] | None = None
+        if cache.is_file():
             try:
-                return {r[0]: r[1] for r in json.loads(cache.read_text(encoding="utf-8"))["rows"]}
+                cached = json.loads(cache.read_text(encoding="utf-8"))
             except Exception:  # noqa: BLE001
-                pass
+                cached = None
+        fresh_enough = cached and time.time() - float(cached.get("fetched", 0)) < fp.toplist_refresh_days * 86400 and len(cached.get("rows", [])) >= min(fp.toplist_size, 100)
+        if fresh_enough:
+            return {r[0]: r[1] for r in cached["rows"][: fp.toplist_size]}
+        headers = {"Accept": "application/json"}
+        if cached and cached.get("etag") and len(cached.get("rows", [])) >= fp.toplist_size:
+            headers["If-None-Match"] = cached["etag"]
         try:
-            r = await self.client.get(PYPI_TOP_URL)
-            if r.status_code == 200:
-                rows = [[x["project"], int(x["download_count"])] for x in r.json()["rows"][:5000]]
-                cache.parent.mkdir(parents=True, exist_ok=True)
-                cache.write_text(json.dumps({"rows": rows, "fetched": time.time()}), encoding="utf-8")
-                return {a: b for a, b in rows}
-        except Exception:  # noqa: BLE001
-            pass
-        return {r[0]: r[1] for r in json.loads(BUNDLED_PYPI.read_text(encoding="utf-8"))["rows"]}
+            rows: list[list] = []
+            async with self.client.stream("GET", fp.toplist_url, headers=headers) as r:
+                if r.status_code == 304 and cached:
+                    cached["fetched"] = time.time()
+                    cache.write_text(json.dumps(cached), encoding="utf-8")
+                    return {x[0]: x[1] for x in cached["rows"][: fp.toplist_size]}
+                if r.status_code != 200:
+                    raise RuntimeError(f"HTTP {r.status_code}")
+                etag = r.headers.get("etag")
+                buf = ""
+                async for chunk in r.aiter_text():
+                    buf += chunk
+                    for m in re.finditer(r'\{"download_count":\s*(\d+),\s*"project":\s*"([^"]+)"\}', buf):
+                        rows.append([m.group(2), int(m.group(1))])
+                    if rows:
+                        buf = buf[buf.rfind("}") + 1:]         # keep only the unfinished tail
+                    if len(rows) >= fp.toplist_size:
+                        break                                    # closes the connection; the remainder is never downloaded
+            rows = rows[: fp.toplist_size]
+            if not rows:
+                raise RuntimeError("no rows parsed")
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps({"rows": rows, "fetched": time.time(), "etag": etag, "url": fp.toplist_url}), encoding="utf-8")
+            return {a: b for a, b in rows}
+        except Exception as e:  # noqa: BLE001
+            TRACE.log("pypi_toplist", error=f"{type(e).__name__}: {e}", cached_rows=len(cached["rows"]) if cached else 0)
+            if cached and cached.get("rows"):
+                return {r[0]: r[1] for r in cached["rows"][: fp.toplist_size]}   # stale beats nothing
+            return None
 
     # ---------------- signals
     async def pypi_signals(self, name: str) -> dict[str, Any]:
@@ -135,7 +170,14 @@ class RegistryFastPath:
                     "age_days": _age_days(min(uploads)) if uploads else None, "latest_age_days": _age_days(max(uploads)) if uploads else None,
                     "project_urls": info.get("project_urls") or {}, "home_page": info.get("home_page"), "summary": info.get("summary"),
                     "source": f"https://pypi.org/project/{info.get('name') or name}/"})
+        if not self.cfg.package_registry_fast_path.typosquat_check:
+            sig["typosquat_hits"] = []
+            sig["typosquat_check"] = "disabled by config"
+            return sig
         top = await self.pypi_top()
+        if top is None:
+            sig["typosquat_hits"] = None          # unknown: fast path will be inconclusive
+            return sig
         n = norm_pypi(name)
         top_norm = {norm_pypi(k): v for k, v in top.items()}
         sig["downloads_rank_month"] = top_norm.get(n)
@@ -168,6 +210,10 @@ class RegistryFastPath:
                     "latest_age_days": _age_days(times.get("modified")), "homepage": j.get("homepage"),
                     "repository": repo.get("url") if isinstance(repo, dict) else repo, "maintainers": len(j.get("maintainers") or []),
                     "source": f"https://www.npmjs.com/package/{name}"})
+        if not self.cfg.package_registry_fast_path.typosquat_check:
+            sig["typosquat_hits"] = []
+            sig["typosquat_check"] = "disabled by config"
+            return sig
         # popularity of the candidate and of its near-names (bulk endpoint, unscoped names only)
         if name.startswith("@"):
             sig["downloads_week"] = None
@@ -237,11 +283,15 @@ class RegistryFastPath:
         return {"declared": None, "error": last_err or "no manifest found on default branch"}
 
     # ---------------- decision
-    async def run(self, l0: L0Result, t0: float, trace_id: str) -> VerifyResult | None:
-        fp = self.cfg.registry_fast_path
+    async def run(self, l0: L0Result, t0: float, trace_id: str, project: str = "") -> VerifyResult | None:
+        fp = self.cfg.package_registry_fast_path
         if l0.platform not in ("pypi", "npm") or not l0.platform_owner:
             return None
         name = l0.platform_owner
+        if fp.require_project_match and project and not _names_match(project, name):
+            TRACE.log("registry_fast_path", outcome="inconclusive", note=f"project '{project}' does not match package '{name}'")
+            l0.risk_signals.append(f"project_package_mismatch:{project}!={name}")
+            return None
         sig = await (self.pypi_signals(name) if l0.platform == "pypi" else self.npm_signals(name))
         notes: list[str] = []
         if sig.get("exists") is None:
