@@ -33,6 +33,7 @@ class SearxngHTTPConfig(BaseModel):
 
 class SearchConfig(BaseModel):
     provider: Literal["mcp", "searxng_http"] = "mcp"
+    call_timeout_s: int = 45              # hard limit for one search / fetch call (MCP call_tool read timeout or HTTP timeout)
     mcp: MCPSearchConfig = MCPSearchConfig()
     searxng_http: SearxngHTTPConfig = SearxngHTTPConfig()
 
@@ -42,6 +43,7 @@ class BudgetConfig(BaseModel):
     max_fetches: int = 10
     max_api_calls: int = 20
     fetch_max_chars: int = 12000
+    max_total_s: int = 600                # whole-verification deadline; past it the result is UNVERIFIABLE
 
 
 class IdentityConfig(BaseModel):
@@ -106,6 +108,8 @@ class ServerConfig(BaseModel):
     transport: Literal["stdio", "http"] = "stdio"
     host: str = "127.0.0.1"
     port: int = 8766          # Streamable HTTP endpoint: http://host:port/mcp
+    progress_events: bool = True   # send MCP progress notifications at each pipeline step (clients that honour them reset their timeout)
+    heartbeat_s: int = 15          # additionally send a progress heartbeat every N seconds while a verification runs; 0 disables
 
 
 class AdminConfig(BaseModel):

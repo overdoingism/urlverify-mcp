@@ -11,6 +11,7 @@ from ..identity.structured import Structured
 from ..models import L0Result, LLMSubmission
 from ..providers.llm import LLM
 from ..providers.search import SearchProvider
+from .. import progress
 from ..tracelog import TRACE
 from .prompts import fallback_action_instructions, submission_schema_text, system_prompt
 
@@ -75,6 +76,7 @@ class Investigator:
 
     async def run_tool(self, name: str, args: dict[str, Any]) -> str:
         args = args or {}
+        await progress.report(f"L1: {name} {_short(args)}")
         TRACE.log("agent_tool_call", tool=name, args=args, budget=self.budget.summary())
         out = await self._run_tool_inner(name, args)
         TRACE.log("agent_tool_result", tool=name, chars=len(out), text=out)
@@ -156,7 +158,8 @@ class Investigator:
         if not native:
             messages[0]["content"] += "\n\n" + fallback_action_instructions().format(tool_list=_tool_list_text())
 
-        for _ in range(self.cfg.llm.max_iterations):
+        for turn in range(self.cfg.llm.max_iterations):
+            await progress.report(f"L1: LLM turn {turn + 1}/{self.cfg.llm.max_iterations}", 0.15 + 0.65 * turn / self.cfg.llm.max_iterations)
             msg = await self.llm.chat(messages, tools=TOOLS if native else None)
             if native and self.llm.supports_tools is False:
                 # tools rejected mid-flight: switch to fallback mode
@@ -239,6 +242,11 @@ class Investigator:
         return LLMSubmission.model_validate({"identity": ident, "evidence": evs, "proposed_verdict": pv,
                                              "proposed_reason": str(data.get("proposed_reason") or ""),
                                              "risk_notes": [str(x) for x in data.get("risk_notes") or []]})
+
+
+def _short(args: dict[str, Any]) -> str:
+    v = next((str(x) for x in args.values() if x), "")
+    return (v[:60] + "…") if len(v) > 60 else v
 
 
 def _tool_list_text() -> str:

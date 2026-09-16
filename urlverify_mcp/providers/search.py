@@ -115,8 +115,9 @@ class MCPSearchProvider:
         TRACE.log("search_request", provider="mcp", url=self.cfg.search.mcp.url, tool=tool, args=args)
         t0 = time.time()
         try:
-            result = await self._session.call_tool(tool, args)
-        except Exception as e:  # transport died mid-call
+            from datetime import timedelta
+            result = await self._session.call_tool(tool, args, read_timeout_seconds=timedelta(seconds=self.cfg.search.call_timeout_s))
+        except Exception as e:  # transport died mid-call, or read timeout (McpError -32001)
             TRACE.log("search_response", provider="mcp", tool=tool, error=_root_cause(e), elapsed_s=round(time.time() - t0, 2))
             raise SearchUnavailable(f"search MCP call {tool} failed: {_root_cause(e)}") from None
         parts = []
@@ -159,7 +160,7 @@ class MCPSearchProvider:
 class SearxngHTTPProvider:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self.client = httpx.AsyncClient(timeout=cfg.net.timeout_s, headers={"User-Agent": cfg.net.user_agent}, follow_redirects=True)
+        self.client = httpx.AsyncClient(timeout=cfg.search.call_timeout_s, headers={"User-Agent": cfg.net.user_agent}, follow_redirects=True)
 
     async def search(self, query: str) -> str:
         TRACE.log("search_request", provider="searxng_http", url=self.cfg.search.searxng_http.base_url, tool="search", args={"query": query})

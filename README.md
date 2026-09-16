@@ -6,6 +6,9 @@ A small investigative agent exposed as an [MCP](https://modelcontextprotocol.io)
 Verdicts `VERIFIED_TRUE` · `VERIFIED_FALSE` · `UNVERIFIABLE`, each with a confidence score, a reason in the caller's language, and evidence whose quotes are verified against fetched content.
 判定為三態，各附信心分數、跟隨呼叫方語言的結論，以及可逐字驗證的證據。
 
+**Configuration reference:** every `config.yaml` field is explained in [document_for_config.md](document_for_config.md).
+**設定說明**：所有 `config.yaml` 欄位的解釋見 [document_for_config.md](document_for_config.md)。
+
 ## How it works / 運作方式
 
 1. **L0 — deterministic checks** (no LLM): TLS chain / SAN / Organization, DNS, redirect chain, punycode / homoglyph / typosquat / subdomain abuse, Certificate-Transparency first-seen, platform anchors, allow/deny lists, prompt-injection screening of the target page.
@@ -73,6 +76,11 @@ admin:
 | Admin UI | `uv run urlverify-mcp admin` | http://127.0.0.1:8765 — config editor, allow/deny lists, caches, history, manual test. |
 | MCP server (stdio) | `uv run urlverify-mcp serve` | For hosts that spawn the process themselves (Claude Desktop, Claude Code, …). Nothing is printed; that is expected. |
 | MCP server (HTTP) | `uv run urlverify-mcp serve --transport http` | Streamable HTTP at `http://127.0.0.1:8766/mcp` for URL-based hosts (LibreChat, …). Set `server.transport: http` to make it the default. Browsers show 400/406 on this URL; test with a POST. |
+
+Long verifications and client timeouts: the server sends MCP progress notifications at every step plus a heartbeat
+(`server.progress_events`, `server.heartbeat_s`), so clients that honour `resetTimeoutOnProgress` never hit `-32001`
+however long a run takes; every wait is bounded and the whole run by `budget.max_total_s`. OpenCode honours progress
+since its June 2026 fix (PR #32477); older builds time out regardless of what the server sends.
 | One-shot check | `uv run urlverify-mcp verify "LM Studio" https://lmstudio.ai/download "Linux AppImage"` | Prints the full JSON result. Exit code 0 only for `VERIFIED_TRUE`. |
 
 MCP host configuration:

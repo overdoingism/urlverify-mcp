@@ -97,6 +97,7 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - 結構化 API（Wikipedia、Wikidata、Wayback、GitHub、HF）以 `httpx` 直連，不經搜尋 MCP；只有一般網頁才走 `web_url_read`。
 
 ## 5. 設定（`config.yaml`，管理介面可改）
+完整欄位說明維護在 `document_for_config.md`，**新增或改動任何設定欄位時必須同步更新該文件**。以下只列設計要點：
 - `llm.base_url / api_key / model / supports_tools`（任何 OpenAI 相容 API；不假設特定後端）
 - `search.provider`：`mcp`（預設，接既有 SearXNG MCP）或 `searxng_http`（備援，`http://127.0.0.1:8888`）
 - `search.mcp.url`（預設 `http://127.0.0.1:3000/mcp`；容器未映射到本機時改填該主機位址，見 §11）
@@ -109,6 +110,9 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - `full_log.enabled / dir / max_bytes`：完整資料日誌（預設關閉；MCP 進出、LLM 每輪含 reasoning、搜尋往返、L0、裁決；
   `full-YYYYMMDDHHMMSS.log`，超過 1MB 換檔；管理介面 Config 分頁可即時切換）
 - `prompts.dir`：prompt 覆寫檔目錄。預設在 `prompt_defaults/*.md`；`agent_*` 下次驗證即生效，`mcp_*` 需重啟 server
+- `search.call_timeout_s`（單次搜尋/抓取上限）、`budget.max_total_s`（整次驗證總時限，到期回 UNVERIFIABLE）
+- `server.progress_events / heartbeat_s`：MCP progress 通知與心跳，讓支援 resetTimeoutOnProgress 的 client 不會 -32001；
+  心跳之所以安全是因為所有等待皆有上限且受總時限約束（2026-09-16 定案）
 - `server.transport / host / port`（MCP server 本體，預設 stdio；http 時端點為 `http://host:port/mcp`，預設 8766；CLI 旗標優先於設定檔）
 - `admin.host / port`（管理介面，預設 8765）
 - 輸出語言：**跟隨呼叫方輸入語言**，無需設定

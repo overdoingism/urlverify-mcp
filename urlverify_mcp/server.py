@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
+
+from . import progress as progress_mod
 
 from .config import Config, load_config
 from .models import VerifyRequest
@@ -41,12 +43,23 @@ def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: 
     mcp = FastMCP("URLVerify_MCP", host=host, port=port, instructions=prompts.get("mcp_instructions"))
 
     @mcp.tool(description=prompts.get("mcp_tool_verify_source"))
-    async def verify_source(project: str, url: str, description: str = "", options: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def verify_source(project: str, url: str, description: str = "", options: dict[str, Any] | None = None,
+                            ctx: Context | None = None) -> dict[str, Any]:
         # Re-read config.yaml on every call so edits made in the admin UI (endpoints, thresholds, lists,
         # full_log toggle) apply to a running server. MCP-facing prompts stay fixed until restart.
         live_cfg = _reload(cfg)
         TRACE.log("mcp_request", tool="verify_source", args={"project": project, "url": url, "description": description, "options": options})
-        res = await verify(VerifyRequest(project=project, url=url, description=description, options=options), live_cfg, store)
+        # Progress notifications + heartbeat: FastMCP's report_progress is a no-op when the client sent no progressToken.
+        reporter = (lambda p, t, m: ctx.report_progress(p, t, m)) if ctx is not None else None
+        prog = progress_mod.Progress(reporter, events=live_cfg.server.progress_events, heartbeat_s=live_cfg.server.heartbeat_s)
+        tok = progress_mod.bind(prog)
+        prog.start_heartbeat()
+        try:
+            res = await verify(VerifyRequest(project=project, url=url, description=description, options=options), live_cfg, store)
+        finally:
+            await prog.stop()
+            progress_mod.unbind(tok)
+        TRACE.log("progress_summary", notifications_sent=prog.sent, heartbeat_s=prog.heartbeat_s, events=prog.events)
         out = res.model_dump(mode="json")
         TRACE.log("mcp_response", tool="verify_source", trace_id_result=res.trace_id, verdict=res.verdict.value, response=out)
         return out

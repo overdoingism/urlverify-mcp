@@ -10,6 +10,7 @@ llm:
 
 search:
   provider: mcp                           # mcp | searxng_http
+  call_timeout_s: 45                      # one search / fetch call may take at most this long
   mcp:
     url: "http://127.0.0.1:3000/mcp"      # existing SearXNG MCP (Streamable HTTP)
     search_tool: "searxng_web_search"
@@ -22,6 +23,7 @@ budget:
   max_fetches: 10
   max_api_calls: 20
   fetch_max_chars: 12000
+  max_total_s: 600          # whole-verification deadline (seconds); past it the verdict is UNVERIFIABLE
 
 identity:
   min_sources: 2            # independent third-party sources required (tier 1/2)
@@ -78,6 +80,8 @@ server:                     # the MCP server itself (urlverify-mcp serve); CLI f
   transport: stdio          # stdio | http   (http = Streamable HTTP at http://host:port/mcp)
   host: "127.0.0.1"
   port: 8766
+  progress_events: true     # MCP progress notifications at each step (clients honouring them reset their timeout)
+  heartbeat_s: 15           # progress heartbeat while a verification runs; 0 disables. Safe because every wait is bounded.
 
 admin:                      # management web UI (urlverify-mcp admin)
   host: "127.0.0.1"
