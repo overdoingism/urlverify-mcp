@@ -92,6 +92,16 @@ class ListsConfig(BaseModel):
     denylist: list[str] = Field(default_factory=list)
 
 
+class FullLogConfig(BaseModel):
+    enabled: bool = False
+    dir: str = "~/.urlverify_mcp/logs"
+    max_bytes: int = 1_048_576          # rotate to a new full-YYYYMMDDHHMMSS.log beyond this size
+
+
+class PromptsConfig(BaseModel):
+    dir: str = "~/.urlverify_mcp/prompts"   # user overrides; defaults ship inside the package
+
+
 class ServerConfig(BaseModel):
     transport: Literal["stdio", "http"] = "stdio"
     host: str = "127.0.0.1"
@@ -119,6 +129,8 @@ class Config(BaseModel):
         r"\b(system|developer) (prompt|instruction|override)\b",
         r"\bplease (report|respond|answer|mark|classify)[^.\n]{0,60}\b(verified|official|true|legitimate|safe)\b",
     ])
+    full_log: FullLogConfig = FullLogConfig()
+    prompts: PromptsConfig = PromptsConfig()
     server: ServerConfig = ServerConfig()
     admin: AdminConfig = AdminConfig()
 

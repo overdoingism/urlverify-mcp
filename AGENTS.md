@@ -106,6 +106,9 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - `allowlist / denylist`
 - `cache.cert_ttl_hours`、`cache.identity_ttl_hours`、`cache.anchor_refresh_days`
 - `net.timeout_s`
+- `full_log.enabled / dir / max_bytes`：完整資料日誌（預設關閉；MCP 進出、LLM 每輪含 reasoning、搜尋往返、L0、裁決；
+  `full-YYYYMMDDHHMMSS.log`，超過 1MB 換檔；管理介面 Config 分頁可即時切換）
+- `prompts.dir`：prompt 覆寫檔目錄。預設在 `prompt_defaults/*.md`；`agent_*` 下次驗證即生效，`mcp_*` 需重啟 server
 - `server.transport / host / port`（MCP server 本體，預設 stdio；http 時端點為 `http://host:port/mcp`，預設 8766；CLI 旗標優先於設定檔）
 - `admin.host / port`（管理介面，預設 8765）
 - 輸出語言：**跟隨呼叫方輸入語言**，無需設定

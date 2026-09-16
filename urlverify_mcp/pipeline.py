@@ -6,7 +6,8 @@ import time
 import uuid
 
 from .agent.loop import Investigator
-from .agent.prompts import REASON_PROMPT
+from .agent.prompts import reason_prompt
+from .tracelog import TRACE, configure_from, reset_trace_id, set_trace_id
 from .checks import apply_injection_check, run_l0
 from .config import Config
 from .identity.aging import Aging, age_many, domain_first_seen
@@ -23,6 +24,19 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
     t0 = time.time()
     cfg = base_cfg.with_overrides(req.options)
     trace_id = uuid.uuid4().hex[:12]
+    configure_from(base_cfg)
+    from .promptstore import get_store
+    get_store(base_cfg.prompts.dir)
+    token = set_trace_id(trace_id)
+    try:
+        return await _verify(req, cfg, store, trace_id, t0)
+    finally:
+        reset_trace_id(token)
+
+
+async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str, t0: float) -> VerifyResult:
+    TRACE.log("verify_start", request=req.model_dump(), effective_config={"identity": cfg.identity.model_dump(), "budget": cfg.budget.model_dump(),
+                                                                          "search_provider": cfg.search.provider, "llm_model": cfg.llm.model})
     cache_hits: list[str] = []
     cached_identity = store.get_identity(req.project)
     if cached_identity:
@@ -30,6 +44,7 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
     known_official = (cached_identity or {}).get("official_domains", [])
 
     l0 = await run_l0(req.url, cfg, store, known_official=known_official, cache_hits=cache_hits)
+    TRACE.log("l0_result", result=l0.model_dump(exclude={"fetched_target_text"}), cached_identity=cached_identity)
 
     llm = LLM(cfg)
     search = make_search_provider(cfg)
@@ -51,6 +66,8 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
             inv.target_page_text = page[: cfg.budget.fetch_max_chars]
             inv.evidence_store[l0.normalized_url] = inv.target_page_text
         apply_injection_check(l0, inv.target_page_text, cfg.injection_patterns)
+        TRACE.log("target_page", url=l0.final_url or l0.normalized_url, chars=len(inv.target_page_text or ""), text=inv.target_page_text,
+                  injection=next((c.model_dump() for c in l0.checks if c.name == "injection"), None))
 
         if l0.fatal_failures:
             # No need to spend LLM budget: deterministic failure is final.
@@ -81,8 +98,12 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
                 await aging.close()
             for u, a in ages.items():
                 engine_notes.append(f"aging {u[:80]}: " + (f"{a.get('age_days')}d via {a.get('method')} ({a.get('strength')})" if a.get("created_ts") else f"undated ({a.get('error')})"))
+        TRACE.log("aging_result", ages=ages, target_domain_age=target_age)
         dec = decide(cfg, l0, sub, inv.evidence_store, req.project, cached_identity, ages, target_age)
         engine_notes.extend(dec.notes)
+        TRACE.log("rules_decision", verdict=dec.verdict.value, confidence=dec.confidence, notes=dec.notes,
+                  established_domains=dec.established_domains, established_orgs=dec.established_orgs,
+                  evidence=[e.model_dump() for e in dec.evidence], submission=sub.model_dump())
         if dec.verdict == Verdict.TRUE and any(c.name == "injection" and c.status == "skip" for c in l0.checks):
             dec.confidence = max(0.5, dec.confidence - 0.1)
             engine_notes.append("injection screening could not run (target page not fetched); confidence reduced by 0.1")
@@ -107,13 +128,14 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
         await search.close()
         await structured.close()
     store.add_history(trace_id, req.project, req.url, req.description, result.verdict.value, result.confidence, result.model_dump(mode="json"))
+    TRACE.log("verify_end", result=result.model_dump(mode="json"))
     return result
 
 
 async def _write_reason(llm: LLM, req: VerifyRequest, verdict: Verdict, confidence: float, notes: list[str], l0, sub) -> str:
     findings = "\n".join(f"- {n}" for n in notes)
     findings += "\n" + "\n".join(f"- check {c.name}: {c.status}{' (' + c.message + ')' if c.message else ''}" for c in l0.checks)
-    prompt = REASON_PROMPT.format(project=req.project, url=req.url, description=req.description, verdict=verdict.value,
+    prompt = reason_prompt().format(project=req.project, url=req.url, description=req.description, verdict=verdict.value,
                                   confidence=confidence, findings=findings, narrative=sub.identity.narrative or sub.proposed_reason)
     try:
         msg = await llm.chat([{"role": "user", "content": prompt}], temperature=0.2)

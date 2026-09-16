@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import html
 import re
+import time
 from typing import Any, Protocol
 
 import httpx
 
 from ..config import Config
+from ..tracelog import TRACE
 
 
 class SearchUnavailable(RuntimeError):
@@ -107,9 +109,12 @@ class MCPSearchProvider:
 
     async def _call(self, tool: str, args: dict[str, Any]) -> str:
         await self._ensure()
+        TRACE.log("search_request", provider="mcp", url=self.cfg.search.mcp.url, tool=tool, args=args)
+        t0 = time.time()
         try:
             result = await self._session.call_tool(tool, args)
         except Exception as e:  # transport died mid-call
+            TRACE.log("search_response", provider="mcp", tool=tool, error=_root_cause(e), elapsed_s=round(time.time() - t0, 2))
             raise SearchUnavailable(f"search MCP call {tool} failed: {_root_cause(e)}") from None
         parts = []
         for c in result.content:
@@ -117,6 +122,8 @@ class MCPSearchProvider:
             if t:
                 parts.append(t)
         text = "\n".join(parts)
+        TRACE.log("search_response", provider="mcp", tool=tool, is_error=bool(getattr(result, "isError", False)),
+                  elapsed_s=round(time.time() - t0, 2), chars=len(text), text=text)
         if getattr(result, "isError", False):
             raise RuntimeError(f"MCP tool {tool} error: {text[:300]}")
         return text
@@ -152,23 +159,30 @@ class SearxngHTTPProvider:
         self.client = httpx.AsyncClient(timeout=cfg.net.timeout_s, headers={"User-Agent": cfg.net.user_agent}, follow_redirects=True)
 
     async def search(self, query: str) -> str:
+        TRACE.log("search_request", provider="searxng_http", url=self.cfg.search.searxng_http.base_url, tool="search", args={"query": query})
         try:
             r = await self.client.get(self.cfg.search.searxng_http.base_url.rstrip("/") + "/search",
                                       params={"q": query, "format": "json"})
             r.raise_for_status()
         except httpx.HTTPError as e:
+            TRACE.log("search_response", provider="searxng_http", tool="search", error=f"{type(e).__name__}: {e}")
             raise SearchUnavailable(f"SearXNG at {self.cfg.search.searxng_http.base_url} unreachable: {type(e).__name__}: {e}") from None
         data = r.json()
         lines = []
         for i, item in enumerate(data.get("results", [])[:10], 1):
             lines.append(f"{i}. {item.get('title','')}\n   URL: {item.get('url','')}\n   {(item.get('content') or '')[:300]}")
-        return "\n".join(lines) or "(no results)"
+        text = "\n".join(lines) or "(no results)"
+        TRACE.log("search_response", provider="searxng_http", tool="search", chars=len(text), text=text, raw_results=data.get("results", [])[:10])
+        return text
 
     async def fetch(self, url: str) -> str:
+        TRACE.log("search_request", provider="searxng_http", tool="fetch", args={"url": url})
         r = await self.client.get(url)
         ct = r.headers.get("content-type", "")
         body = r.text if ("text" in ct or "json" in ct or "xml" in ct) else f"(binary content-type {ct}, {r.headers.get('content-length')} bytes)"
-        return _strip_html(body) if "html" in ct else body
+        text = _strip_html(body) if "html" in ct else body
+        TRACE.log("search_response", provider="searxng_http", tool="fetch", status=r.status_code, content_type=ct, chars=len(text), text=text)
+        return text
 
     async def close(self) -> None:
         await self.client.aclose()

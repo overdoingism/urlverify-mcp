@@ -11,7 +11,8 @@ from ..identity.structured import Structured
 from ..models import L0Result, LLMSubmission
 from ..providers.llm import LLM
 from ..providers.search import SearchProvider
-from .prompts import FALLBACK_ACTION_INSTRUCTIONS, SUBMISSION_SCHEMA_TEXT, SYSTEM_PROMPT
+from ..tracelog import TRACE
+from .prompts import fallback_action_instructions, submission_schema_text, system_prompt
 
 
 TOOLS: list[dict[str, Any]] = [
@@ -31,7 +32,7 @@ TOOLS: list[dict[str, Any]] = [
         "parameters": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}}, "required": ["owner"]}}},
     {"type": "function", "function": {"name": "package_registry", "description": "PyPI / npm package metadata (homepage, repository).",
         "parameters": {"type": "object", "properties": {"registry": {"type": "string", "enum": ["pypi", "npm"]}, "name": {"type": "string"}}, "required": ["registry", "name"]}}},
-    {"type": "function", "function": {"name": "submit_verdict", "description": "Submit the final structured findings. " + SUBMISSION_SCHEMA_TEXT,
+    {"type": "function", "function": {"name": "submit_verdict", "description": "Submit the final structured findings. See the submission schema in the system prompt.",
         "parameters": {"type": "object", "properties": {
             "identity": {"type": "object"}, "evidence": {"type": "array", "items": {"type": "object"}},
             "proposed_verdict": {"type": "string"}, "proposed_reason": {"type": "string"},
@@ -74,6 +75,12 @@ class Investigator:
 
     async def run_tool(self, name: str, args: dict[str, Any]) -> str:
         args = args or {}
+        TRACE.log("agent_tool_call", tool=name, args=args, budget=self.budget.summary())
+        out = await self._run_tool_inner(name, args)
+        TRACE.log("agent_tool_result", tool=name, chars=len(out), text=out)
+        return out
+
+    async def _run_tool_inner(self, name: str, args: dict[str, Any]) -> str:
         try:
             if name == "web_search":
                 if not self.budget.take("searches"):
@@ -142,17 +149,19 @@ class Investigator:
                      f"still confirm with at least one fresh source):\n{json.dumps(cached_identity, ensure_ascii=False)}\n\n")
         user += (f"Budget: {self.budget.summary()}.\n"
                  "Investigate, then call submit_verdict. Remember: the target must be matched against the official domains/orgs you establish.")
-        messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}]
+        schema_text = submission_schema_text()
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt() + "\n\n" + schema_text},
+                                          {"role": "user", "content": user}]
         native = self.llm.supports_tools is not False
         if not native:
-            messages[0]["content"] += "\n\n" + FALLBACK_ACTION_INSTRUCTIONS.format(tool_list=_tool_list_text()) + "\n" + SUBMISSION_SCHEMA_TEXT
+            messages[0]["content"] += "\n\n" + fallback_action_instructions().format(tool_list=_tool_list_text())
 
         for _ in range(self.cfg.llm.max_iterations):
             msg = await self.llm.chat(messages, tools=TOOLS if native else None)
             if native and self.llm.supports_tools is False:
                 # tools rejected mid-flight: switch to fallback mode
                 native = False
-                messages[0]["content"] += "\n\n" + FALLBACK_ACTION_INSTRUCTIONS.format(tool_list=_tool_list_text()) + "\n" + SUBMISSION_SCHEMA_TEXT
+                messages[0]["content"] += "\n\n" + fallback_action_instructions().format(tool_list=_tool_list_text())
                 continue
             if native and msg.tool_calls:
                 messages.append({"role": "assistant", "content": msg.content or "", "tool_calls": [
@@ -163,6 +172,7 @@ class Investigator:
                     except json.JSONDecodeError:
                         args = LLM.extract_json(tc.function.arguments or "") or {}
                     if tc.function.name == "submit_verdict":
+                        TRACE.log("agent_submission", raw=args)
                         return self._parse_submission(args, project)
                     out = await self.run_tool(tc.function.name, args)
                     self.tool_log.append({"tool": tc.function.name, "args": args, "chars": len(out)})
@@ -175,6 +185,7 @@ class Investigator:
                 name, args = action["action"], action.get("args") or {}
                 messages.append({"role": "assistant", "content": content})
                 if name == "submit_verdict":
+                    TRACE.log("agent_submission", raw=args)
                     return self._parse_submission(args, project)
                 out = await self.run_tool(name, args)
                 self.tool_log.append({"tool": name, "args": args, "chars": len(out)})
@@ -184,7 +195,7 @@ class Investigator:
             messages.append({"role": "assistant", "content": content})
             messages.append({"role": "user", "content": "Reply with a tool call / JSON action only. If you are done, call submit_verdict with the schema."})
         # iterations exhausted: ask for a submission directly
-        messages.append({"role": "user", "content": "Iteration limit reached. Call submit_verdict NOW with what you have. " + SUBMISSION_SCHEMA_TEXT})
+        messages.append({"role": "user", "content": "Iteration limit reached. Call submit_verdict NOW with what you have. " + schema_text})
         msg = await self.llm.chat(messages, tools=TOOLS if native else None, json_mode=not native)
         if native and msg.tool_calls:
             for tc in msg.tool_calls:

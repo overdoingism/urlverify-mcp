@@ -9,6 +9,8 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from ..config import Config, load_config, save_config
+from ..promptstore import PROMPTS, get_store
+from ..tracelog import TRACE, configure_from
 from ..models import VerifyRequest
 from ..pipeline import verify
 from ..storage import Storage
@@ -16,14 +18,33 @@ from ..storage import Storage
 STATIC = Path(__file__).parent / "static"
 
 
+class VerifyBody(BaseModel):
+    project: str
+    url: str
+    description: str = ""
+    options: dict[str, Any] | None = None
+
+
+class FullLogBody(BaseModel):
+    enabled: bool
+
+
+class PromptBody(BaseModel):
+    text: str
+
+
 class State:
     def __init__(self, config_path: str | None):
         self.config_path = config_path
         self.cfg: Config = load_config(config_path)
         self.store = Storage(self.cfg.storage.resolved())
+        configure_from(self.cfg)
+        self.prompts = get_store(self.cfg.prompts.dir)
 
     def reload(self):
         self.cfg = load_config(self.config_path)
+        configure_from(self.cfg)
+        self.prompts = get_store(self.cfg.prompts.dir)
 
 
 def create_app(config_path: str | None = None) -> FastAPI:
@@ -85,16 +106,60 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(404)
         return h
 
-    class VerifyBody(BaseModel):
-        project: str
-        url: str
-        description: str = ""
-        options: dict[str, Any] | None = None
-
     @app.post("/api/verify")
     async def api_verify(body: VerifyBody):
         res = await verify(VerifyRequest(**body.model_dump()), st.cfg, st.store)
         return res.model_dump(mode="json")
+
+    # ---- full data log
+    @app.get("/api/fulllog")
+    async def fulllog_status():
+        return {"enabled": TRACE.enabled, "dir": str(TRACE.dir), "max_bytes": TRACE.max_bytes,
+                "current": TRACE.current_path(), "files": TRACE.files()}
+
+    @app.put("/api/fulllog")
+    async def fulllog_toggle(body: FullLogBody):
+        """Persist the toggle to config.yaml and apply it immediately (no restart)."""
+        st.cfg.full_log.enabled = body.enabled
+        save_config(st.cfg)
+        st.reload()
+        return {"ok": True, "enabled": TRACE.enabled, "path": str(st.cfg.source_path)}
+
+    @app.get("/api/fulllog/{name}")
+    async def fulllog_read(name: str, tail: int = 262144):
+        try:
+            return {"name": name, "text": TRACE.read(name, tail)}
+        except FileNotFoundError:
+            raise HTTPException(404)
+
+    # ---- prompts
+    @app.get("/api/prompts")
+    async def prompts_list():
+        return st.prompts.listing()
+
+    @app.get("/api/prompts/{name}")
+    async def prompts_get(name: str):
+        if name not in PROMPTS:
+            raise HTTPException(404)
+        return {"name": name, "meta": st.prompts.listing()[list(PROMPTS).index(name)],
+                "default": st.prompts.default(name), "effective": st.prompts.get(name), "overridden": st.prompts.is_overridden(name)}
+
+    @app.put("/api/prompts/{name}")
+    async def prompts_put(name: str, body: PromptBody):
+        if name not in PROMPTS:
+            raise HTTPException(404)
+        try:
+            path = st.prompts.set(name, body.text)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {"ok": True, "path": str(path), "live": PROMPTS[name].live}
+
+    @app.delete("/api/prompts/{name}")
+    async def prompts_reset(name: str):
+        if name not in PROMPTS:
+            raise HTTPException(404)
+        st.prompts.reset(name)
+        return {"ok": True}
 
     @app.get("/api/env")
     async def env():

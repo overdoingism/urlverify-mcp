@@ -37,6 +37,8 @@
     <button data-tab="config">Config</button>
     <button data-tab="lists">Allow / Deny</button>
     <button data-tab="cache">Caches</button>
+    <button data-tab="prompts">Prompts</button>
+    <button data-tab="logs">Logs</button>
   </nav>
   <span id="env" class="muted" style="margin-left:auto"></span>
 </header>
@@ -67,7 +69,15 @@
   <section id="tab-history"><div class="card"><table id="h-table"><thead><tr><th>Time</th><th>Project</th><th>URL</th><th>Verdict</th><th>Conf</th><th></th></tr></thead><tbody></tbody></table></div>
     <div class="card" id="h-detail" style="display:none"><pre id="h-raw"></pre></div></section>
 
-  <section id="tab-config"><div class="card">
+  <section id="tab-config">
+    <div class="card">
+      <label style="display:flex;align-items:center;gap:10px;font-size:14px;color:var(--fg)">
+        <input type="checkbox" id="fl-enabled" style="width:auto"> <b>Full data log</b>
+        <span class="muted">records every MCP request/response, LLM turn (incl. reasoning), search exchange, L0 result and decision as JSONL; rotates at 1 MB. Applies immediately.</span>
+      </label>
+      <div class="muted" id="fl-status" style="margin-top:6px"></div>
+    </div>
+    <div class="card">
     <p class="muted">Loaded from: <span id="c-path"></span>. Edit YAML-equivalent JSON below; saving writes the config file and reloads.</p>
     <textarea id="c-json" style="min-height:420px"></textarea>
     <button class="primary" id="c-save">Save</button> <span id="c-status" class="muted"></span>
@@ -82,6 +92,36 @@
       <table id="dl-table"><tbody></tbody></table>
       <input id="dl-domain" placeholder="evil-download.example"><button class="primary" id="dl-add">Add</button></div>
   </div></section>
+
+  <section id="tab-prompts">
+    <div class="grid" style="grid-template-columns:280px 1fr">
+      <div class="card"><h3>Prompts</h3>
+        <p class="muted">Agent = URLVerify's own LLM (live on next verification). MCP = text shown to the calling agent (server restart needed).</p>
+        <div id="p-list"></div></div>
+      <div class="card" id="p-editor" style="display:none">
+        <div><b id="p-title"></b> <span class="pill" id="p-audience"></span> <span class="pill" id="p-live"></span> <span class="pill" id="p-over"></span></div>
+        <div class="muted" id="p-ph"></div>
+        <label>Effective text (edit and save to override)</label>
+        <textarea id="p-text" style="min-height:360px"></textarea>
+        <button class="primary" id="p-save">Save override</button>
+        <button class="small" id="p-reset" style="margin-left:8px">Reset to default</button>
+        <button class="small" id="p-showdef" style="margin-left:8px">Show default</button>
+        <span id="p-status" class="muted" style="margin-left:8px"></span>
+        <pre id="p-default" style="display:none;margin-top:10px"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-logs">
+    <div class="card"><h3>Full data log files</h3>
+      <div class="muted" id="l-status"></div>
+      <table id="l-table"><thead><tr><th>File</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody></tbody></table></div>
+    <div class="card" id="l-view" style="display:none">
+      <div><b id="l-name"></b> <span class="muted">(last 256 KB; one JSON record per line)</span>
+        <label style="display:inline-block;margin-left:12px;font-size:12px"><input type="checkbox" id="l-pretty" checked style="width:auto"> pretty</label></div>
+      <pre id="l-text" style="max-height:600px"></pre>
+    </div>
+  </section>
 
   <section id="tab-cache">
     <div class="card"><h3>Identity graph cache <button class="small" data-clear="identity_cache">clear</button></h3><table id="ic-table"><tbody></tbody></table></div>
@@ -98,7 +138,7 @@ let cfg = null;
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button').forEach(x => x.classList.remove('active')); b.classList.add('active');
   document.querySelectorAll('section').forEach(s => s.classList.remove('active')); $('#tab-'+b.dataset.tab).classList.add('active');
-  ({history: loadHistory, config: loadConfig, lists: loadLists, cache: loadCaches})[b.dataset.tab]?.();
+  ({history: loadHistory, config: loadConfig, lists: loadLists, cache: loadCaches, prompts: loadPrompts, logs: loadLogs})[b.dataset.tab]?.();
 });
 
 async function loadEnv(){ try { const e = await api('/api/env'); $('#env').textContent = `LLM ${e.llm.ok?'✓':'✗'} · search ${e.search.ok?'✓':'✗'}` + (e.llm.models?.length? ` · ${e.llm.models[0]}`:''); } catch(err){ $('#env').textContent = 'env check failed'; } }
@@ -126,7 +166,10 @@ function showResult(r){
 async function loadHistory(){ const rows = await api('/api/history'); $('#h-table tbody').innerHTML = rows.map(h => `<tr><td>${new Date(h.ts*1000).toLocaleString()}</td><td>${esc(h.project)}</td><td class="muted">${esc(h.url).slice(0,70)}</td><td class="${h.verdict}">${h.verdict}</td><td>${h.confidence}</td><td><button class="small" data-trace="${h.trace_id}">view</button></td></tr>`).join('');
   $('#h-table').querySelectorAll('button').forEach(b => b.onclick = async () => { const d = await api('/api/history/'+b.dataset.trace); $('#h-detail').style.display='block'; $('#h-raw').textContent = JSON.stringify(d.result, null, 2); }); }
 
-async function loadConfig(){ cfg = await api('/api/config'); $('#c-path').textContent = cfg._source_path || '(defaults; save will create ~/.urlverify_mcp/config.yaml)'; const c = {...cfg}; delete c._source_path; $('#c-json').value = JSON.stringify(c, null, 2); }
+async function loadFullLog(){ const f = await api('/api/fulllog'); $('#fl-enabled').checked = f.enabled; $('#fl-status').textContent = `dir ${f.dir} · current file: ${f.current || '(none yet)'} · ${f.files.length} file(s)`; }
+$('#fl-enabled').onchange = async () => { const r = await api('/api/fulllog', {method:'PUT', body: JSON.stringify({enabled: $('#fl-enabled').checked})}); $('#fl-status').textContent = `saved to ${r.path} · enabled=${r.enabled}`; loadFullLog(); };
+
+async function loadConfig(){ loadFullLog(); cfg = await api('/api/config'); $('#c-path').textContent = cfg._source_path || '(defaults; save will create ~/.urlverify_mcp/config.yaml)'; const c = {...cfg}; delete c._source_path; $('#c-json').value = JSON.stringify(c, null, 2); }
 $('#c-save').onclick = async () => { try { const r = await api('/api/config', {method:'PUT', body: $('#c-json').value}); $('#c-status').textContent = 'saved to ' + r.path; loadEnv(); } catch(e){ $('#c-status').textContent = 'error: ' + e.message; } };
 
 async function loadLists(){ cfg = await api('/api/config');
@@ -145,6 +188,26 @@ async function loadCaches(){
   document.querySelectorAll('#tab-cache button[data-k]').forEach(b => b.onclick = async () => { await api(`/api/cache/${b.dataset.t}/${encodeURIComponent(b.dataset.k)}`, {method:'DELETE'}); loadCaches(); });
   document.querySelectorAll('#tab-cache button[data-clear]').forEach(b => b.onclick = async () => { if(confirm('Clear '+b.dataset.clear+'?')){ await api('/api/cache/'+b.dataset.clear, {method:'DELETE'}); loadCaches(); } });
 }
+let curPrompt = null;
+async function loadPrompts(){ const list = await api('/api/prompts');
+  $('#p-list').innerHTML = list.map(p => `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><a href="#" data-p="${p.name}"><b>${esc(p.name)}</b></a>${p.overridden?' <span class="pill">edited</span>':''}<br><span class="muted">${esc(p.title)} · ${p.audience}${p.live?'':' · restart'}</span></div>`).join('');
+  $('#p-list').querySelectorAll('a').forEach(a => a.onclick = (e) => { e.preventDefault(); openPrompt(a.dataset.p); }); }
+async function openPrompt(name){ const p = await api('/api/prompts/'+name); curPrompt = name;
+  $('#p-editor').style.display = 'block'; $('#p-title').textContent = p.meta.title; $('#p-audience').textContent = p.meta.audience;
+  $('#p-live').textContent = p.meta.live ? 'live on next verification' : 'needs server restart'; $('#p-over').textContent = p.overridden ? 'override active' : 'default';
+  $('#p-ph').textContent = p.meta.placeholders.length ? 'required placeholders: ' + p.meta.placeholders.map(x=>'{'+x+'}').join(' ') : '';
+  $('#p-text').value = p.effective; $('#p-default').textContent = p.default; $('#p-default').style.display = 'none'; $('#p-status').textContent = ''; }
+$('#p-save').onclick = async () => { try { const r = await api('/api/prompts/'+curPrompt, {method:'PUT', body: JSON.stringify({text: $('#p-text').value})}); $('#p-status').textContent = 'saved to ' + r.path + (r.live ? '' : ' — restart the MCP server to apply'); loadPrompts(); openPrompt(curPrompt); } catch(e){ $('#p-status').textContent = 'error: ' + e.message; } };
+$('#p-reset').onclick = async () => { if(!confirm('Remove override and return to the built-in default?')) return; await api('/api/prompts/'+curPrompt, {method:'DELETE'}); loadPrompts(); openPrompt(curPrompt); };
+$('#p-showdef').onclick = () => { const d = $('#p-default'); d.style.display = d.style.display === 'none' ? 'block' : 'none'; };
+
+async function loadLogs(){ const f = await api('/api/fulllog'); $('#l-status').textContent = `enabled=${f.enabled} · dir ${f.dir} · rotate at ${Math.round(f.max_bytes/1024)} KB`;
+  $('#l-table tbody').innerHTML = f.files.map(x => `<tr><td>${esc(x.name)}${x.current?' <span class="pill">current</span>':''}</td><td>${Math.round(x.size/1024)} KB</td><td>${new Date(x.mtime*1000).toLocaleString()}</td><td><button class="small" data-f="${esc(x.name)}">view</button></td></tr>`).join('') || '<tr><td class="muted">no log files yet</td></tr>';
+  $('#l-table').querySelectorAll('button').forEach(b => b.onclick = () => viewLog(b.dataset.f)); }
+async function viewLog(name){ const r = await api('/api/fulllog/'+name); $('#l-view').style.display = 'block'; $('#l-name').textContent = name;
+  const render = () => { if(!$('#l-pretty').checked){ $('#l-text').textContent = r.text; return; }
+    $('#l-text').textContent = r.text.split('\n').filter(Boolean).map(l => { try { const j = JSON.parse(l); const {ts, trace_id, kind, ...rest} = j; return `${ts}  [${trace_id}]  ${kind}\n` + JSON.stringify(rest, null, 1).split('\n').map(x=>'    '+x).join('\n'); } catch(e){ return l; } }).join('\n\n'); };
+  $('#l-pretty').onchange = render; render(); }
 loadEnv();
 </script>
 </body>
