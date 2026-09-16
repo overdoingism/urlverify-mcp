@@ -76,6 +76,11 @@
         <span class="muted">records every MCP request/response, LLM turn (incl. reasoning), search exchange, L0 result and decision as JSONL; rotates at 1 MB. Applies immediately.</span>
       </label>
       <div class="muted" id="fl-status" style="margin-top:6px"></div>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <input id="fl-dir" readonly style="flex:1;font-family:ui-monospace,monospace;font-size:12px">
+        <button class="small" id="fl-open">Open log folder</button>
+        <button class="small" id="fl-copy">Copy path</button>
+      </div>
     </div>
     <div class="card">
     <p class="muted">Loaded from: <span id="c-path"></span>. Edit YAML-equivalent JSON below; saving writes the config file and reloads.</p>
@@ -166,11 +171,19 @@ function showResult(r){
 async function loadHistory(){ const rows = await api('/api/history'); $('#h-table tbody').innerHTML = rows.map(h => `<tr><td>${new Date(h.ts*1000).toLocaleString()}</td><td>${esc(h.project)}</td><td class="muted">${esc(h.url).slice(0,70)}</td><td class="${h.verdict}">${h.verdict}</td><td>${h.confidence}</td><td><button class="small" data-trace="${h.trace_id}">view</button></td></tr>`).join('');
   $('#h-table').querySelectorAll('button').forEach(b => b.onclick = async () => { const d = await api('/api/history/'+b.dataset.trace); $('#h-detail').style.display='block'; $('#h-raw').textContent = JSON.stringify(d.result, null, 2); }); }
 
-async function loadFullLog(){ const f = await api('/api/fulllog'); $('#fl-enabled').checked = f.enabled; $('#fl-status').textContent = `dir ${f.dir} · current file: ${f.current || '(none yet)'} · ${f.files.length} file(s)`; }
-$('#fl-enabled').onchange = async () => { const r = await api('/api/fulllog', {method:'PUT', body: JSON.stringify({enabled: $('#fl-enabled').checked})}); $('#fl-status').textContent = `saved to ${r.path} · enabled=${r.enabled}`; loadFullLog(); };
+async function loadFullLog(){ const f = await api('/api/fulllog'); $('#fl-enabled').checked = f.enabled; $('#fl-dir').value = f.dir; $('#fl-status').textContent = `current file: ${f.current || '(none yet)'} · ${f.files.length} file(s)`; }
+// The checkbox writes config.yaml immediately; the JSON editor below is another view of the same file, so refresh it
+// afterwards — otherwise a later "Save" would write the stale JSON (enabled:false) back over the toggle.
+$('#fl-enabled').onchange = async () => { const r = await api('/api/fulllog', {method:'PUT', body: JSON.stringify({enabled: $('#fl-enabled').checked})}); await loadConfig(); $('#fl-status').textContent = `saved to ${r.path} · enabled=${r.enabled}`; };
+$('#fl-open').onclick = async () => { try { const r = await api('/api/fulllog/open', {method:'POST'}); $('#fl-status').textContent = r.ok ? `opened ${r.dir}` : `could not open: ${r.error}`; } catch(e){ $('#fl-status').textContent = 'error: ' + e.message; } };
+$('#fl-copy').onclick = async () => { try { await navigator.clipboard.writeText($('#fl-dir').value); $('#fl-status').textContent = 'path copied'; } catch(e){ $('#fl-dir').select(); } };
 
-async function loadConfig(){ loadFullLog(); cfg = await api('/api/config'); $('#c-path').textContent = cfg._source_path || '(defaults; save will create ~/.urlverify_mcp/config.yaml)'; const c = {...cfg}; delete c._source_path; $('#c-json').value = JSON.stringify(c, null, 2); }
-$('#c-save').onclick = async () => { try { const r = await api('/api/config', {method:'PUT', body: $('#c-json').value}); $('#c-status').textContent = 'saved to ' + r.path; loadEnv(); } catch(e){ $('#c-status').textContent = 'error: ' + e.message; } };
+async function loadConfig(){ await loadFullLog(); cfg = await api('/api/config'); $('#c-path').textContent = cfg._source_path || '(defaults; save will create ~/.urlverify_mcp/config.yaml)'; const c = {...cfg}; delete c._source_path; $('#c-json').value = JSON.stringify(c, null, 2); }
+$('#c-save').onclick = async () => { try {
+    const body = JSON.parse($('#c-json').value);
+    body.full_log = body.full_log || {}; body.full_log.enabled = $('#fl-enabled').checked;   // the visible switch is authoritative
+    const r = await api('/api/config', {method:'PUT', body: JSON.stringify(body)}); $('#c-status').textContent = 'saved to ' + r.path; await loadConfig(); loadEnv(); }
+  catch(e){ $('#c-status').textContent = 'error: ' + e.message; } };
 
 async function loadLists(){ cfg = await api('/api/config');
   $('#al-table tbody').innerHTML = cfg.lists.allowlist.map((a,i) => `<tr><td>${esc(a.project)}</td><td>${esc(a.domain)}</td><td><button class="small" data-i="${i}">remove</button></td></tr>`).join('');

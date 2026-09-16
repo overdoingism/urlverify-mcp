@@ -125,6 +125,25 @@ def create_app(config_path: str | None = None) -> FastAPI:
         st.reload()
         return {"ok": True, "enabled": TRACE.enabled, "path": str(st.cfg.source_path)}
 
+    @app.post("/api/fulllog/open")
+    async def fulllog_open():
+        """Open the log folder in the OS file manager (admin UI is local-only by default)."""
+        import platform, subprocess
+        d = TRACE.dir
+        d.mkdir(parents=True, exist_ok=True)
+        try:
+            sysname = platform.system()
+            if sysname == "Windows":
+                import os
+                os.startfile(str(d))  # type: ignore[attr-defined]
+            elif sysname == "Darwin":
+                subprocess.Popen(["open", str(d)])
+            else:
+                subprocess.Popen(["xdg-open", str(d)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return {"ok": True, "dir": str(d)}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "dir": str(d), "error": f"{type(e).__name__}: {e}"}
+
     @app.get("/api/fulllog/{name}")
     async def fulllog_read(name: str, tail: int = 262144):
         try:
