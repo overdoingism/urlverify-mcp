@@ -5,8 +5,10 @@ from fastapi.testclient import TestClient
 
 def _client(tmp_path, monkeypatch):
     cfg_path = tmp_path / "config.yaml"
+    # as_posix(): YAML double-quoted scalars treat backslash as an escape char, so Windows paths must be slash-form
+    tp = tmp_path.as_posix()
     cfg_path.write_text(
-        f'storage:\n  path: "{tmp_path}/t.sqlite3"\nfull_log:\n  enabled: false\n  dir: "{tmp_path}/logs"\nprompts:\n  dir: "{tmp_path}/prompts"\n',
+        f'storage:\n  path: "{tp}/t.sqlite3"\nfull_log:\n  enabled: false\n  dir: "{tp}/logs"\nprompts:\n  dir: "{tp}/prompts"\n',
         encoding="utf-8")
     import urlverify_mcp.promptstore as ps
     monkeypatch.setattr(ps, "_store", None)
