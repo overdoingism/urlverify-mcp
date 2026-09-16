@@ -18,3 +18,13 @@ def test_variants_and_norm():
     v = _variants("lodash")
     assert "lodahs" in v and "lodas" in v and "lodash-js" in v and "lodash" not in v
     assert norm_pypi("Python_DateUtil") == norm_pypi("python-dateutil") == "python-dateutil"
+
+
+def test_manifest_names_parse_properly():
+    from urlverify_mcp.identity.registry import _manifest_names
+    assert _manifest_names("pyproject.toml", '[tool.towncrier]\nname = "Data updates"\n[project]\nname = "python-dateutil"\n') == ["python-dateutil"]
+    assert _manifest_names("pyproject.toml", '[tool.poetry]\nname = "pypdf"\n') == ["pypdf"]
+    assert _manifest_names("setup.cfg", "[metadata]\nname = python-dateutil\nversion = 1\n") == ["python-dateutil"]
+    assert _manifest_names("setup.py", 'setup(name="requests", version="2")') == ["requests"]
+    assert _manifest_names("package.json", '{"name": "lodash", "version": "4"}') == ["lodash"]
+    assert _manifest_names("pyproject.toml", "not toml at all name = 'x'") == ["x"]   # regex fallback

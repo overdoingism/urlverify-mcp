@@ -21,4 +21,11 @@ def test_live_case(case, request):
     store = Storage(cfg.storage.resolved())
     res = asyncio.run(verify(VerifyRequest(project=case["project"], url=case["url"], description=case["description"]), cfg, store))
     print(res.model_dump_json(indent=1))
-    assert res.verdict.value == case["expect"], res.engine_notes
+    if "expect_any" in case:
+        assert res.verdict.value in case["expect_any"], res.engine_notes
+    else:
+        assert res.verdict.value == case["expect"], res.engine_notes
+    if "expect_path" in case:
+        assert res.path == case["expect_path"], (res.path, res.engine_notes)
+    if "expect_risk_prefix" in case:
+        assert any(r.startswith(case["expect_risk_prefix"]) for r in res.risk_signals), res.risk_signals

@@ -103,9 +103,11 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 | `toplist_refresh_days` | int · `30` | The PyPI monthly top-5000 list is re-fetched at most this often (cached in `~/.urlverify_mcp/pypi_top.json`; a bundled snapshot is the fallback). |
 | `confidence` | float · `0.8` | Confidence assigned to a fast-path `VERIFIED_TRUE`. |
 
-Any signal that is unknown (API down, scoped npm package, no linked repository on an unpopular package) or suspicious
-(a far more popular package one edit away) makes the fast path inconclusive and hands the case to the full pipeline with
-the suspicion attached as a risk signal. The fast path can therefore only speed things up, never decide wrongly.
+`VERIFIED_TRUE` needs existence + age + release count + a **bidirectional** repository link (registry → GitHub repo whose
+manifest declares the package) + a clean typosquat check. Popularity is only the denominator of the typosquat ratio, never a
+signal by itself. Any unknown (API down, scoped npm package, no repository, unreadable manifest) or suspicious signal (a far
+more popular package one edit away) makes the fast path inconclusive and hands the case to the full pipeline with the
+suspicion attached as a risk signal. The fast path can therefore only speed things up, never decide wrongly.
 
 ## `full_log` — full data log
 

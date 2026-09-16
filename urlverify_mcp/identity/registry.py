@@ -64,6 +64,36 @@ def _variants(name: str) -> set[str]:
     return {v for v in out if v and re.fullmatch(r"[a-z0-9][a-z0-9._-]*", v)}
 
 
+def _manifest_names(filename: str, text: str) -> list[str]:
+    """Package names declared by a manifest file (best effort, parser first, regex fallback)."""
+    names: list[str] = []
+    try:
+        if filename == "pyproject.toml":
+            import tomllib
+            d = tomllib.loads(text)
+            for path in (("project", "name"), ("tool", "poetry", "name"), ("tool", "flit", "metadata", "module"), ("tool", "setuptools", "name")):
+                cur: Any = d
+                for k in path:
+                    cur = cur.get(k) if isinstance(cur, dict) else None
+                if isinstance(cur, str):
+                    names.append(cur)
+        elif filename == "setup.cfg":
+            import configparser
+            cp = configparser.ConfigParser()
+            cp.read_string(text)
+            if cp.has_option("metadata", "name"):
+                names.append(cp.get("metadata", "name"))
+        elif filename == "setup.py":
+            names += re.findall(r"""\bname\s*=\s*["']([A-Za-z0-9_.-]+)["']""", text)
+        elif filename == "package.json":
+            j = json.loads(text)
+            if isinstance(j.get("name"), str):
+                names.append(j["name"])
+    except Exception:  # noqa: BLE001  (unparsable manifest: fall back to a loose regex)
+        names += re.findall(r"""\bname\s*[=:]\s*["']([A-Za-z0-9_.@/-]+)["']""", text)
+    return names
+
+
 class RegistryFastPath:
     def __init__(self, cfg: Config, structured: Structured):
         self.cfg = cfg
@@ -162,20 +192,49 @@ class RegistryFastPath:
         return sig
 
     async def repo_signal(self, sig: dict[str, Any]) -> dict[str, Any]:
-        """Linked GitHub repo: exists, not a fork, not brand new."""
+        """Linked GitHub repo, checked in both directions: the registry metadata points at the repo AND the repo's own
+        manifest (pyproject.toml / setup.cfg / setup.py / package.json) declares this package name. A one-way claim
+        from either side is not enough; a typosquatter can point at anyone's repo, and a repo can be anyone's."""
         urls = list((sig.get("project_urls") or {}).values()) + [sig.get("home_page"), sig.get("homepage"), sig.get("repository")]
         for u in urls:
             if not u:
                 continue
             m = re.search(r"github\.com[/:]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/#?]|$)", str(u))
-            if m:
-                gh = await self.structured.github(m.group(1), m.group(2))
-                if gh.get("ok") and gh.get("repo_info"):
-                    ri = gh["repo_info"]
-                    return {"repo": ri.get("full_name"), "fork": ri.get("fork"), "age_days": _age_days(ri.get("created_at")),
-                            "stars": ri.get("stargazers_count"), "archived": ri.get("archived"), "source": ri.get("html_url"), "ok": True}
-                return {"repo": f"{m.group(1)}/{m.group(2)}", "ok": False, "error": gh.get("error", "not found")}
+            if not m:
+                continue
+            owner, repo = m.group(1), m.group(2)
+            gh = await self.structured.github(owner, repo)
+            if not (gh.get("ok") and gh.get("repo_info")):
+                return {"repo": f"{owner}/{repo}", "ok": False, "error": gh.get("error", "not found")}
+            ri = gh["repo_info"]
+            back = await self._manifest_declares(owner, repo, sig["registry"], sig.get("canonical") or sig["name"])
+            return {"repo": ri.get("full_name"), "fork": ri.get("fork"), "age_days": _age_days(ri.get("created_at")),
+                    "stars": ri.get("stargazers_count"), "archived": ri.get("archived"), "source": ri.get("html_url"), "ok": True,
+                    "bidirectional": back["declared"], "manifest": back.get("file"), "manifest_error": back.get("error")}
         return {"repo": None, "ok": None}
+
+    async def _manifest_declares(self, owner: str, repo: str, registry: str, pkg: str) -> dict[str, Any]:
+        """Does the repository's manifest declare this package name? Reads raw files from the default branch and parses
+        them properly (tomllib / configparser / json); a different name in *every* manifest found means "no"."""
+        files = ("pyproject.toml", "setup.cfg", "setup.py") if registry == "pypi" else ("package.json",)
+        want = norm_pypi(pkg) if registry == "pypi" else pkg.lower()
+        found: list[str] = []
+        last_err = None
+        for f in files:
+            try:
+                r = await self.client.get(f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/{f}")
+            except Exception as e:  # noqa: BLE001
+                last_err = f"{type(e).__name__}: {e}"
+                continue
+            if r.status_code != 200:
+                continue
+            found.append(f)
+            for n in _manifest_names(f, r.text[:200_000]):
+                if (norm_pypi(n) if registry == "pypi" else n.lower()) == want:
+                    return {"declared": True, "file": f}
+        if found:
+            return {"declared": False, "file": ", ".join(found)}
+        return {"declared": None, "error": last_err or "no manifest found on default branch"}
 
     # ---------------- decision
     async def run(self, l0: L0Result, t0: float, trace_id: str) -> VerifyResult | None:
@@ -195,8 +254,6 @@ class RegistryFastPath:
         repo = await self.repo_signal(sig)
         hits = sig.get("typosquat_hits")
         age, rel = sig.get("age_days"), sig.get("releases") or 0
-        popular = bool(sig.get("downloads_rank_month")) or ((sig.get("downloads_week") or 0) >= 100_000)
-
         if hits:
             notes.append(f"name is one edit away from a far more popular package: {hits[0]['popular']} ({hits[0]['downloads']:,} downloads)")
             l0.risk_signals.append(f"registry_typosquat:{hits[0]['popular']}")
@@ -213,22 +270,23 @@ class RegistryFastPath:
             notes.append(f"only {rel} release(s) (need {fp.min_releases})")
         if repo.get("ok") is False:
             notes.append(f"linked repository {repo.get('repo')} not reachable: {repo.get('error')}")
-        if repo.get("ok") and repo.get("fork"):
-            notes.append(f"linked repository {repo['repo']} is a fork")
-        if repo.get("ok") and (repo.get("age_days") or 0) < fp.min_age_days and not popular:
-            notes.append(f"linked repository is only {repo.get('age_days')} days old")
-        if repo.get("ok") is None and not popular:
-            notes.append("no linked source repository and not a widely downloaded package")
+        elif repo.get("ok") is None:
+            notes.append("no linked source repository in the registry metadata")
+        else:
+            if repo.get("fork"):
+                notes.append(f"linked repository {repo['repo']} is a fork")
+            if repo.get("bidirectional") is False:
+                notes.append(f"repository {repo['repo']} manifest ({repo.get('manifest')}) declares a different package name")
+            elif repo.get("bidirectional") is None:
+                unknowns.append(f"could not read the repository manifest ({repo.get('manifest_error')})")
 
         if notes or unknowns:
             TRACE.log("registry_fast_path", signals=sig, repo=repo, outcome="inconclusive", notes=notes + unknowns)
             return None
         why = [f"{l0.platform} package '{sig.get('canonical') or name}' exists for {age} days with {rel} releases",
-               "no more-popular near-name package (typosquat check clean)"]
-        if popular:
-            why.append("widely downloaded" + (f" (rank in monthly top list)" if sig.get("downloads_rank_month") else f" ({sig.get('downloads_week'):,}/week)"))
-        if repo.get("ok"):
-            why.append(f"linked repository {repo['repo']} is {repo.get('age_days')} days old, not a fork, {repo.get('stars')} stars")
+               "no more-popular near-name package (typosquat check clean)",
+               f"registry metadata points at {repo['repo']} and its {repo.get('manifest')} declares this package (bidirectional link); "
+               f"repository is not a fork, {repo.get('age_days')} days old, {repo.get('stars')} stars"]
         TRACE.log("registry_fast_path", signals=sig, repo=repo, outcome="verified")
         return self._result(Verdict.TRUE, fp.confidence, l0, sig, repo, why, t0, trace_id)
 
@@ -237,8 +295,8 @@ class RegistryFastPath:
                        quote=json.dumps({k: sig.get(k) for k in ("canonical", "age_days", "releases", "downloads_rank_month", "downloads_week")}),
                        verified_quote=True, notes=["structured registry data"])]
         if repo.get("ok"):
-            ev.append(Evidence(kind="github", source=repo["source"], tier=2, claim=f"linked repository {repo['repo']}",
-                               quote=json.dumps({k: repo.get(k) for k in ("fork", "age_days", "stars")}), verified_quote=True, notes=["structured GitHub data"]))
+            ev.append(Evidence(kind="github", source=repo["source"], tier=2, claim=f"bidirectional link with repository {repo['repo']}",
+                               quote=json.dumps({k: repo.get(k) for k in ("fork", "age_days", "stars", "bidirectional", "manifest")}), verified_quote=True, notes=["structured GitHub data + manifest"]))
         reason = (f"{verdict.value}: registry fast path. " + " ".join(w[0].upper() + w[1:] + "." for w in why)
                   + " Deterministic checks (TLS, DNS, redirects) passed. No LLM was involved; pass options.mode='full' for the complete investigation.")
         return VerifyResult(verdict=verdict, confidence=conf, reason=reason, evidence=ev,

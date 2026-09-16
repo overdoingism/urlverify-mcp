@@ -109,12 +109,20 @@ Defaults ship in `urlverify_mcp/prompt_defaults/`; *Reset to default* deletes th
 ### Registry fast path (PyPI / npm)
 
 A package URL (`pypi.org/project/<name>`, `npmjs.com/package/<name>`) asks a narrower question than a website: *is this the
-real package or a look-alike?* That is answered from registry data alone, in a few seconds and without the LLM: the package
-exists, its first release is older than `registry_fast_path.min_age_days`, it has enough releases, no far-more-popular package
-sits one edit away (typosquat check against the monthly PyPI top list / npm download counts of near-names), and its linked
-repository is real, not a fork and not brand new. All signals good → `VERIFIED_TRUE` (confidence `registry_fast_path.confidence`,
-`path: registry_fast_path`). A missing package → `VERIFIED_FALSE`. Anything unknown or suspicious → the full investigation runs,
-with the suspicion attached as a risk signal. `options.mode` = `auto` (default) | `quick` (fast path only) | `full` (skip it).
+real package or a look-alike?* That is answered from registry data alone, in a few seconds and without the LLM. `VERIFIED_TRUE`
+(confidence `registry_fast_path.confidence`, `path: registry_fast_path`) requires all of:
+
+- the package exists, its first release is older than `registry_fast_path.min_age_days`, and it has `min_releases` releases;
+- **bidirectional repository link**: the registry metadata points at a GitHub repository whose own manifest
+  (`pyproject.toml` / `setup.cfg` / `setup.py`, or `package.json`) declares this package name, and the repository is not a fork;
+- **no typosquat**: no package one edit away (two for long names) is more than 20× as popular (PyPI: monthly top-5000 list;
+  npm: bulk download counts of generated near-names).
+
+Popularity is deliberately *not* a signal on its own (download counts can be inflated); it only serves as the denominator in
+the typosquat ratio. A missing package → `VERIFIED_FALSE`. Anything unknown (API down, no repository, unreadable manifest,
+scoped npm name) or suspicious (a far more popular near-name) → the full investigation runs, with the suspicion attached as a
+risk signal. Small hobby packages with a properly linked repository pass; small packages without one come back `UNVERIFIABLE`
+from the full path, which is the honest answer. `options.mode` = `auto` (default) | `quick` (fast path only) | `full` (skip it).
 
 ### Security notes
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Registry fast path: `VERIFIED_TRUE` now requires a **bidirectional** repository link (registry metadata → GitHub repo
+  whose manifest declares the package; pyproject/setup.cfg/setup.py/package.json parsed properly). Popularity is no longer a
+  signal on its own (download counts can be inflated); it only serves as the denominator of the typosquat ratio.
+- Live fixtures: requests / pypdf (fast path), reqeusts (missing), lodahs (near-name must fall through to the full pipeline).
+
 ## v0.1.0 — 2026-09-17
 
 First public release.

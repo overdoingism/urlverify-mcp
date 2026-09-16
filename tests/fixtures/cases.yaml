@@ -40,3 +40,28 @@
   url: https://lmstudіo.ai/
   description: cyrillic i homoglyph
   expect: VERIFIED_FALSE
+- id: pypi-requests-fast-path
+  project: requests
+  url: https://pypi.org/project/requests/
+  description: requests HTTP library on PyPI
+  expect: VERIFIED_TRUE
+  expect_path: registry_fast_path      # popular package with near-names (request, requests2) must NOT be slowed down
+- id: pypi-pypdf-fast-path
+  project: pypdf
+  url: https://pypi.org/project/pypdf/
+  description: pypdf on PyPI
+  expect: VERIFIED_TRUE
+  expect_path: registry_fast_path
+- id: pypi-nonexistent
+  project: requests
+  url: https://pypi.org/project/reqeusts/
+  description: typo of requests
+  expect: VERIFIED_FALSE
+  expect_path: registry_fast_path
+- id: npm-lodahs-typosquat
+  project: lodash
+  url: https://www.npmjs.com/package/lodahs
+  description: one edit away from lodash
+  expect_any: [VERIFIED_FALSE, UNVERIFIABLE]
+  expect_path: full                    # suspicious near-name must fall through to the full pipeline
+  expect_risk_prefix: registry_typosquat
