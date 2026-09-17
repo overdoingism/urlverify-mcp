@@ -26,6 +26,11 @@ def _norm_ws(s: str) -> str:
     return re.sub(r"\s+", " ", s or "").strip().lower()
 
 
+def _squash(s: str) -> str:
+    """Whitespace-free form for quote matching: JSON and HTML sources differ from the LLM's rendering only in spacing."""
+    return re.sub(r"\s+", "", s or "").lower()
+
+
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro"}
 _DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b")
 
@@ -49,14 +54,14 @@ def _anchors(ev: Evidence) -> set[str]:
 
 
 def _fragments(q: str) -> list[str]:
-    """A quote may elide with '...' — each remaining fragment must be found verbatim."""
-    return [f for f in (_norm_ws(x) for x in _ELLIPSIS_RE.split(q)) if len(f) >= 8]
+    """A quote may elide with '...' — each remaining fragment must be found verbatim (whitespace ignored)."""
+    return [f for f in (_squash(x) for x in _ELLIPSIS_RE.split(q)) if len(f) >= 8]
 
 
 def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
     """Mark evidence.verified_quote. Page/media evidence needs a verbatim quote; structured (API) evidence is
     fact-anchored: the domain / org named in the claim must literally appear in that source's raw output."""
-    store_norm = {k: _norm_ws(v) for k, v in store.items()}
+    store_norm = {k: _squash(v) for k, v in store.items()}
     for ev in evidence:
         q = _norm_ws(ev.quote)
         src = ev.source
@@ -68,7 +73,7 @@ def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
             if not texts:
                 # api results are also stored under "<tool>:<args>" keys; match by kind name
                 texts = [store_norm[k] for k in store_norm if k.startswith(ev.kind) or (ev.kind == "package_registry" and k.startswith("package_registry"))]
-            anchors = _anchors(ev)
+            anchors = {_squash(a) for a in _anchors(ev)}
             frags = _fragments(ev.quote)
             quote_ok = bool(frags) and any(all(f in t for f in frags) for t in texts)
             anchor_ok = bool(anchors) and any(a in t for a in anchors for t in texts)
@@ -99,7 +104,8 @@ def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
 
 def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str], project: str,
            cached: dict | None = None, ages: dict[str, dict] | None = None,
-           target_domain_age: dict | None = None, provenance: dict | None = None) -> Decision:
+           target_domain_age: dict | None = None, provenance: dict | None = None,
+           registry_state: dict | None = None) -> Decision:
     notes: list[str] = []
     ic = cfg.identity
     ages = ages or {}
@@ -231,6 +237,19 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     if contradictions:
         notes.append("temporal contradiction: " + "; ".join(contradictions))
         l0.risk_signals.append("post_predates_domain")
+
+    # ---- 3b. the registry's own statement about the target name overrides everything (any path, any mode)
+    if registry_state and registry_state.get("state") in ("missing", "security_holding"):
+        st = registry_state["state"]
+        msg = (f"{l0.platform} package '{l0.platform_owner}' does not exist" if st == "missing" else
+               f"{l0.platform} package '{l0.platform_owner}' is a security holding package ({registry_state.get('version')}): "
+               "the name was taken over by the npm security team after a malicious package was removed")
+        notes.append("registry state: " + msg)
+        l0.risk_signals.append(f"registry_{st}")
+        return Decision(Verdict.FALSE, 0.95 if st == "security_holding" else 0.9, notes, evidence, support, established, est_orgs)
+    if registry_state and registry_state.get("state") == "latest_yanked":
+        notes.append(f"registry state: latest release {registry_state.get('version')} is fully yanked")
+        l0.risk_signals.append("registry_latest_yanked")
 
     # ---- 4. fatal L0 failures
     fatal = l0.fatal_failures

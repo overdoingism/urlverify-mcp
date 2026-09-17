@@ -152,7 +152,8 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 PyPI / npm 目標先跑結構化檢查：存在、首發年齡、版本數、**簽章 provenance**（npm attestation / PyPI PEP 740，登錄自己簽的
 「哪個 repo 的 CI 發布了這版」；其 repo owner 須為 GitHub 已驗證網域的組織；deps.dev 印證則記錄）、repo 雙向互指、
 scoped npm 的 scope 須等於 provenance owner、PyPI 的近似名檢查（對照熱門清單；npm 無參照清單故不做，生成「合理錯字」是猜測）、
-project 名相符，全數明確且良好才直接 TRUE。登錄方自己宣告的狀態優先：npm security holding（0.0.1-security）→ FALSE。
+project 名相符，全數明確且良好才直接 TRUE。登錄方自己宣告的狀態優先且**在任何路徑與 mode 都成立**：不存在 / npm security holding（0.0.1-security）→ FALSE（規則引擎層），
+評估順序在 project 名比對之前（那是關於目標本身的事實）。引文比對忽略所有空白（JSON/HTML 與模型渲染只差空格）。
 **沒有 provenance 的套件絕不憑 metadata 給 TRUE**（roger 2026-09-18：新／小套件本來就沒有理由被自然信任），走完整流程；
 完整流程中 provenance 可讓套件承接已建立 GitHub 組織的地位。**人氣不是獨立訊號**（下載量可灌），只作近似名比值的分母；
 熱門清單**不內附**，首次用到才串流下載前 N 筆（預設 1500，約 90 KB）並以 ETag 更新，設定段為 `package_registry_fast_path`；

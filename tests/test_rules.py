@@ -166,3 +166,17 @@ def test_project_mismatch_withheld_on_platform_branch():
     sub = LLMSubmission(identity=IDENT, evidence=base, proposed_verdict="VERIFIED_TRUE")
     for e in sub.evidence: e.verified_quote = None; e.notes = []
     assert decide(Config(), l0, sub, store, "LM Studio").verdict == Verdict.TRUE
+
+
+def test_registry_state_overrides_any_path():
+    sub = LLMSubmission(identity=IDENT, evidence=[
+        _ev("https://www.wikidata.org/wiki/Q123", "official domain is lmstudio.ai", '"official_website": ["https://lmstudio.ai"]', kind="wikidata", tier=1),
+        _ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac"),
+    ], proposed_verdict="VERIFIED_TRUE")
+    l0 = _l0(host="www.npmjs.com", platform="npm", owner="rate-limit-flexible")
+    d = decide(Config(), l0, sub, STORE, "rate-limiter-flexible", registry_state={"state": "security_holding", "version": "0.0.1-security"})
+    assert d.verdict == Verdict.FALSE and d.confidence == 0.95 and "registry_security_holding" in l0.risk_signals
+    sub = LLMSubmission(identity=IDENT, evidence=list(sub.evidence), proposed_verdict="VERIFIED_TRUE")
+    for e in sub.evidence: e.verified_quote = None; e.notes = []
+    d = decide(Config(), _l0(host="pypi.org", platform="pypi", owner="reqeusts"), sub, STORE, "requests", registry_state={"state": "missing"})
+    assert d.verdict == Verdict.FALSE

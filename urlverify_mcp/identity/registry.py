@@ -265,10 +265,6 @@ class RegistryFastPath:
         if l0.platform not in ("pypi", "npm") or not l0.platform_owner:
             return None
         name = l0.platform_owner
-        if fp.require_project_match and project and not _names_match(project, name):
-            TRACE.log("registry_fast_path", outcome="inconclusive", note=f"project '{project}' does not match package '{name}'")
-            l0.risk_signals.append(f"project_package_mismatch:{project}!={name}")
-            return None
         sig = await (self.pypi_signals(name) if l0.platform == "pypi" else self.npm_signals(name))
         notes: list[str] = []
         if sig.get("exists") is None:
@@ -287,6 +283,11 @@ class RegistryFastPath:
                                  "security team after a malicious package was removed; nothing legitimate is published under it"], t0, trace_id)
         if sig.get("latest_yanked"):
             l0.risk_signals.append("pypi_latest_release_yanked")
+        # only now the caller's project name: the facts above are about the target itself
+        if fp.require_project_match and project and not _names_match(project, name):
+            TRACE.log("registry_fast_path", outcome="inconclusive", note=f"project '{project}' does not match package '{name}'")
+            l0.risk_signals.append(f"project_package_mismatch:{project}!={name}")
+            return None
         repo = await self.repo_signal(sig)
         prov = await self.provenance_signal(sig)
         hits = sig.get("typosquat_hits")
@@ -349,6 +350,22 @@ class RegistryFastPath:
                + ("; independently verified by deps.dev" if prov.get("depsdev_verified") else "")]
         TRACE.log("registry_fast_path", signals=sig, repo=repo, provenance=prov, outcome="verified")
         return self._result(Verdict.TRUE, fp.confidence, l0, sig, repo, why, t0, trace_id, prov)
+
+    async def registry_state(self, l0: L0Result) -> dict[str, Any] | None:
+        """The registry's own statement about the target name, independent of any path or mode:
+        {"state": "missing"|"security_holding"|"latest_yanked"|"ok", ...}."""
+        if l0.platform not in ("pypi", "npm") or not l0.platform_owner:
+            return None
+        sig = await (self.pypi_signals(l0.platform_owner) if l0.platform == "pypi" else self.npm_signals(l0.platform_owner))
+        if sig.get("exists") is None:
+            return {"state": "unknown", "error": sig.get("error")}
+        if sig.get("exists") is False:
+            return {"state": "missing"}
+        if sig.get("security_holding"):
+            return {"state": "security_holding", "version": sig.get("version")}
+        if sig.get("latest_yanked"):
+            return {"state": "latest_yanked", "version": sig.get("version")}
+        return {"state": "ok", "version": sig.get("version"), "signals": sig}
 
     async def provenance_signal(self, sig: dict[str, Any]) -> dict[str, Any]:
         pv = Provenance(self.client)

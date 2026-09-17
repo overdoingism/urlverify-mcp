@@ -42,3 +42,11 @@ def test_crtsh_page_parsing():
     assert parse_crtsh_cert_page(200, "text/html", "<TD>crt.sh ID</TD><TD>123</TD> SHA-256 ...")["logged"] is True
     assert parse_crtsh_cert_page(200, "text/html", "<BR><BR>Unsupported output type: json</BODY></HTML>")["ok"] is False
     assert parse_crtsh_cert_page(503, "text/html", "")["error"] == "crt.sh HTTP 503"
+
+
+def test_quote_matching_ignores_json_spacing():
+    raw = '{"time":{"created":"2026-06-11T09:33:55.016Z","modified":"2026-06-11T09:34:00Z"},"maintainers":[],"description":"security holding package"}'
+    ev = Evidence(kind="page", source="https://registry.npmjs.org/rate-limit-flexible", tier=1, claim="security holding package",
+                  quote='"time":{"created":"2026-06-11T09:33:55.016Z"...}, "maintainers":[], "description": "security holding package"')
+    verify_quotes([ev], {ev.source: raw})
+    assert ev.verified_quote is True

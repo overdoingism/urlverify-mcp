@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- The registry's own statement about a name (missing, security holding, latest release yanked) is evaluated before the
+  project-name match in the fast path and is honoured by the rules engine on every path and mode: a security holding
+  package is `VERIFIED_FALSE` even under `options.mode: full`.
+- Quote verification ignores whitespace entirely (JSON and HTML sources differ from the LLM's rendering only in spacing).
+
 - npm security holding packages (`0.0.1-security`, the name of a removed malicious package) are `VERIFIED_FALSE`
   outright; a PyPI release whose files are all yanked is a risk signal. The registry's own state is trusted.
 - The npm near-name check is removed: there is no popularity reference for npm and generating "likely typos" is
