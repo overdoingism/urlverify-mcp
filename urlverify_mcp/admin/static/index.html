@@ -10,8 +10,14 @@
   body { margin:0; font:14px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
   header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; }
   header h1 { font-size:16px; margin:0; }
-  nav button { background:none; border:1px solid var(--line); color:var(--fg); padding:6px 12px; border-radius:6px; cursor:pointer; }
-  nav button.active { border-color:var(--accent); color:var(--accent); }
+  :root { --tab-bg:#eef0f3; --action-bg:#fde8c8; --action-fg:#7c3a00; --action-line:#f0c48a; }
+  @media (prefers-color-scheme: dark) { :root { --tab-bg:#1f2430; --action-bg:#3a2a12; --action-fg:#f5c98a; --action-line:#6b4a1c; } }
+  nav { display:flex; gap:6px; align-items:center; }
+  nav button { background:var(--tab-bg); border:1px solid var(--line); color:var(--fg); padding:6px 12px; border-radius:6px; cursor:pointer; }
+  nav button.active { border-color:var(--accent); color:var(--accent); background:var(--card); }
+  nav .sep { width:1px; height:22px; background:var(--line); margin:0 6px; }
+  nav button.action { background:var(--action-bg); color:var(--action-fg); border-color:var(--action-line); }
+  nav button.action:hover { filter:brightness(1.08); }
   main { padding:20px; max-width:1100px; margin:0 auto; }
   section { display:none; } section.active { display:block; }
   .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:16px; }
@@ -39,10 +45,11 @@
     <button data-tab="cache">Caches</button>
     <button data-tab="prompts">Prompts</button>
     <button data-tab="logs">Logs</button>
+    <span class="sep"></span>
+    <button class="action" id="pw-btn" title="change admin password">Password</button>
+    <button class="action" id="logout">Sign out</button>
   </nav>
   <span id="env" class="muted" style="margin-left:auto"></span>
-  <button class="small" id="pw-btn" title="change admin password">Password</button>
-  <button class="small" id="logout">Sign out</button>
 </header>
 <div id="pw-banner" style="display:none;background:#b45309;color:#fff;padding:6px 20px;font-size:13px">Default admin password is in use. Change it (Password button) if this UI is reachable by anyone else.</div>
 <dialog id="pw-dialog" style="border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);padding:20px;width:320px">
@@ -152,8 +159,8 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 const api = async (path, opt={}) => { const r = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opt}); if(!r.ok) throw new Error(await r.text()); return r.json(); };
 let cfg = null;
 
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach(x => x.classList.remove('active')); b.classList.add('active');
+document.querySelectorAll('nav button[data-tab]').forEach(b => b.onclick = () => {
+  document.querySelectorAll('nav button[data-tab]').forEach(x => x.classList.remove('active')); b.classList.add('active');
   document.querySelectorAll('section').forEach(s => s.classList.remove('active')); $('#tab-'+b.dataset.tab).classList.add('active');
   ({history: loadHistory, config: loadConfig, lists: loadLists, cache: loadCaches, prompts: loadPrompts, logs: loadLogs})[b.dataset.tab]?.();
 });

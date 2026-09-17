@@ -67,7 +67,9 @@ def create_app(config_path: str | None = None) -> FastAPI:
     async def require_login(request: Request, call_next):
         path = request.url.path
         if path in ("/login", "/api/login") or st.auth.check_session(request.cookies.get(COOKIE)):
-            return await call_next(request)
+            resp = await call_next(request)
+            resp.headers["Cache-Control"] = "no-store"     # the UI changes with every release; never serve a stale page
+            return resp
         if path.startswith("/api/"):
             return JSONResponse({"error": "login required"}, status_code=401)
         return RedirectResponse("/login", status_code=303)

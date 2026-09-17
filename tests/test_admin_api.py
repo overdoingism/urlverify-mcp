@@ -74,3 +74,9 @@ def test_login_required_and_password_change(tmp_path, monkeypatch):
     a = AdminAuth(tmp_path / "admin.auth")
     assert a.verify_password("admin") and a.is_default()
     assert not a.check_session(fresh.cookies.get("urlverify_session"))
+
+
+def test_admin_responses_are_not_cacheable(tmp_path, monkeypatch):
+    c, _ = _client(tmp_path, monkeypatch)
+    assert c.get("/").headers.get("cache-control") == "no-store"
+    assert c.get("/api/config").headers.get("cache-control") == "no-store"
