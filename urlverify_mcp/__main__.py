@@ -137,8 +137,8 @@ def _bearer_guard(app, token: str):
 
 
 async def _check_env(cfg) -> None:
-    """Manual diagnostics only: the smallest request each service offers. Not a health monitor —
-    see the observed health table (admin UI) for what actually happened during real verifications."""
+    """Manual diagnostics of the configured endpoints (LLM, search, fetch) only. Third-party services are not
+    probed; their state is observed from real verifications (admin Status tab / log/health.json)."""
     from .diagnostics import probe_all
     for r in await probe_all(cfg):
         print(f"{r['name']:10s} {('OK  ' if r['ok'] else 'FAIL'):4s} {r['ms']:>5d} ms  {r['target']}: {r['detail']}")

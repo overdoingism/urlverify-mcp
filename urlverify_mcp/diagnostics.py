@@ -1,6 +1,7 @@
-"""Manual, lightweight endpoint probes (`urlverify-mcp check-env`, admin Test tab button). Never run automatically:
-a probe is a snapshot, the observed health table (health.py) is the truth for a long-running service. Each probe is
-the smallest request the service offers, so running it is polite."""
+"""Manual, lightweight probes of the endpoints the USER configured (`urlverify-mcp check-env`, admin Status tab button):
+LLM, search backend, fetcher. Public third-party services (Wikipedia, Wayback, GitHub, registries) are deliberately not
+probed: a probe is a snapshot, and their state is recorded from real calls in the observed health table (health.py).
+Never run automatically."""
 from __future__ import annotations
 
 import time
@@ -50,38 +51,7 @@ async def probe_all(cfg: Config) -> list[dict[str, Any]]:
             r.raise_for_status()
             return "example.com reachable" if "Example Domain" in r.text else "unexpected body"
 
-        async def wikipedia():
-            r = await c.get("https://en.wikipedia.org/w/api.php", params={"action": "query", "meta": "siteinfo", "siprop": "general", "format": "json"})
-            r.raise_for_status()
-            return r.json()["query"]["general"].get("sitename", "ok")
-
-        async def wayback():
-            r = await c.get("https://archive.org/wayback/available", params={"url": "example.com"})
-            r.raise_for_status()
-            return "available API OK"
-
-        async def github():
-            r = await c.get("https://api.github.com/rate_limit", headers={"Authorization": f"Bearer {cfg.identity.github_token}"} if cfg.identity.github_token else {})
-            r.raise_for_status()
-            core = r.json().get("resources", {}).get("core", {})
-            return f"rate limit {core.get('remaining')}/{core.get('limit')} (not consumed by this probe)"
-
-        async def pypi():
-            r = await c.head("https://pypi.org/simple/pip/")
-            r.raise_for_status()
-            return f"simple index {r.status_code}"
-
-        async def npm():
-            r = await c.get("https://registry.npmjs.org/-/ping")
-            r.raise_for_status()
-            return "ping OK"
-
         await run("llm", cfg.llm.base_url, llm())
         await run("search", cfg.search.provider, searxng())
         await run("fetch", cfg.fetch.provider, fetch())
-        await run("wikipedia", "siteinfo", wikipedia())
-        await run("wayback", "availability API", wayback())
-        await run("github", "/rate_limit", github())
-        await run("pypi", "HEAD /simple/pip/", pypi())
-        await run("npm", "/-/ping", npm())
     return out

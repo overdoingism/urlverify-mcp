@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v0.1.2 — 2026-09-18
+
+- `check-env` probes only the configured endpoints (LLM, search, fetch); third-party services are observed, not probed.
 
 - L0: `ct_logged` — embedded SCTs pass; a well-known public CA without embedded SCTs only warns (SCTs may be delivered
   in the handshake); an unknown issuer with no SCTs and no crt.sh record (older than 24 h) is fatal (TLS interception).
