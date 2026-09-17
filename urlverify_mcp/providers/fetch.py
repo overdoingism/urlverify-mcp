@@ -11,6 +11,7 @@ from urllib.parse import urljoin
 import httpx
 
 from ..config import Config
+from ..health import observe
 from ..tracelog import TRACE
 
 MAX_FETCH_BYTES = 2_000_000
@@ -61,6 +62,13 @@ class BuiltinFetcher:
 
     async def fetch(self, url: str) -> str:
         TRACE.log("fetch_request", provider="builtin", url=url)
+        try:
+            return await self._fetch(url)
+        except httpx.HTTPError as e:
+            observe("fetch:builtin", False, f"{type(e).__name__}: {e}")   # transport-level only; a 4xx page is the site's answer, not our failure
+            raise
+
+    async def _fetch(self, url: str) -> str:
         async with self.client.stream("GET", url) as r:
             ct = r.headers.get("content-type", "")
             if not any(t in ct for t in ("text", "json", "xml", "javascript")):
@@ -77,6 +85,7 @@ class BuiltinFetcher:
             final_url = str(r.url)
             status = r.status_code
         text = html_to_text(body, final_url) if "html" in ct else body
+        observe("fetch:builtin", True)
         if status >= 400:
             text = f"(HTTP {status})\n" + text
         TRACE.log("fetch_response", provider="builtin", url=url, final_url=final_url, status=status, content_type=ct, chars=len(text), text=text)

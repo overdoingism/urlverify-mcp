@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- Observed dependency health replaces automatic probing: every real call to an external dependency records success or
+  failure (persisted in SQLite), failures print `!! DEPENDENCY …` on stderr and log a `dependency_failure` record, results
+  carry a `degraded` list, the admin Test tab shows the table. It is a report, never a gate.
+- `check-env` is manual only and uses the lightest endpoint each service offers (siteinfo, availability API, `/rate_limit`,
+  `HEAD /simple/`, `/-/ping`, SearXNG `/healthz`); the admin UI no longer probes on page load, and has a *Run check-env* button.
+- Wayback CDX lookups no longer filter by status code (existence is what is measured; the filter forced slow scans).
+- npm metadata comes from the small `/<name>/latest` document instead of the full registry document.
+
 ## v0.1.1 — 2026-09-17
 
 - **Built-in page fetching is now the default** (`fetch.provider: builtin`): httpx plus a dependency-free HTML→text converter

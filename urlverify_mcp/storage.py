@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS history (
     trace_id TEXT PRIMARY KEY, ts REAL NOT NULL, project TEXT, url TEXT, description TEXT,
     verdict TEXT, confidence REAL, result TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS dep_health (
+    dep TEXT PRIMARY KEY, last_ok REAL, last_fail REAL, last_error TEXT, consecutive_fail INTEGER NOT NULL DEFAULT 0,
+    ok_count INTEGER NOT NULL DEFAULT 0, fail_count INTEGER NOT NULL DEFAULT 0);
 """
 
 
@@ -120,6 +123,16 @@ class Storage:
     def clear_table(self, table: str) -> None:
         assert table in {"cert_cache", "identity_cache", "anchor_cache", "history"}
         self.conn.execute(f"DELETE FROM {table}")
+        self.conn.commit()
+
+    # ---- observed dependency health
+    def load_health(self) -> list[dict[str, Any]]:
+        return [dict(r) for r in self.conn.execute("SELECT * FROM dep_health").fetchall()]
+
+    def save_health(self, row: dict[str, Any]) -> None:
+        self.conn.execute("REPLACE INTO dep_health VALUES (?,?,?,?,?,?,?)",
+                          (row["dep"], row.get("last_ok"), row.get("last_fail"), row.get("last_error"),
+                           int(row.get("consecutive_fail") or 0), int(row.get("ok_count") or 0), int(row.get("fail_count") or 0)))
         self.conn.commit()
 
     # ---- kv

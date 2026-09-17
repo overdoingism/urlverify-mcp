@@ -211,3 +211,6 @@ config.example.yaml
   `aclose()` 會撞「exit a cancel scope that isn't current」。`task.cancelling()` 分不出內外取消。
   定案：`providers/search.py` 把 transport 的 context manager 放進專屬 worker task，呼叫端經 Future 取得 session
   或普通的 `SearchUnavailable`（2026-09-15，來自另一套 LLM 的 bug 報告，已核實並修復）。
+- **探測 vs 觀察**（2026-09-17 定案）：外部依賴不做自動探測；每次真實呼叫回報成敗到 `health.py`（SQLite 持久化），失敗在 stderr 印
+  `!! DEPENDENCY …`、full log 記 `dependency_failure`、結果帶 `degraded`。健康表**只是報告，永遠不是啟用與否的判準**。
+  `check-env` 只在使用者手動觸發時跑，且只用各服務最輕的端點；管理頁載入時不打任何外部服務。

@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from ..health import observe
+
 
 async def first_seen(etld1: str, timeout: float, user_agent: str) -> dict[str, Any]:
     url = f"https://crt.sh/?q={etld1}&output=json"
@@ -13,9 +15,12 @@ async def first_seen(etld1: str, timeout: float, user_agent: str) -> dict[str, A
         async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": user_agent}) as client:
             r = await client.get(url)
             if r.status_code != 200:
+                observe("crt.sh", False, f"status {r.status_code}")
                 return {"ok": False, "error": f"crt.sh status {r.status_code}"}
             data = r.json()
+            observe("crt.sh", True)
     except Exception as e:  # noqa: BLE001
+        observe("crt.sh", False, f"{type(e).__name__}: {e}")
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
     dates = []
     for row in data if isinstance(data, list) else []:

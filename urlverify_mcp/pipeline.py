@@ -7,7 +7,7 @@ import uuid
 
 from .agent.loop import Investigator
 from .agent.prompts import reason_prompt
-from . import progress
+from . import health, progress
 from .tracelog import TRACE, configure_from, reset_trace_id, set_trace_id
 from .checks import apply_injection_check, run_l0
 from .config import Config
@@ -30,12 +30,21 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
     configure_from(base_cfg)
     from .promptstore import get_store
     get_store(base_cfg.prompts.dir)
+    if health.HEALTH._store is not store:
+        health.HEALTH.attach(store)
     token = set_trace_id(trace_id)
+    dtoken = health.begin_collect()
     # Stage tracking works even without an MCP client (CLI / admin): bind a silent Progress if none is bound.
     ptoken = progress.bind(progress.Progress(None, events=False, heartbeat_s=0)) if progress.current() is None else None
     try:
         try:
-            return await asyncio.wait_for(_verify(req, cfg, store, trace_id, t0), timeout=cfg.budget.max_total_s)
+            res = await asyncio.wait_for(_verify(req, cfg, store, trace_id, t0), timeout=cfg.budget.max_total_s)
+            res.degraded = health.end_collect(dtoken)
+            dtoken = None
+            if res.degraded:
+                res.engine_notes.append("degraded dependencies during this run: " + ", ".join(res.degraded))
+                store.add_history(trace_id, req.project, req.url, req.description, res.verdict.value, res.confidence, res.model_dump(mode="json"))
+            return res
         except asyncio.TimeoutError:
             p = progress.current()
             stage = p.stage() if p else "unknown stage"
@@ -48,6 +57,8 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
             store.add_history(trace_id, req.project, req.url, req.description, result.verdict.value, 0.0, result.model_dump(mode="json"))
             return result
     finally:
+        if dtoken is not None:
+            health.end_collect(dtoken)
         if ptoken is not None:
             progress.unbind(ptoken)
         reset_trace_id(token)

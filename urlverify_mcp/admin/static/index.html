@@ -52,7 +52,7 @@
     <button class="action" id="pw-btn" title="change admin password">Password</button>
     <button class="action" id="logout">Sign out</button>
   </nav>
-  <span id="env" class="muted" style="margin-left:auto"></span>
+  <span id="env" class="muted" style="margin-left:auto" title="observed from real calls, not probed"></span>
 </header>
 <div id="pw-banner" style="display:none;background:#b45309;color:#fff;padding:6px 20px;font-size:13px">Default admin password is in use. Change it (Password button) if this UI is reachable by anyone else.</div>
 <dialog id="pw-dialog" style="border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);padding:20px;width:320px">
@@ -76,6 +76,14 @@
         <div><label>allow_tier3</label><select id="t-t3"><option value="">config</option><option value="true">true</option><option value="false">false</option></select></div>
       </div>
       <button class="primary" id="t-run">Verify</button> <span id="t-status" class="muted"></span>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px"><b>Environment check</b>
+        <button class="small" id="ce-run">Run check-env</button>
+        <span class="muted">manual, lightweight probes of the configured endpoints (same as <code>urlverify-mcp check-env</code>). A snapshot only: the table below shows what real verifications observed.</span></div>
+      <table id="ce-table" style="margin-top:8px;display:none"><thead><tr><th>Dependency</th><th>Result</th><th>ms</th><th>Detail</th></tr></thead><tbody></tbody></table>
+      <details style="margin-top:10px"><summary>Observed dependency health (from real calls; a report, never a gate)</summary>
+        <table id="h-table"><thead><tr><th>Dependency</th><th>Last OK</th><th>Last failure</th><th>Consecutive failures</th><th>OK / fail total</th><th>Last error</th></tr></thead><tbody></tbody></table></details>
     </div>
     <div class="card" id="t-result" style="display:none">
       <div><span class="verdict" id="r-verdict"></span> <span class="muted" id="r-conf"></span> <span class="muted" id="r-meta"></span></div>
@@ -169,7 +177,11 @@ document.querySelectorAll('nav button[data-tab]').forEach(b => b.onclick = () =>
   ({history: loadHistory, config: loadConfig, lists: loadLists, cache: loadCaches, prompts: loadPrompts, logs: loadLogs})[b.dataset.tab]?.();
 });
 
-async function loadEnv(){ try { const e = await api('/api/env'); $('#env').textContent = `LLM ${e.llm.ok?'✓':'✗'} · search ${e.search.ok?'✓':'✗'}` + (e.llm.models?.length? ` · ${e.llm.models[0]}`:''); } catch(err){ $('#env').textContent = 'env check failed'; } }
+async function loadEnv(){ try { const h = await api('/api/health'); const rows = h.rows || [];
+    if (!rows.length) { $('#env').textContent = 'observed health: nothing observed yet'; return; }
+    const bad = rows.filter(r => r.consecutive_fail > 0);
+    $('#env').textContent = `observed health: ${rows.length - bad.length}/${rows.length} dependencies OK on last use` + (bad.length ? ' · failing: ' + bad.map(r => r.dep).join(', ') : ''); }
+  catch(err){ $('#env').textContent = ''; } }
 
 $('#t-run').onclick = async () => {
   const body = { project: $('#t-project').value, url: $('#t-url').value, description: $('#t-desc').value, options: {} };
@@ -258,6 +270,14 @@ $('#pw-save').onclick = async () => {
     $('#pw-dialog').close(); $('#pw-cur').value = $('#pw-new').value = $('#pw-new2').value = ''; loadAuth(); }
   catch(e){ $('#pw-status').textContent = 'error: ' + (e.message.includes('401') || e.message.includes('wrong') ? 'current password is wrong' : e.message); } };
 $('#pw-cancel').onclick = () => { $('#pw-dialog').close(); $('#pw-cur').value = $('#pw-new').value = $('#pw-new2').value = ''; };
+$('#ce-run').onclick = async () => { $('#ce-run').disabled = true; $('#ce-run').textContent = 'probing…';
+  try { const r = await api('/api/checkenv', {method:'POST'}); $('#ce-table').style.display = 'table';
+    $('#ce-table tbody').innerHTML = r.results.map(x => `<tr><td>${esc(x.name)}</td><td class="${x.ok?'VERIFIED_TRUE':'VERIFIED_FALSE'}">${x.ok?'OK':'FAIL'}</td><td>${x.ms}</td><td class="muted">${esc(x.target)}: ${esc(x.detail)}</td></tr>`).join(''); }
+  catch(e){ $('#ce-table').style.display = 'table'; $('#ce-table tbody').innerHTML = `<tr><td colspan="4">error: ${esc(e.message)}</td></tr>`; }
+  $('#ce-run').disabled = false; $('#ce-run').textContent = 'Run check-env'; loadHealth(); };
+async function loadHealth(){ try { const h = await api('/api/health'); const fmt = t => t ? new Date(t*1000).toLocaleString() : '—';
+    $('#h-table tbody').innerHTML = (h.rows||[]).map(r => `<tr><td>${esc(r.dep)}</td><td>${fmt(r.last_ok)}</td><td>${fmt(r.last_fail)}</td><td class="${r.consecutive_fail?'VERIFIED_FALSE':''}">${r.consecutive_fail}</td><td>${r.ok_count} / ${r.fail_count}</td><td class="muted">${esc(r.last_error||'')}</td></tr>`).join('') || '<tr><td class="muted" colspan="6">nothing observed yet</td></tr>'; } catch(e){} }
+loadHealth();
 loadAuth();
 loadEnv();
 </script>

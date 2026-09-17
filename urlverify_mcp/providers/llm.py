@@ -10,6 +10,7 @@ from typing import Any
 from openai import AsyncOpenAI
 
 from ..config import Config
+from ..health import observe
 from ..tracelog import TRACE
 
 JSON_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
@@ -37,6 +38,7 @@ class LLM:
         try:
             resp = await self.client.chat.completions.create(**kwargs)
         except Exception as e:  # noqa: BLE001
+            observe("llm", False, f"{type(e).__name__}: {str(e)[:120]}")
             msg = str(e).lower()
             if tools and self.supports_tools is None and ("tool" in msg or "function" in msg or "400" in msg):
                 self.supports_tools = False
@@ -51,6 +53,7 @@ class LLM:
             # probe result: if the model ever emits a tool call we know it works
             if resp.choices and resp.choices[0].message.tool_calls:
                 self.supports_tools = True
+        observe("llm", True)
         msg = resp.choices[0].message
         try:
             dumped = msg.model_dump()          # includes reasoning_content / reasoning when the backend returns them

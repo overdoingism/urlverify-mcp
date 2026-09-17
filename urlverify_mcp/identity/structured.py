@@ -11,10 +11,16 @@ from typing import Any
 import httpx
 
 from ..checks.urltools import etld1_of, host_of
+from ..health import observe
 
 WIKI_API = "https://{lang}.wikipedia.org/w/api.php"
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 URL_RE = re.compile(r"https?://[^\s|}\]<>\"']+", re.I)
+
+
+def _obs(dep: str, r: dict) -> dict:
+    observe(dep, r.get("ok") is not False, r.get("error"))
+    return r
 
 
 class Structured:
@@ -26,6 +32,15 @@ class Structured:
     async def close(self):
         await self.client.aclose()
 
+    # ---------------- observed-health wrappers
+    async def wikidata(self, *a, **k): return _obs("wikidata", await self._wikidata(*a, **k))
+    async def wikipedia_history(self, *a, **k): return _obs("wikipedia", await self._wikipedia_history(*a, **k))
+    async def wayback_first_seen(self, *a, **k): return _obs("wayback", await self._wayback_first_seen(*a, **k))
+    async def github(self, *a, **k): return _obs("github", await self._github(*a, **k))
+    async def huggingface(self, *a, **k): return _obs("huggingface", await self._huggingface(*a, **k))
+    async def pypi(self, *a, **k): return _obs("pypi", await self._pypi(*a, **k))
+    async def npm(self, *a, **k): return _obs("npm", await self._npm(*a, **k))
+
     async def _json(self, url: str, params: dict | None = None, headers: dict | None = None) -> Any:
         r = await self.client.get(url, params=params, headers=headers)
         if r.status_code >= 400:
@@ -33,7 +48,7 @@ class Structured:
         return r.json()
 
     # ---------------- Wikidata
-    async def wikidata(self, name: str, history_days: int, min_stable: int) -> dict[str, Any]:
+    async def _wikidata(self, name: str, history_days: int, min_stable: int) -> dict[str, Any]:
         """Search entity, read P856 (official website), P178 (developer), P1448/P1813 (names), P8687?, and check P856 stability."""
         try:
             s = await self._json(WIKIDATA_API, {"action": "wbsearchentities", "search": name, "language": "en", "format": "json", "limit": 5})
@@ -116,7 +131,7 @@ class Structured:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
     # ---------------- Wikipedia (infobox website + revision history)
-    async def wikipedia_history(self, title: str, history_days: int, min_stable: int, lang: str = "en") -> dict[str, Any]:
+    async def _wikipedia_history(self, title: str, history_days: int, min_stable: int, lang: str = "en") -> dict[str, Any]:
         api = WIKI_API.format(lang=lang)
         cutoff = (datetime.now(timezone.utc) - timedelta(days=history_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
         try:
@@ -142,14 +157,14 @@ class Structured:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
     # ---------------- Wayback
-    async def wayback_first_seen(self, domain: str) -> dict[str, Any]:
+    async def _wayback_first_seen(self, domain: str) -> dict[str, Any]:
         try:
             r = None
             last_exc = None
             for attempt in range(5):          # archive.org throttles with 503 / slow reads; back off 2s, 4s, 6s, 8s
                 try:
                     r = await self.client.get("https://web.archive.org/cdx/search/cdx",
-                                              params={"url": domain, "limit": 1, "fl": "timestamp,original", "filter": "statuscode:200", "output": "json"})
+                                              params={"url": domain, "limit": 1, "fl": "timestamp,original", "output": "json"})
                 except httpx.TimeoutException as e:
                     last_exc = e
                     r = None
@@ -171,7 +186,7 @@ class Structured:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
     # ---------------- GitHub
-    async def github(self, owner: str, repo: str | None = None) -> dict[str, Any]:
+    async def _github(self, owner: str, repo: str | None = None) -> dict[str, Any]:
         out: dict[str, Any] = {"ok": True, "owner": owner}
         try:
             o = await self._json(f"https://api.github.com/users/{owner}", headers=self.gh_headers)
@@ -195,7 +210,7 @@ class Structured:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}", "owner": owner}
 
     # ---------------- Hugging Face
-    async def huggingface(self, owner: str, repo: str | None = None) -> dict[str, Any]:
+    async def _huggingface(self, owner: str, repo: str | None = None) -> dict[str, Any]:
         out: dict[str, Any] = {"ok": True, "owner": owner}
         try:
             try:
@@ -223,7 +238,7 @@ class Structured:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}", "owner": owner}
 
     # ---------------- package registries
-    async def pypi(self, name: str) -> dict[str, Any]:
+    async def _pypi(self, name: str) -> dict[str, Any]:
         try:
             j = await self._json(f"https://pypi.org/pypi/{name}/json")
             info = j.get("info", {})
@@ -232,11 +247,11 @@ class Structured:
         except Exception as ex:  # noqa: BLE001
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
-    async def npm(self, name: str) -> dict[str, Any]:
+    async def _npm(self, name: str) -> dict[str, Any]:
         try:
-            j = await self._json(f"https://registry.npmjs.org/{name}")
+            j = await self._json(f"https://registry.npmjs.org/{name}/latest")   # small document; the full one lists every version
             repo = j.get("repository", {})
-            return {"ok": True, "found": True, "name": j.get("name"), "homepage": j.get("homepage"),
+            return {"ok": True, "found": True, "name": j.get("name"), "version": j.get("version"), "homepage": j.get("homepage"),
                     "repository": repo.get("url") if isinstance(repo, dict) else repo, "source": f"https://www.npmjs.com/package/{name}"}
         except Exception as ex:  # noqa: BLE001
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}

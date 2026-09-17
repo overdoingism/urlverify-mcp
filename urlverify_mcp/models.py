@@ -95,3 +95,4 @@ class VerifyResult(BaseModel):
     trace_id: str = ""
     duration_s: float = 0.0
     path: str = "full"                     # full | registry_fast_path | l0_fatal | timeout
+    degraded: list[str] = Field(default_factory=list)   # dependencies that failed during this verification (observed, not probed)

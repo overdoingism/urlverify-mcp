@@ -187,8 +187,13 @@ scraping; Reddit requests are serialized; and `net.user_agent` identifies the to
 | Pipeline (scripted LLM, real network) | included in `uv run pytest -q`; auto-skips when offline | network | ~1 min |
 | Live regression | `uv run pytest tests/test_live.py --live -s` | LLM + search + network | 10–15 min |
 
-`uv run urlverify-mcp check-env` probes the LLM, the search backend, the fetcher and the third-party APIs (Wikipedia, Wayback,
-GitHub, PyPI, npm); run it first when something looks off. Results carry `schema_version` (currently 1); a breaking change to the
+`uv run urlverify-mcp check-env` (or the *Run check-env* button on the admin Test tab) sends the smallest request each
+configured endpoint offers — LLM `/models`, SearXNG `/healthz`, Wikipedia `siteinfo`, Wayback availability API, GitHub
+`/rate_limit`, PyPI simple-index `HEAD`, npm `/-/ping` — and is never run automatically. For a service that stays up for days
+a probe is only a snapshot, so the real signal is the **observed dependency health** table (admin Test tab, `/api/health`):
+every real call records its outcome, failures print a prominent `!! DEPENDENCY …` line on stderr and a
+`dependency_failure` record in the full log, and each result lists the dependencies that failed during that run in
+`degraded`. The table is a report, never a gate: networks flap, and the next call is always attempted. Results carry `schema_version` (currently 1); a breaking change to the
 result shape bumps it.
 
 Windows without uv: `.venv\Scripts\python -m pytest -q` (same flags).

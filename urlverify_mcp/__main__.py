@@ -133,57 +133,11 @@ def _bearer_guard(app, token: str):
 
 
 async def _check_env(cfg) -> None:
-    import httpx
-    print(f"LLM  {cfg.llm.base_url} model={cfg.llm.model}: ", end="")
-    try:
-        async with httpx.AsyncClient(timeout=5) as c:
-            r = await c.get(cfg.llm.base_url.rstrip('/') + "/models", headers={"Authorization": f"Bearer {cfg.llm.api_key}"})
-            ids = [m.get("id") for m in r.json().get("data", [])][:5]
-            print(f"OK {ids}")
-    except Exception as e:  # noqa: BLE001
-        print(f"FAIL ({type(e).__name__}: {e})")
-    async def probe(label, coro, ok):
-        print(f"{label}: ", end="", flush=True)
-        try:
-            r = await coro
-            print("OK" if ok(r) else f"FAIL ({r.get('error') or r})")
-        except Exception as e:  # noqa: BLE001
-            print(f"FAIL ({type(e).__name__}: {e})")
-    from .identity.structured import Structured
-    st = Structured(30, cfg.net.user_agent, cfg.identity.github_token)
-    try:
-        await probe("wikipedia (UA policy)", st.wikipedia_history("Python (programming language)", 30, 1), lambda r: r.get("ok") and r.get("found"))
-        await probe("wayback CDX", st.wayback_first_seen("python.org"), lambda r: r.get("ok") and r.get("found"))
-        await probe("github API", st.github("python"), lambda r: r.get("ok"))
-        await probe("pypi API", st.pypi("requests"), lambda r: r.get("ok"))
-        await probe("npm registry", st.npm("lodash"), lambda r: r.get("ok"))
-    finally:
-        await st.close()
-    print(f"search provider={cfg.search.provider}: ", end="", flush=True)
-    if cfg.search.provider == "none":
-        print("disabled (structured APIs only)")
-    else:
-        try:
-            from .providers.search import make_search_provider
-            p = make_search_provider(cfg)
-            out = await p.search("URLVerify smoke test")
-            await p.close()
-            print(f"OK ({len(out)} chars)")
-        except Exception as e:  # noqa: BLE001
-            print(f"FAIL ({type(e).__name__}: {e})")
-    print(f"fetch provider={cfg.fetch.provider}: ", end="", flush=True)
-    try:
-        from .providers.fetch import make_fetcher
-        from .providers.search import make_search_provider
-        sp = make_search_provider(cfg) if cfg.fetch.provider == "mcp" else None
-        f = make_fetcher(cfg, sp)
-        out = await f.fetch("https://example.com/")
-        await f.close()
-        if sp:
-            await sp.close()
-        print(f"OK ({len(out)} chars)" if "Example Domain" in out else f"FAIL (unexpected content: {out[:80]!r})")
-    except Exception as e:  # noqa: BLE001
-        print(f"FAIL ({type(e).__name__}: {e})")
+    """Manual diagnostics only: the smallest request each service offers. Not a health monitor —
+    see the observed health table (admin UI) for what actually happened during real verifications."""
+    from .diagnostics import probe_all
+    for r in await probe_all(cfg):
+        print(f"{r['name']:10s} {('OK  ' if r['ok'] else 'FAIL'):4s} {r['ms']:>5d} ms  {r['target']}: {r['detail']}")
 
 
 if __name__ == "__main__":

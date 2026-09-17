@@ -11,6 +11,7 @@ from .auth import COOKIE, AdminAuth
 from pydantic import BaseModel
 
 from ..config import Config, load_config, save_config
+from ..health import HEALTH
 from ..promptstore import PROMPTS, get_store
 from ..tracelog import TRACE, configure_from
 from ..models import VerifyRequest
@@ -52,6 +53,7 @@ class State:
         configure_from(self.cfg)
         self.prompts = get_store(self.cfg.prompts.dir)
         self.auth = AdminAuth(self.cfg.admin.auth_file, self.cfg.admin.session_days)
+        HEALTH.attach(self.store)
 
     def reload(self):
         self.cfg = load_config(self.config_path)
@@ -234,24 +236,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
         st.prompts.reset(name)
         return {"ok": True}
 
-    @app.get("/api/env")
-    async def env():
-        import httpx
-        out: dict[str, Any] = {}
-        try:
-            async with httpx.AsyncClient(timeout=5) as c:
-                r = await c.get(st.cfg.llm.base_url.rstrip("/") + "/models", headers={"Authorization": f"Bearer {st.cfg.llm.api_key}"})
-                out["llm"] = {"ok": r.status_code == 200, "models": [m.get("id") for m in r.json().get("data", [])][:10]}
-        except Exception as e:  # noqa: BLE001
-            out["llm"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-        try:
-            from ..providers.search import make_search_provider
-            p = make_search_provider(st.cfg)
-            s = await p.search("URLVerify smoke test")
-            await p.close()
-            out["search"] = {"ok": True, "chars": len(s)}
-        except Exception as e:  # noqa: BLE001
-            out["search"] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-        return out
+    @app.get("/api/health")
+    async def health_table():
+        """Observed dependency health: what real calls reported. A report only; never a gate."""
+        return {"rows": HEALTH.table(), "note": "observed from real calls; a report, never a gate: networks flap and the next call is always attempted"}
+
+    @app.post("/api/checkenv")
+    async def check_env():
+        """Manual lightweight probes (same as `urlverify-mcp check-env`). Runs only when the button is pressed."""
+        from ..diagnostics import probe_all
+        return {"results": await probe_all(st.cfg)}
 
     return app

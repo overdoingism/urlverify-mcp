@@ -10,6 +10,7 @@ from typing import Any, Protocol
 import httpx
 
 from ..config import Config
+from ..health import observe
 from ..tracelog import TRACE
 
 
@@ -119,6 +120,7 @@ class MCPSearchProvider:
             result = await self._session.call_tool(tool, args, read_timeout_seconds=timedelta(seconds=self.cfg.search.call_timeout_s))
         except Exception as e:  # transport died mid-call, or read timeout (McpError -32001)
             TRACE.log("search_response", provider="mcp", tool=tool, error=_root_cause(e), elapsed_s=round(time.time() - t0, 2))
+            observe("search:mcp", False, _root_cause(e))
             raise SearchUnavailable(f"search MCP call {tool} failed: {_root_cause(e)}") from None
         parts = []
         for c in result.content:
@@ -128,6 +130,7 @@ class MCPSearchProvider:
         text = "\n".join(parts)
         TRACE.log("search_response", provider="mcp", tool=tool, is_error=bool(getattr(result, "isError", False)),
                   elapsed_s=round(time.time() - t0, 2), chars=len(text), text=text)
+        observe("search:mcp", True)
         if getattr(result, "isError", False):
             raise RuntimeError(f"MCP tool {tool} error: {text[:300]}")
         return text
@@ -170,12 +173,14 @@ class SearxngHTTPProvider:
             r.raise_for_status()
         except httpx.HTTPError as e:
             TRACE.log("search_response", provider="searxng_http", tool="search", error=f"{type(e).__name__}: {e}")
+            observe("search:searxng", False, f"{type(e).__name__}: {e}")
             raise SearchUnavailable(f"SearXNG at {self.cfg.search.searxng_http.base_url} unreachable: {type(e).__name__}: {e}") from None
         data = r.json()
         lines = []
         for i, item in enumerate(data.get("results", [])[:10], 1):
             lines.append(f"{i}. {item.get('title','')}\n   URL: {item.get('url','')}\n   {(item.get('content') or '')[:300]}")
         text = "\n".join(lines) or "(no results)"
+        observe("search:searxng", True)
         TRACE.log("search_response", provider="searxng_http", tool="search", chars=len(text), text=text, raw_results=data.get("results", [])[:10])
         return text
 

@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from ..checks.urltools import etld1_of, host_of
+from ..health import observe
 from .structured import Structured
 
 DEFAULT_AGING_SOURCES: dict[str, str] = {
@@ -103,6 +104,8 @@ class Aging:
                     r["strength"] = "strong"
                 else:
                     r["corroborated_by_wayback"] = False
+            if method != "wayback":
+                observe(f"aging:{method}", bool(r.get("ok")), r.get("error"))
             if r.get("ok") and not r.get("created_ts"):
                 # method found nothing: fall back to Wayback
                 wb = await self._wayback(url)
@@ -113,6 +116,7 @@ class Aging:
                 r["error"] = r.get("error") or "no timestamp available"
             return r
         except Exception as e:  # noqa: BLE001
+            observe(f"aging:{method}", False, f"{type(e).__name__}: {e}")
             return _result(method, url, ok=False, error=f"{type(e).__name__}: {e}")
 
     # ---- methods
