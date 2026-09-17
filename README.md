@@ -129,10 +129,13 @@ this version*. A name-squatter cannot forge one naming someone else's repository
 - the registry metadata and that repository's manifest (`pyproject.toml` / `setup.cfg` / `setup.py`, `package.json`) agree
   on the package name (bidirectional link), and the repository is not a fork;
 - for scoped npm packages (`@scope/name`) the scope equals the provenance repository's owner — the scope *is* the identity;
-- for unscoped names, no far more popular package one edit away (typosquat check; popularity is only the denominator);
+- for PyPI, no far more popular package one edit away on the popularity list (popularity is only the denominator). npm has no
+  such reference, and guessing "likely typos" is guesswork (nobody sees their own typos), so npm relies on provenance alone;
 - the caller's project name matches the package or the owner.
 
-Packages without provenance (most small or dormant ones) are not trusted on metadata alone: they go through the full
+A name the registry itself has disowned — an npm *security holding package* (`0.0.1-security`, the name of a removed malicious
+package) — is `VERIFIED_FALSE` outright; a PyPI release whose files are all yanked is a risk signal. Packages without
+provenance (most small or dormant ones) are not trusted on metadata alone: they go through the full
 investigation, and without independent evidence come back `UNVERIFIABLE`. That is deliberate — a new or small package
 has not earned trust, and the calling agent should ask the user. In the full investigation, provenance also lets a package
 inherit the standing of an established GitHub organisation. `options.mode` = `auto` (default) | `quick` | `full`.

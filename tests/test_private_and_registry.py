@@ -1,5 +1,5 @@
 from urlverify_mcp.checks.private import is_public_ip, looks_local_hostname, non_public
-from urlverify_mcp.identity.registry import _variants, norm_pypi
+from urlverify_mcp.identity.registry import is_security_holding, norm_pypi, pypi_latest_all_yanked
 
 
 def test_ip_classes():
@@ -14,10 +14,14 @@ def test_local_hostnames():
     assert not looks_local_hostname("lmstudio.ai")
 
 
-def test_variants_and_norm():
-    v = _variants("lodash")
-    assert "lodahs" in v and "lodas" in v and "lodash-js" in v and "lodash" not in v
+def test_registry_states_and_norm():
     assert norm_pypi("Python_DateUtil") == norm_pypi("python-dateutil") == "python-dateutil"
+    assert is_security_holding({"dist-tags": {"latest": "0.0.1-security"}, "description": "security holding package"})
+    assert is_security_holding({"dist-tags": {"latest": "1.2.3"}, "description": "This is a security holding package."})
+    assert not is_security_holding({"dist-tags": {"latest": "4.17.21"}, "description": "Lodash modular utilities."})
+    assert pypi_latest_all_yanked({"info": {"version": "2.0"}, "releases": {"2.0": [{"yanked": True}, {"yanked": True}]}})
+    assert not pypi_latest_all_yanked({"info": {"version": "2.0"}, "releases": {"2.0": [{"yanked": True}, {"yanked": False}]}})
+    assert not pypi_latest_all_yanked({"info": {"version": "2.0"}, "releases": {}})
 
 
 def test_manifest_names_parse_properly():

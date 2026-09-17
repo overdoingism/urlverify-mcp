@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- npm security holding packages (`0.0.1-security`, the name of a removed malicious package) are `VERIFIED_FALSE`
+  outright; a PyPI release whose files are all yanked is a risk signal. The registry's own state is trusted.
+- The npm near-name check is removed: there is no popularity reference for npm and generating "likely typos" is
+  guesswork; provenance already gates TRUE. Saves a long bulk-download request per npm verification. PyPI keeps its
+  local comparison against the popularity list.
+
 ## v0.1.2 — 2026-09-18
 
 - `check-env` probes only the configured endpoints (LLM, search, fetch); third-party services are observed, not probed.

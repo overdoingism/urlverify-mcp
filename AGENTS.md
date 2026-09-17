@@ -151,7 +151,8 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 ### 3.1 登錄快速路徑（2026-09-17 定案）
 PyPI / npm 目標先跑結構化檢查：存在、首發年齡、版本數、**簽章 provenance**（npm attestation / PyPI PEP 740，登錄自己簽的
 「哪個 repo 的 CI 發布了這版」；其 repo owner 須為 GitHub 已驗證網域的組織；deps.dev 印證則記錄）、repo 雙向互指、
-scoped npm 的 scope 須等於 provenance owner、非 scoped 的近似名檢查、project 名相符，全數明確且良好才直接 TRUE。
+scoped npm 的 scope 須等於 provenance owner、PyPI 的近似名檢查（對照熱門清單；npm 無參照清單故不做，生成「合理錯字」是猜測）、
+project 名相符，全數明確且良好才直接 TRUE。登錄方自己宣告的狀態優先：npm security holding（0.0.1-security）→ FALSE。
 **沒有 provenance 的套件絕不憑 metadata 給 TRUE**（roger 2026-09-18：新／小套件本來就沒有理由被自然信任），走完整流程；
 完整流程中 provenance 可讓套件承接已建立 GitHub 組織的地位。**人氣不是獨立訊號**（下載量可灌），只作近似名比值的分母；
 熱門清單**不內附**，首次用到才串流下載前 N 筆（預設 1500，約 90 KB）並以 ETag 更新，設定段為 `package_registry_fast_path`；
@@ -194,6 +195,9 @@ config.example.yaml
 ```
 
 ## 10. 工作規範
+- **未經指示不得直接修改程式碼。** 發現問題先回報與分析，提出修法，等指示再動手；這包括「順手修」與「小修」。
+- **不做任何針對性的硬化處理。** 不為單一案例、單一網站、單一套件加特例或補丁；只做能一般化的規則，並說明它為什麼一般化。
+  若一個案例只能靠特例解決，回報這個事實，讓維護者決定。
 - 先討論、再寫碼；重大設計變更先更新本文件。
 - 每個新檢查都要附 fixtures 迴歸案例。
 - 回覆與文件用繁體中文；程式碼、識別字、prompt 用英文。

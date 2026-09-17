@@ -119,7 +119,7 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 | `min_releases` | int · `3` | Minimum number of releases. |
 | `confidence` | float · `0.8` | Confidence assigned to a fast-path `VERIFIED_TRUE`. |
 | `require_project_match` | bool · `true` | The caller's `project` must match the package name (normalised, substring either way). A mismatch (asked for "requests", given `reqests-utils`) sends the case to the full pipeline with a `project_package_mismatch` risk signal. |
-| `typosquat_check` | bool · `true` | Compare the name against far more popular near-names (PyPI: popularity list; npm: bulk download counts of generated variants). `false` skips it and relies on the bidirectional repository link alone — you accept the look-alike risk. |
+| `typosquat_check` | bool · `true` | PyPI only: compare the name against far more popular near-names on the popularity list. npm has no popularity reference and is not compared (provenance gates TRUE there). |
 | `toplist_size` | int · `1500` | Rows kept from the PyPI popularity list, ~60 bytes each (1500 ≈ 90 KB). The file is sorted by downloads and streamed: the connection is closed after N rows, the rest is never downloaded. Nothing is bundled with the package. |
 | `toplist_refresh_days` | int · `60` | The cached list (`state/pypi_top.json`) is re-validated at most this often, with `If-None-Match`; an unchanged list costs a 304 and no body. The first download happens on the first PyPI target, never at install or start-up. |
 | `toplist_url` | str · hugovk top-pypi-packages | Source of the list (JSON rows `{download_count, project}` sorted descending). |

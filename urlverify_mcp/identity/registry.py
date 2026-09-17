@@ -21,7 +21,6 @@ from ..tracelog import TRACE
 from .provenance import Provenance
 from .structured import Structured
 
-NPM_BULK = "https://api.npmjs.org/downloads/point/last-week/"
 
 
 def norm_pypi(name: str) -> str:
@@ -40,27 +39,19 @@ def _age_days(ts: str | None) -> int | None:
         return None
 
 
-def _variants(name: str) -> set[str]:
-    """Near-names an attacker would register: one-edit variants plus separator / common-confusion swaps."""
-    out: set[str] = set()
-    n = name.lower()
-    alphabet = "abcdefghijklmnopqrstuvwxyz-_."
-    for i in range(len(n)):
-        out.add(n[:i] + n[i + 1:])                                  # deletion
-        for c in alphabet:
-            out.add(n[:i] + c + n[i + 1:])                          # substitution
-    for i in range(len(n) - 1):
-        out.add(n[:i] + n[i + 1] + n[i] + n[i + 2:])               # transposition
-    for i in range(len(n) + 1):
-        for c in alphabet:
-            out.add(n[:i] + c + n[i:])                              # insertion
-    for a, b in (("-", "_"), ("_", "-"), ("-", ""), ("_", ""), ("py", ""), ("js", ""), ("s", ""), ("", "s"), ("", "js"), ("", "-js")):
-        if a:
-            out.add(n.replace(a, b))
-        else:
-            out.add(n + b)
-    out.discard(n)
-    return {v for v in out if v and re.fullmatch(r"[a-z0-9][a-z0-9._-]*", v)}
+def is_security_holding(npm_doc: dict) -> bool:
+    """npm's own statement that a name is not a real package: after a malicious package is removed, the npm security
+    team re-publishes the name as a 'security holding package' at version 0.0.1-security."""
+    latest = (npm_doc.get("dist-tags") or {}).get("latest")
+    desc = str(npm_doc.get("description") or "").lower()
+    return latest == "0.0.1-security" or "security holding package" in desc
+
+
+def pypi_latest_all_yanked(pypi_doc: dict) -> bool:
+    """PyPI: every file of the latest release withdrawn (yanked) — the registry's signal that the release is not to be used."""
+    info = pypi_doc.get("info") or {}
+    files = (pypi_doc.get("releases") or {}).get(info.get("version")) or []
+    return bool(files) and all(f.get("yanked") for f in files)
 
 
 def _names_match(project: str, package: str) -> bool:
@@ -169,6 +160,7 @@ class RegistryFastPath:
         uploads = [f["upload_time_iso_8601"] for files in (j.get("releases") or {}).values() for f in files if f.get("upload_time_iso_8601")]
         latest = info.get("version")
         files = (j.get("releases") or {}).get(latest) or []
+        sig["latest_yanked"] = pypi_latest_all_yanked(j)
         sig.update({"exists": True, "canonical": info.get("name"), "releases": len(j.get("releases") or {}), "version": latest,
                     "filename": next((f["filename"] for f in files if f.get("filename", "").endswith(".whl")), files[0]["filename"] if files else None),
                     "age_days": _age_days(min(uploads)) if uploads else None, "latest_age_days": _age_days(max(uploads)) if uploads else None,
@@ -209,38 +201,17 @@ class RegistryFastPath:
             return {**sig, "exists": None, "error": f"{type(e).__name__}: {e}"}
         times = j.get("time") or {}
         versions = [v for v in times if v not in ("created", "modified")]
+        sig["security_holding"] = is_security_holding(j)
         repo = j.get("repository")
         sig.update({"exists": True, "canonical": j.get("name"), "releases": len(versions), "age_days": _age_days(times.get("created")),
                     "version": (j.get("dist-tags") or {}).get("latest"),
                     "latest_age_days": _age_days(times.get("modified")), "homepage": j.get("homepage"),
                     "repository": repo.get("url") if isinstance(repo, dict) else repo, "maintainers": len(j.get("maintainers") or []),
                     "source": f"https://www.npmjs.com/package/{name}"})
-        if not self.cfg.package_registry_fast_path.typosquat_check:
-            sig["typosquat_hits"] = []
-            sig["typosquat_check"] = "disabled by config"
-            return sig
-        # popularity of the candidate and of its near-names (bulk endpoint, unscoped names only)
-        if name.startswith("@"):
-            sig["downloads_week"] = None
-            sig["typosquat_hits"] = []        # scoped: the scope itself is the identity (only its owner can publish under it);
-            sig["scope"] = name[1:].split("/")[0]   # enforced below: provenance / repo org must equal the scope
-            return sig
-        variants = list(_variants(name))[:127]
-        try:
-            mine = (await self.client.get(NPM_BULK + name)).json().get("downloads")
-            sig["downloads_week"] = mine
-            hits = []
-            for i in range(0, len(variants), 128):
-                chunk = variants[i:i + 128]
-                data = (await self.client.get(NPM_BULK + ",".join(chunk))).json()
-                for k, v in (data or {}).items():
-                    if isinstance(v, dict) and v.get("downloads") and v["downloads"] > max((mine or 0) * 20, 100_000):
-                        hits.append({"popular": k, "downloads": v["downloads"]})
-            sig["typosquat_hits"] = sorted(hits, key=lambda h: -h["downloads"])[:3]
-        except Exception as e:  # noqa: BLE001
-            sig["downloads_week"] = None
-            sig["typosquat_hits"] = None
-            sig["error"] = f"{type(e).__name__}: {e}"
+        # No near-name comparison for npm: there is no popularity reference to compare against, and generating
+        # "likely typos" is guesswork (people do not see their own typos). Provenance gates TRUE instead.
+        sig["typosquat_hits"] = []
+        sig["typosquat_check"] = "not applicable to npm (no popularity reference); provenance required"
         return sig
 
     async def repo_signal(self, sig: dict[str, Any]) -> dict[str, Any]:
@@ -307,6 +278,15 @@ class RegistryFastPath:
         if sig.get("exists") is False:
             TRACE.log("registry_fast_path", signals=sig, outcome="not_found")
             return self._result(Verdict.FALSE, 0.9, l0, sig, {}, [f"package '{name}' does not exist on {l0.platform}"], t0, trace_id)
+        if sig.get("security_holding"):
+            # the registry's own verdict on the name; no investigation can overturn it
+            TRACE.log("registry_fast_path", signals=sig, outcome="security_holding")
+            l0.risk_signals.append("npm_security_holding_package")
+            return self._result(Verdict.FALSE, 0.95, l0, sig, {},
+                                [f"'{name}' is an npm security holding package (version 0.0.1-security): the name was taken over by the npm "
+                                 "security team after a malicious package was removed; nothing legitimate is published under it"], t0, trace_id)
+        if sig.get("latest_yanked"):
+            l0.risk_signals.append("pypi_latest_release_yanked")
         repo = await self.repo_signal(sig)
         prov = await self.provenance_signal(sig)
         hits = sig.get("typosquat_hits")
@@ -360,7 +340,7 @@ class RegistryFastPath:
             TRACE.log("registry_fast_path", signals=sig, repo=repo, provenance=prov, outcome="inconclusive", notes=notes + unknowns)
             return None
         why = [f"{l0.platform} package '{sig.get('canonical') or name}' exists for {age} days with {rel} releases",
-               "no more-popular near-name package (typosquat check clean)",
+               ("no more-popular near-name package on the PyPI popularity list" if l0.platform == "pypi" else "npm: no near-name reference; provenance required instead"),
                f"registry metadata points at {repo['repo']} and its {repo.get('manifest')} declares this package (bidirectional link); "
                f"repository is not a fork, {repo.get('age_days')} days old, {repo.get('stars')} stars",
                f"build provenance ({prov.get('kind')}) signed for version {sig.get('version')}: published by CI of {prov['repo_url']}"
