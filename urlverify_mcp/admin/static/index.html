@@ -10,8 +10,8 @@
   body { margin:0; font:14px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
   header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; }
   header h1 { font-size:16px; margin:0; }
-  :root { --tab-bg:#eef0f3; --action-bg:#fde8c8; --action-fg:#7c3a00; --action-line:#f0c48a; }
-  @media (prefers-color-scheme: dark) { :root { --tab-bg:#1f2430; --action-bg:#3a2a12; --action-fg:#f5c98a; --action-line:#6b4a1c; } }
+  :root { --tab-bg:#eef0f3; --action-bg:#fde8c8; --action-fg:#7c3a00; --action-line:#f0c48a; --danger-bg:#fde3e3; --danger-fg:#8a1c1c; --danger-line:#f1b3b3; }
+  @media (prefers-color-scheme: dark) { :root { --tab-bg:#1f2430; --action-bg:#3a2a12; --action-fg:#f5c98a; --action-line:#6b4a1c; --danger-bg:#3a1717; --danger-fg:#f3a3a3; --danger-line:#6b2a2a; } }
   nav { display:flex; gap:6px; align-items:center; }
   nav button { background:var(--tab-bg); border:1px solid var(--line); color:var(--fg); padding:6px 12px; border-radius:6px; cursor:pointer; }
   nav button.active { border-color:var(--accent); color:var(--accent); background:var(--card); }
@@ -25,7 +25,10 @@
   input, textarea, select { width:100%; box-sizing:border-box; padding:6px 8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; }
   textarea { min-height:120px; font-family:ui-monospace, monospace; font-size:12px; }
   button.primary { background:var(--accent); color:#fff; border:0; padding:8px 14px; border-radius:6px; cursor:pointer; margin-top:10px; }
-  button.small { font-size:12px; padding:2px 8px; border:1px solid var(--line); background:none; color:var(--fg); border-radius:4px; cursor:pointer; }
+  button.small { font-size:12px; padding:3px 9px; border:1px solid var(--line); background:var(--tab-bg); color:var(--fg); border-radius:4px; cursor:pointer; }
+  button.small:hover { border-color:var(--accent); color:var(--accent); }
+  button.small[data-clear], button.small[data-t], button.small#p-reset { background:var(--danger-bg); border-color:var(--danger-line); color:var(--danger-fg); }
+  button.small[data-clear]:hover, button.small[data-t]:hover, button.small#p-reset:hover { filter:brightness(1.08); color:var(--danger-fg); border-color:var(--danger-line); }
   table { width:100%; border-collapse:collapse; font-size:13px; } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   .verdict { font-weight:600; } .VERIFIED_TRUE { color:var(--ok);} .VERIFIED_FALSE { color:var(--bad);} .UNVERIFIABLE { color:var(--warn);}
   pre { background:var(--bg); padding:10px; border-radius:6px; overflow:auto; font-size:12px; max-height:480px; }
@@ -55,7 +58,8 @@
 <dialog id="pw-dialog" style="border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);padding:20px;width:320px">
   <h3 style="margin-top:0">Change password</h3>
   <label>Current</label><input type="password" id="pw-cur" autocomplete="current-password">
-  <label>New</label><input type="password" id="pw-new" autocomplete="new-password">
+  <label>New (at least 4 characters)</label><input type="password" id="pw-new" autocomplete="new-password">
+  <label>Confirm new</label><input type="password" id="pw-new2" autocomplete="new-password">
   <div style="margin-top:12px;display:flex;gap:8px"><button class="primary" id="pw-save" style="margin:0">Save</button><button class="small" id="pw-cancel">Cancel</button></div>
   <div class="muted" id="pw-status" style="margin-top:8px"></div>
 </dialog>
@@ -244,8 +248,16 @@ async function viewLog(name){ const r = await api('/api/fulllog/'+name); $('#l-v
 async function loadAuth(){ try { const a = await api('/api/auth'); $('#pw-banner').style.display = a.default_password ? 'block' : 'none'; } catch(e){} }
 $('#logout').onclick = async () => { await api('/api/logout', {method:'POST'}); location.href = '/login'; };
 $('#pw-btn').onclick = () => { $('#pw-status').textContent=''; $('#pw-dialog').showModal(); };
-$('#pw-cancel').onclick = () => $('#pw-dialog').close();
-$('#pw-save').onclick = async () => { try { await api('/api/password', {method:'PUT', body: JSON.stringify({current: $('#pw-cur').value, new: $('#pw-new').value})}); $('#pw-dialog').close(); $('#pw-cur').value=$('#pw-new').value=''; loadAuth(); } catch(e){ $('#pw-status').textContent = 'error: ' + e.message; } };
+$('#pw-save').onclick = async () => {
+  const cur = $('#pw-cur').value, nw = $('#pw-new').value, nw2 = $('#pw-new2').value;
+  if (!cur) { $('#pw-status').textContent = 'enter the current password'; return; }
+  if (nw.length < 4) { $('#pw-status').textContent = 'new password must be at least 4 characters'; return; }
+  if (nw !== nw2) { $('#pw-status').textContent = 'new password and confirmation do not match'; return; }
+  if (nw === cur) { $('#pw-status').textContent = 'new password is the same as the current one'; return; }
+  try { await api('/api/password', {method:'PUT', body: JSON.stringify({current: cur, new: nw})});
+    $('#pw-dialog').close(); $('#pw-cur').value = $('#pw-new').value = $('#pw-new2').value = ''; loadAuth(); }
+  catch(e){ $('#pw-status').textContent = 'error: ' + (e.message.includes('401') || e.message.includes('wrong') ? 'current password is wrong' : e.message); } };
+$('#pw-cancel').onclick = () => { $('#pw-dialog').close(); $('#pw-cur').value = $('#pw-new').value = $('#pw-new2').value = ''; };
 loadAuth();
 loadEnv();
 </script>
