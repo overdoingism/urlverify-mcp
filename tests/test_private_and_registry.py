@@ -35,3 +35,11 @@ def test_project_name_match():
     assert _names_match("requests", "requests") and _names_match("LM Studio", "lmstudio") and _names_match("pypdf", "PyPDF")
     assert _names_match("dateutil", "python-dateutil")
     assert not _names_match("requests", "reqests-utils") and not _names_match("numpy", "pandas")
+
+
+def test_provenance_repo_parsing():
+    from urlverify_mcp.identity.provenance import _owner_repo
+    assert _owner_repo("https://github.com/electron/asar") == ("electron", "asar")
+    assert _owner_repo("git+https://github.com/psf/requests.git") == ("psf", "requests")
+    assert _owner_repo("https://github.com/py-pdf/pypdf/.github/workflows/x.yml") == ("py-pdf", "pypdf")
+    assert _owner_repo("https://gitlab.com/x/y") is None and _owner_repo(None) is None

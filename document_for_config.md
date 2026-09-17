@@ -120,13 +120,12 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 | `toplist_refresh_days` | int · `60` | The cached list (`state/pypi_top.json`) is re-validated at most this often, with `If-None-Match`; an unchanged list costs a 304 and no body. The first download happens on the first PyPI target, never at install or start-up. |
 | `toplist_url` | str · hugovk top-pypi-packages | Source of the list (JSON rows `{download_count, project}` sorted descending). |
 
-`VERIFIED_TRUE` needs existence + age + release count + project-name match + a **bidirectional** repository link (registry →
-GitHub repo whose manifest declares the package) + a clean typosquat check. Popularity is only the denominator of the
-typosquat ratio, never a signal by itself. Any unknown (API or list unavailable, scoped npm package, no repository,
-unreadable manifest) or suspicious signal makes the fast path inconclusive and hands the case to the full pipeline with the
-suspicion attached as a risk signal. The fast path can therefore only speed things up, never decide wrongly. A malicious
-package that imitates nothing and has its own consistent repository passes both paths as "official for its own project";
-that is the boundary of source verification, not a gap (file contents are out of scope).
+`VERIFIED_TRUE` needs existence + age + release count + project-name match + **signed build provenance** (npm attestation /
+PyPI PEP 740) whose repository owner is a domain-verified GitHub organisation + a bidirectional repository link + (unscoped
+npm / PyPI) a clean typosquat check or (scoped npm) scope == provenance owner. Popularity is only the denominator of the
+typosquat ratio. Packages without provenance are never trusted on metadata alone; they run the full investigation. Any
+unknown or suspicious signal makes the fast path inconclusive and hands the case to the full pipeline with the suspicion
+attached as a risk signal. The fast path can therefore only speed things up, never decide wrongly.
 
 ## `full_log` — full data log
 

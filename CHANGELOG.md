@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Build provenance is now the package "verified badge".** The registry fast path requires npm Sigstore attestations or
+  PyPI PEP 740 provenance whose repository owner is a domain-verified GitHub organisation (deps.dev corroboration recorded);
+  scoped npm packages must have scope == provenance owner. Packages without provenance are never trusted on metadata
+  alone and run the full investigation. In the full investigation, provenance lets a package inherit an established
+  GitHub organisation's standing (fixes `@electron/asar` coming back UNVERIFIABLE with a complete evidence chain).
+- npm anchor expects Google Trust Services certificates (no more spurious issuer_drift).
+
 - **No more SQLite.** Rebuildable caches and settings are plain JSON under `state/` (cert/identity caches, auth,
   prompt overrides, PyPI top list); everything that records what the installation did is under `log/` (`full/`,
   `history/` as one file per verification, `health.json`, `server/`, `admin/`). Both folders sit next to

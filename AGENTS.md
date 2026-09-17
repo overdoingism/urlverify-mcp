@@ -146,8 +146,11 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 （2026-09-15 實測：Qwen3.8 對 JSON 型工具輸出會寫摘要而非逐字引文，純逐字比對會誤丟 Wikipedia 證據，故結構化來源改事實錨定；防幻覺性質不變。）
 
 ### 3.1 登錄快速路徑（2026-09-17 定案）
-PyPI / npm 目標先跑結構化檢查（存在、首發年齡、版本數、**repo 雙向互指**（登錄 metadata 指向 repo 且 repo 的 manifest 宣告此套件名）、
-與熱門套件的編輯距離、呼叫方 project 名與套件名相符），全數明確且良好才直接 TRUE。**人氣不是獨立訊號**（下載量可灌），只作近似名比值的分母；
+PyPI / npm 目標先跑結構化檢查：存在、首發年齡、版本數、**簽章 provenance**（npm attestation / PyPI PEP 740，登錄自己簽的
+「哪個 repo 的 CI 發布了這版」；其 repo owner 須為 GitHub 已驗證網域的組織；deps.dev 印證則記錄）、repo 雙向互指、
+scoped npm 的 scope 須等於 provenance owner、非 scoped 的近似名檢查、project 名相符，全數明確且良好才直接 TRUE。
+**沒有 provenance 的套件絕不憑 metadata 給 TRUE**（roger 2026-09-18：新／小套件本來就沒有理由被自然信任），走完整流程；
+完整流程中 provenance 可讓套件承接已建立 GitHub 組織的地位。**人氣不是獨立訊號**（下載量可灌），只作近似名比值的分母；
 熱門清單**不內附**，首次用到才串流下載前 N 筆（預設 1500，約 90 KB）並以 ETag 更新，設定段為 `package_registry_fast_path`；
 任一訊號未知或可疑就落回完整流程並附上風險訊號。**快速路徑只能加速，不能決定錯誤方向**。`options.mode` 可強制 quick / full。
 

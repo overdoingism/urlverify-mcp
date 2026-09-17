@@ -35,7 +35,7 @@ SEED: list[Anchor] = [
            ["GlobalSign", "Let's Encrypt", "DigiCert"], "PyPI (owner = package name)"),
     Anchor("npm", ["npmjs.com", "npmjs.org"],
            r"^/package/(?P<owner>@?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)",
-           ["DigiCert", "Amazon"], "npm registry (owner = package name)"),
+           ["Google Trust Services", "DigiCert", "Amazon", "Cloudflare"], "npm registry (owner = package name)"),
     Anchor("crates", ["crates.io"], r"^/crates/(?P<owner>[A-Za-z0-9_-]+)",
            ["Amazon", "Let's Encrypt"], "crates.io (owner = crate name)"),
     Anchor("dockerhub", ["docker.com", "docker.io"],

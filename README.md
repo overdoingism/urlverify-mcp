@@ -118,22 +118,24 @@ Defaults ship in `urlverify_mcp/prompt_defaults/`; *Reset to default* deletes th
 ### Registry fast path (PyPI / npm)
 
 A package URL (`pypi.org/project/<name>`, `npmjs.com/package/<name>`) asks a narrower question than a website: *is this the
-real package or a look-alike?* That is answered from registry data alone, in a few seconds and without the LLM. `VERIFIED_TRUE`
-(confidence `package_registry_fast_path.confidence`, `path: registry_fast_path`) requires all of:
+real package, published by the project it claims?* Registries answer the second half themselves: **build provenance** — npm's
+Sigstore attestations and PyPI's PEP 740 provenance — is the registry's signed statement of *which repository's CI published
+this version*. A name-squatter cannot forge one naming someone else's repository. `VERIFIED_TRUE` (confidence
+`package_registry_fast_path.confidence`, `path: registry_fast_path`) requires all of:
 
-- the package exists, its first release is older than `package_registry_fast_path.min_age_days`, and it has `min_releases` releases;
-- **bidirectional repository link**: the registry metadata points at a GitHub repository whose own manifest
-  (`pyproject.toml` / `setup.cfg` / `setup.py`, or `package.json`) declares this package name, and the repository is not a fork;
-- **project name matches** the package or repository name (the caller asked for this package, not a near-miss);
-- **no typosquat**: no package one edit away (two for long names) is more than 20× as popular (PyPI: the top-1500 popularity
-  list, streamed on first use and re-validated every 60 days with ETag, ~90 KB and nothing bundled; npm: bulk download counts of
-  generated near-names).
+- the package exists, its first release is older than `min_age_days`, and it has `min_releases` releases;
+- **signed provenance** for the latest version, whose repository owner is a domain-verified GitHub organisation
+  (deps.dev's independent verification of the same attestation is recorded when available);
+- the registry metadata and that repository's manifest (`pyproject.toml` / `setup.cfg` / `setup.py`, `package.json`) agree
+  on the package name (bidirectional link), and the repository is not a fork;
+- for scoped npm packages (`@scope/name`) the scope equals the provenance repository's owner — the scope *is* the identity;
+- for unscoped names, no far more popular package one edit away (typosquat check; popularity is only the denominator);
+- the caller's project name matches the package or the owner.
 
-Popularity is deliberately *not* a signal on its own (download counts can be inflated); it only serves as the denominator in
-the typosquat ratio. A missing package → `VERIFIED_FALSE`. Anything unknown (API down, no repository, unreadable manifest,
-scoped npm name) or suspicious (a far more popular near-name) → the full investigation runs, with the suspicion attached as a
-risk signal. Small hobby packages with a properly linked repository pass; small packages without one come back `UNVERIFIABLE`
-from the full path, which is the honest answer. `options.mode` = `auto` (default) | `quick` (fast path only) | `full` (skip it).
+Packages without provenance (most small or dormant ones) are not trusted on metadata alone: they go through the full
+investigation, and without independent evidence come back `UNVERIFIABLE`. That is deliberate — a new or small package
+has not earned trust, and the calling agent should ask the user. In the full investigation, provenance also lets a package
+inherit the standing of an established GitHub organisation. `options.mode` = `auto` (default) | `quick` | `full`.
 
 ### Where things live
 

@@ -40,18 +40,16 @@
   url: https://lmstudіo.ai/
   description: cyrillic i homoglyph
   expect: VERIFIED_FALSE
-- id: pypi-requests-fast-path
+- id: pypi-requests
   project: requests
   url: https://pypi.org/project/requests/
   description: requests HTTP library on PyPI
-  expect: VERIFIED_TRUE
-  expect_path: registry_fast_path      # popular package with near-names (request, requests2) must NOT be slowed down
-- id: pypi-pypdf-fast-path
+  expect: VERIFIED_TRUE                # fast path only if the latest release carries PEP 740 provenance; otherwise full path
+- id: pypi-pypdf
   project: pypdf
   url: https://pypi.org/project/pypdf/
   description: pypdf on PyPI
-  expect: VERIFIED_TRUE
-  expect_path: registry_fast_path
+  expect: VERIFIED_TRUE                # has PEP 740 provenance, but py-pdf is not a domain-verified org -> full path establishes it
 - id: pypi-nonexistent
   project: requests
   url: https://pypi.org/project/reqeusts/
@@ -65,3 +63,9 @@
   expect_any: [VERIFIED_FALSE, UNVERIFIABLE]
   expect_path: full                    # suspicious near-name must fall through to the full pipeline
   expect_risk_prefix: registry_typosquat
+- id: npm-scoped-electron-asar
+  project: "@electron/asar"
+  url: https://www.npmjs.com/package/@electron/asar
+  description: Electron's asar packaging tool
+  expect: VERIFIED_TRUE
+  expect_path: registry_fast_path      # scoped package with npm provenance from github.com/electron/asar (verified org)

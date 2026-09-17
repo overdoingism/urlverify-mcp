@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 
@@ -168,8 +169,24 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             for u, a in ages.items():
                 engine_notes.append(f"aging {u[:80]}: " + (f"{a.get('age_days')}d via {a.get('method')} ({a.get('strength')})" if a.get("created_ts") else f"undated ({a.get('error')})"))
         TRACE.log("aging_result", ages=ages, target_domain_age=target_age)
+        prov = None
+        if l0.platform in ("pypi", "npm") and l0.platform_owner:
+            try:
+                rfp = RegistryFastPath(cfg, structured)
+                sig = await (rfp.pypi_signals(l0.platform_owner) if l0.platform == "pypi" else rfp.npm_signals(l0.platform_owner))
+                if sig.get("exists"):
+                    prov = await rfp.provenance_signal(sig)
+                    if prov.get("found"):
+                        gh = await structured.github(prov["repo"][0])
+                        oi = (gh.get("owner_info") or {}) if gh.get("ok") else {}
+                        prov["owner_verified"] = bool(oi.get("is_verified"))
+                        prov["owner_blog"] = oi.get("blog")
+                        inv.evidence_store[prov.get("source") or "provenance"] = json.dumps(prov, default=str)
+            except Exception as e:  # noqa: BLE001
+                engine_notes.append(f"provenance lookup failed: {type(e).__name__}: {e}")
+            TRACE.log("provenance", provenance=prov)
         await progress.report("rules engine: verifying evidence and deciding", 0.88)
-        dec = decide(cfg, l0, sub, inv.evidence_store, req.project, cached_identity, ages, target_age)
+        dec = decide(cfg, l0, sub, inv.evidence_store, req.project, cached_identity, ages, target_age, prov)
         engine_notes.extend(dec.notes)
         TRACE.log("rules_decision", verdict=dec.verdict.value, confidence=dec.confidence, notes=dec.notes,
                   established_domains=dec.established_domains, established_orgs=dec.established_orgs,

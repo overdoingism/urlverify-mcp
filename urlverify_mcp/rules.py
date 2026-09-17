@@ -80,7 +80,7 @@ def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
 
 def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str], project: str,
            cached: dict | None = None, ages: dict[str, dict] | None = None,
-           target_domain_age: dict | None = None) -> Decision:
+           target_domain_age: dict | None = None, provenance: dict | None = None) -> Decision:
     notes: list[str] = []
     ic = cfg.identity
     ages = ages or {}
@@ -171,6 +171,18 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
             if _platform_verified_link(org, platform, established, store):
                 est_orgs.setdefault(platform, []).append(org.lower())
                 notes.append(f"{platform} org '{org}' is platform-verified and links to an established official domain")
+    # signed build provenance: the registry's own statement of which repository's CI published the package.
+    # If that repository's owner is an established (or domain-verified, established-domain-linked) GitHub org, the
+    # package owner on the registry is established too. Metadata links alone never do this.
+    if provenance and provenance.get("found") and l0.platform in ("pypi", "npm") and l0.platform_owner:
+        powner = provenance["repo"][0].lower()
+        gh_est = [o.lower() for o in est_orgs.get("github", [])]
+        blog = provenance.get("owner_blog") or ""
+        blog_ok = provenance.get("owner_verified") and etld1_of(host_of(blog)) in established if blog else False
+        if powner in gh_est or blog_ok:
+            est_orgs.setdefault(l0.platform, []).append(l0.platform_owner.lower())
+            notes.append(f"{l0.platform} package '{l0.platform_owner}' established by signed build provenance from {provenance.get('repo_url')} "
+                         f"(owner '{powner}' is an established GitHub org)" + ("; corroborated by deps.dev" if provenance.get("depsdev_verified") else ""))
     # previously established identity (cache) is trusted until it expires
     if cached:
         for d in cached.get("official_domains", []):

@@ -18,6 +18,7 @@ from ..checks.urltools import levenshtein
 from ..config import Config
 from ..models import Evidence, IdentityGraph, L0Result, Verdict, VerifyResult
 from ..tracelog import TRACE
+from .provenance import Provenance
 from .structured import Structured
 
 NPM_BULK = "https://api.npmjs.org/downloads/point/last-week/"
@@ -166,7 +167,10 @@ class RegistryFastPath:
         if not info:
             return {**sig, "exists": False}
         uploads = [f["upload_time_iso_8601"] for files in (j.get("releases") or {}).values() for f in files if f.get("upload_time_iso_8601")]
-        sig.update({"exists": True, "canonical": info.get("name"), "releases": len(j.get("releases") or {}),
+        latest = info.get("version")
+        files = (j.get("releases") or {}).get(latest) or []
+        sig.update({"exists": True, "canonical": info.get("name"), "releases": len(j.get("releases") or {}), "version": latest,
+                    "filename": next((f["filename"] for f in files if f.get("filename", "").endswith(".whl")), files[0]["filename"] if files else None),
                     "age_days": _age_days(min(uploads)) if uploads else None, "latest_age_days": _age_days(max(uploads)) if uploads else None,
                     "project_urls": info.get("project_urls") or {}, "home_page": info.get("home_page"), "summary": info.get("summary"),
                     "source": f"https://pypi.org/project/{info.get('name') or name}/"})
@@ -207,6 +211,7 @@ class RegistryFastPath:
         versions = [v for v in times if v not in ("created", "modified")]
         repo = j.get("repository")
         sig.update({"exists": True, "canonical": j.get("name"), "releases": len(versions), "age_days": _age_days(times.get("created")),
+                    "version": (j.get("dist-tags") or {}).get("latest"),
                     "latest_age_days": _age_days(times.get("modified")), "homepage": j.get("homepage"),
                     "repository": repo.get("url") if isinstance(repo, dict) else repo, "maintainers": len(j.get("maintainers") or []),
                     "source": f"https://www.npmjs.com/package/{name}"})
@@ -217,7 +222,8 @@ class RegistryFastPath:
         # popularity of the candidate and of its near-names (bulk endpoint, unscoped names only)
         if name.startswith("@"):
             sig["downloads_week"] = None
-            sig["typosquat_hits"] = None      # scoped packages: bulk API unsupported -> unknown
+            sig["typosquat_hits"] = []        # scoped: the scope itself is the identity (only its owner can publish under it);
+            sig["scope"] = name[1:].split("/")[0]   # enforced below: provenance / repo org must equal the scope
             return sig
         variants = list(_variants(name))[:127]
         try:
@@ -302,6 +308,7 @@ class RegistryFastPath:
             TRACE.log("registry_fast_path", signals=sig, outcome="not_found")
             return self._result(Verdict.FALSE, 0.9, l0, sig, {}, [f"package '{name}' does not exist on {l0.platform}"], t0, trace_id)
         repo = await self.repo_signal(sig)
+        prov = await self.provenance_signal(sig)
         hits = sig.get("typosquat_hits")
         age, rel = sig.get("age_days"), sig.get("releases") or 0
         if hits:
@@ -330,23 +337,64 @@ class RegistryFastPath:
             elif repo.get("bidirectional") is None:
                 unknowns.append(f"could not read the repository manifest ({repo.get('manifest_error')})")
 
+        # provenance (the registry's signed statement of which repository's CI published this version) is required:
+        # metadata links alone cannot say WHO published, and a new/small package deserves the full investigation
+        if not prov.get("found"):
+            notes.append("no build provenance (npm attestation / PyPI PEP 740) for the latest version")
+        else:
+            powner = prov["repo"][0].lower()
+            if repo.get("ok") and repo.get("repo") and repo["repo"].lower().split("/")[0] != powner:
+                notes.append(f"provenance repository {prov['repo_url']} differs from the metadata repository {repo['repo']}")
+            if sig.get("scope") and sig["scope"].lower() != powner:
+                notes.append(f"npm scope '@{sig['scope']}' does not match the provenance repository owner '{powner}'")
+            gh = await self.structured.github(prov["repo"][0])
+            oi = (gh.get("owner_info") or {}) if gh.get("ok") else {}
+            if not oi.get("is_verified"):
+                notes.append(f"provenance repository owner '{powner}' is not a domain-verified GitHub organisation")
+            else:
+                prov["owner_verified"] = True
+                prov["owner_blog"] = oi.get("blog")
+                if fp.require_project_match and project and not (_names_match(project, powner) or _names_match(project, name)):
+                    notes.append(f"project '{project}' matches neither the package nor the provenance owner")
         if notes or unknowns:
-            TRACE.log("registry_fast_path", signals=sig, repo=repo, outcome="inconclusive", notes=notes + unknowns)
+            TRACE.log("registry_fast_path", signals=sig, repo=repo, provenance=prov, outcome="inconclusive", notes=notes + unknowns)
             return None
         why = [f"{l0.platform} package '{sig.get('canonical') or name}' exists for {age} days with {rel} releases",
                "no more-popular near-name package (typosquat check clean)",
                f"registry metadata points at {repo['repo']} and its {repo.get('manifest')} declares this package (bidirectional link); "
-               f"repository is not a fork, {repo.get('age_days')} days old, {repo.get('stars')} stars"]
-        TRACE.log("registry_fast_path", signals=sig, repo=repo, outcome="verified")
-        return self._result(Verdict.TRUE, fp.confidence, l0, sig, repo, why, t0, trace_id)
+               f"repository is not a fork, {repo.get('age_days')} days old, {repo.get('stars')} stars",
+               f"build provenance ({prov.get('kind')}) signed for version {sig.get('version')}: published by CI of {prov['repo_url']}"
+               + (f" ({prov['workflow']})" if prov.get("workflow") else "") + f"; owner '{prov['repo'][0]}' is a domain-verified GitHub organisation"
+               + (f" ({prov.get('owner_blog')})" if prov.get("owner_blog") else "")
+               + ("; independently verified by deps.dev" if prov.get("depsdev_verified") else "")]
+        TRACE.log("registry_fast_path", signals=sig, repo=repo, provenance=prov, outcome="verified")
+        return self._result(Verdict.TRUE, fp.confidence, l0, sig, repo, why, t0, trace_id, prov)
 
-    def _result(self, verdict: Verdict, conf: float, l0: L0Result, sig: dict, repo: dict, why: list[str], t0: float, trace_id: str) -> VerifyResult:
+    async def provenance_signal(self, sig: dict[str, Any]) -> dict[str, Any]:
+        pv = Provenance(self.client)
+        name = sig.get("canonical") or sig["name"]
+        if sig["registry"] == "npm":
+            prov = await pv.npm(name, sig.get("version"))
+        else:
+            prov = await pv.pypi(name, sig.get("version"), sig.get("filename"))
+        if prov.get("found"):
+            dd = await pv.depsdev(sig["registry"], name, sig.get("version"))
+            prov["depsdev_verified"] = bool(dd.get("found") and dd.get("verified") and dd["repo"][0].lower() == prov["repo"][0].lower())
+            prov["depsdev_source"] = dd.get("source")
+        return prov
+
+    def _result(self, verdict: Verdict, conf: float, l0: L0Result, sig: dict, repo: dict, why: list[str], t0: float, trace_id: str,
+                prov: dict | None = None) -> VerifyResult:
         ev = [Evidence(kind="package_registry", source=sig.get("source") or l0.normalized_url, tier=1, claim="; ".join(why[:2]),
                        quote=json.dumps({k: sig.get(k) for k in ("canonical", "age_days", "releases", "downloads_rank_month", "downloads_week")}),
                        verified_quote=True, notes=["structured registry data"])]
         if repo.get("ok"):
             ev.append(Evidence(kind="github", source=repo["source"], tier=2, claim=f"bidirectional link with repository {repo['repo']}",
                                quote=json.dumps({k: repo.get(k) for k in ("fork", "age_days", "stars", "bidirectional", "manifest")}), verified_quote=True, notes=["structured GitHub data + manifest"]))
+        if prov and prov.get("found"):
+            ev.append(Evidence(kind="provenance", source=prov.get("source") or "", tier=1, claim=f"signed build provenance from {prov.get('repo_url')}",
+                               quote=json.dumps({k: prov.get(k) for k in ("repo_url", "workflow", "builder", "kind", "depsdev_verified")}),
+                               verified_quote=True, notes=["registry-signed attestation" + ("; corroborated by deps.dev" if prov.get("depsdev_verified") else "")]))
         reason = (f"{verdict.value}: registry fast path. " + " ".join(w[0].upper() + w[1:] + "." for w in why)
                   + " Deterministic checks (TLS, DNS, redirects) passed. No LLM was involved; pass options.mode='full' for the complete investigation.")
         return VerifyResult(verdict=verdict, confidence=conf, reason=reason, evidence=ev,
