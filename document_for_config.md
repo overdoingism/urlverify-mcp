@@ -25,12 +25,18 @@ Environment overrides: `URLVERIFY_LLM_BASE_URL`, `URLVERIFY_LLM_API_KEY`, `URLVE
 
 | Field | Type / default | Meaning |
 |---|---|---|
-| `provider` | `mcp` / `searxng_http` · `mcp` | `mcp` talks to an existing SearXNG MCP server (Streamable HTTP). `searxng_http` calls SearXNG's JSON API directly (no Docker needed; SearXNG must enable `search.formats: [html, json]`). |
+| `provider` | `searxng_http` / `mcp` / `none` · `searxng_http` | `searxng_http` calls SearXNG's JSON API directly (SearXNG must enable `search.formats: [html, json]`). `mcp` talks to a SearXNG MCP server (Streamable HTTP) instead. `none` disables web search: the investigator uses only the structured sources; well-known projects still verify, obscure ones fall to `UNVERIFIABLE` more often. |
 | `call_timeout_s` | int · `45` | Hard limit for one search or fetch call, whichever provider. Bounds the wait if SearXNG hangs; the call then counts as "search unavailable" and the agent continues with structured APIs. |
-| `mcp.url` | str · `http://127.0.0.1:3000/mcp` | Streamable HTTP endpoint of the SearXNG MCP server. |
+| `mcp.url` | str · `http://127.0.0.1:3000/mcp` | Streamable HTTP endpoint of the SearXNG MCP server (only with `provider: mcp` or `fetch.provider: mcp`). |
 | `mcp.search_tool` | str · `searxng_web_search` | Tool name used for web search on that server. |
 | `mcp.fetch_tool` | str · `web_url_read` | Tool name used to fetch a page as text. |
 | `searxng_http.base_url` | str · `http://127.0.0.1:8888` | SearXNG base URL for the HTTP provider. |
+
+## `fetch` — how pages are turned into text
+
+| Field | Type / default | Meaning |
+|---|---|---|
+| `provider` | `builtin` / `mcp` · `builtin` | `builtin`: httpx GET with a dependency-free HTML→text converter that keeps the title, headings, list bullets and link targets (`text (url)`), drops scripts/styles, never downloads binaries, caps bodies at 2 MB. `mcp`: the SearXNG MCP server's `web_url_read` (HTML→markdown, PDF text); if it fails the built-in fetcher is tried for the target page. |
 
 ## `budget` — per-verification limits
 
@@ -154,7 +160,7 @@ that is the boundary of source verification, not a gap (file contents are out of
 
 | Change | Takes effect |
 |---|---|
-| Anything under `llm`, `search`, `budget`, `identity`, `net`, `cache`, `lists`, `injection_patterns`, `full_log`, `package_registry_fast_path` | Next `verify_source` call (the server re-reads the file per call) |
+| Anything under `llm`, `search`, `fetch`, `budget`, `identity`, `net`, `cache`, `lists`, `injection_patterns`, `full_log`, `package_registry_fast_path` | Next `verify_source` call (the server re-reads the file per call) |
 | `agent_*` prompts | Next verification |
 | `mcp_*` prompts, `server.*` (incl. `max_concurrent`, `auth_token`), `admin.*`, `storage.path`, `prompts.dir` | Restart the affected process |
 

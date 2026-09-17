@@ -20,7 +20,7 @@ Verdicts `VERIFIED_TRUE` · `VERIFIED_FALSE` · `UNVERIFIABLE`, each with a conf
 
 ## Quick start / 快速開始
 
-Requirements: **Python ≥ 3.11** (or [uv](https://docs.astral.sh/uv/), preferred), an **OpenAI-compatible LLM endpoint** (llama-server, LM Studio, vLLM, Ollama, OpenAI…), and a **SearXNG** instance reachable either through the [mcp-searxng](https://github.com/ihor-sokoliuk/mcp-searxng) MCP server or its plain JSON API.
+Requirements: **Python ≥ 3.11** (or [uv](https://docs.astral.sh/uv/), preferred) and an **OpenAI-compatible LLM endpoint** (llama-server, LM Studio, vLLM, Ollama, OpenAI…). Web search is optional but recommended: a **SearXNG** instance with its JSON API enabled (`search.formats: [html, json]`). Page fetching is built in; nothing else needs to be installed.
 
 ### Linux / macOS
 
@@ -43,7 +43,7 @@ Without uv, replace `uv run urlverify-mcp` with `.venv/bin/urlverify-mcp` in eve
 | 4. Run | see *Running* below | |
 
 Windows notes:
-- No Docker? Skip the MCP search server and point the HTTP fallback at a local SearXNG: `search.provider: searxng_http`, `search.searxng_http.base_url: http://127.0.0.1:8888` (SearXNG must have `search.formats: [html, json]`).
+- No SearXNG at all? Set `search.provider: none`: the investigator then relies on the structured sources only (Wikidata, Wikipedia, Wayback, GitHub, Hugging Face, registries). Well-known projects still verify; obscure ones come back `UNVERIFIABLE` more often.
 - Keep console output UTF-8 (`chcp 65001`) so non-ASCII reasons render correctly. Logs are plain text (no ANSI colours) on every platform.
 - In `config.yaml`, write Windows paths with forward slashes or in single quotes (`'C:\\tools\\logs'`); inside double quotes YAML treats `\` as an escape character.
 - A launcher must **not** pass `--transport` unless it means to override `config.yaml`; CLI flags win over the config file.
@@ -56,11 +56,12 @@ llm:
   model: "your-model-id"                  # some servers ignore this and serve whatever is loaded
 
 search:
-  provider: mcp                           # mcp (default) | searxng_http (fallback)
-  mcp:
-    url: "http://127.0.0.1:3000/mcp"      # mcp-searxng, Streamable HTTP
+  provider: searxng_http                  # searxng_http (default) | mcp (SearXNG MCP server) | none
   searxng_http:
     base_url: "http://127.0.0.1:8888"     # SearXNG JSON API
+
+fetch:
+  provider: builtin                       # builtin (default, no dependencies) | mcp
 
 server:
   transport: stdio                        # stdio | http  →  http://host:port/mcp
@@ -186,8 +187,8 @@ scraping; Reddit requests are serialized; and `net.user_agent` identifies the to
 | Pipeline (scripted LLM, real network) | included in `uv run pytest -q`; auto-skips when offline | network | ~1 min |
 | Live regression | `uv run pytest tests/test_live.py --live -s` | LLM + search + network | 10–15 min |
 
-`uv run urlverify-mcp check-env` probes the LLM, the search backend and the third-party APIs (Wikipedia, Wayback, GitHub,
-PyPI, npm); run it first when something looks off. Results carry `schema_version` (currently 1); a breaking change to the
+`uv run urlverify-mcp check-env` probes the LLM, the search backend, the fetcher and the third-party APIs (Wikipedia, Wayback,
+GitHub, PyPI, npm); run it first when something looks off. Results carry `schema_version` (currently 1); a breaking change to the
 result shape bumps it.
 
 Windows without uv: `.venv\Scripts\python -m pytest -q` (same flags).

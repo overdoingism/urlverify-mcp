@@ -31,8 +31,12 @@ class SearxngHTTPConfig(BaseModel):
     base_url: str = "http://127.0.0.1:8888"
 
 
+class FetchConfig(BaseModel):
+    provider: Literal["builtin", "mcp"] = "builtin"   # builtin: httpx + dependency-free HTML->text; mcp: SearXNG MCP's fetch tool
+
+
 class SearchConfig(BaseModel):
-    provider: Literal["mcp", "searxng_http"] = "mcp"
+    provider: Literal["searxng_http", "mcp", "none"] = "searxng_http"   # none: no web search, structured APIs only
     call_timeout_s: int = 45              # hard limit for one search / fetch call (MCP call_tool read timeout or HTTP timeout)
     mcp: MCPSearchConfig = MCPSearchConfig()
     searxng_http: SearxngHTTPConfig = SearxngHTTPConfig()
@@ -138,6 +142,7 @@ class PackageRegistryFastPathConfig(BaseModel):
 class Config(BaseModel):
     llm: LLMConfig = LLMConfig()
     search: SearchConfig = SearchConfig()
+    fetch: FetchConfig = FetchConfig()
     budget: BudgetConfig = BudgetConfig()
     identity: IdentityConfig = IdentityConfig()
     net: NetConfig = NetConfig()

@@ -17,6 +17,7 @@ from .identity.sources import classify
 from .identity.structured import Structured
 from .models import IdentityGraph, Verdict, VerifyRequest, VerifyResult
 from .providers.llm import LLM
+from .providers.fetch import make_fetcher
 from .providers.search import make_search_provider
 from .rules import decide
 from .storage import Storage
@@ -68,21 +69,28 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
 
     llm = LLM(cfg)
     search = make_search_provider(cfg)
+    fetcher = make_fetcher(cfg, search)
     structured = Structured(max(cfg.net.timeout_s, 30), cfg.net.user_agent, cfg.identity.github_token)  # archive.org / wikimedia can be slow
-    inv = Investigator(cfg, llm, search, structured)
+    inv = Investigator(cfg, llm, search, structured, fetcher)
     engine_notes: list[str] = []
     try:
         # Always fetch the target page ourselves for injection screening (does not consume the LLM's budget).
         page = None
         await progress.report("fetching target page for injection screening", 0.12)
         try:
-            page = await search.fetch(l0.final_url or l0.normalized_url)
+            page = await fetcher.fetch(l0.final_url or l0.normalized_url)
         except Exception as e:  # noqa: BLE001
-            engine_notes.append(f"target page fetch via search provider failed: {type(e).__name__}: {e}; falling back to direct fetch")
-            try:
-                page = await _direct_fetch(l0.final_url or l0.normalized_url, cfg)
-            except Exception as e2:  # noqa: BLE001
-                engine_notes.append(f"direct target page fetch failed: {type(e2).__name__}: {e2}")
+            engine_notes.append(f"target page fetch ({cfg.fetch.provider}) failed: {type(e).__name__}: {e}")
+            if cfg.fetch.provider != "builtin":
+                from .providers.fetch import BuiltinFetcher
+                bf = BuiltinFetcher(cfg)
+                try:
+                    page = await bf.fetch(l0.final_url or l0.normalized_url)
+                    engine_notes.append("target page fetched with the built-in fetcher instead")
+                except Exception as e2:  # noqa: BLE001
+                    engine_notes.append(f"built-in target page fetch failed: {type(e2).__name__}: {e2}")
+                finally:
+                    await bf.close()
         if page is not None:
             inv.target_page_text = page[: cfg.budget.fetch_max_chars]
             inv.evidence_store[l0.normalized_url] = inv.target_page_text
@@ -177,6 +185,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             path="l0_fatal" if l0.fatal_failures else "full",
         )
     finally:
+        await fetcher.close()
         await search.close()
         await structured.close()
     store.add_history(trace_id, req.project, req.url, req.description, result.verdict.value, result.confidence, result.model_dump(mode="json"))
@@ -199,25 +208,3 @@ async def _write_reason(llm: LLM, req: VerifyRequest, verdict: Verdict, confiden
     except Exception:  # noqa: BLE001
         pass
     return f"{verdict.value}: " + "; ".join(notes[:6])
-
-
-async def _direct_fetch(url: str, cfg: Config) -> str:
-    """Fallback page fetch when the search provider cannot fetch: HTML -> text, never downloads binaries."""
-    import httpx
-    from .providers.search import _strip_html
-    async with httpx.AsyncClient(timeout=cfg.net.timeout_s, follow_redirects=True,
-                                 headers={"User-Agent": cfg.net.user_agent,
-                                          "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.1"}) as c:
-        async with c.stream("GET", url) as r:
-            ct = r.headers.get("content-type", "")
-            if not any(t in ct for t in ("text", "json", "xml")):
-                return f"(binary content-type {ct}, {r.headers.get('content-length')} bytes; body not downloaded)"
-            chunks = []
-            size = 0
-            async for chunk in r.aiter_bytes():
-                chunks.append(chunk)
-                size += len(chunk)
-                if size > 2_000_000:
-                    break
-            body = b"".join(chunks).decode(r.encoding or "utf-8", errors="replace")
-    return _strip_html(body) if "html" in ct else body

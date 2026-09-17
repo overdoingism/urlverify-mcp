@@ -99,7 +99,8 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 ## 5. 設定（`config.yaml`，管理介面可改）
 完整欄位說明維護在 `document_for_config.md`，**新增或改動任何設定欄位時必須同步更新該文件**。以下只列設計要點：
 - `llm.base_url / api_key / model / supports_tools`（任何 OpenAI 相容 API；不假設特定後端）
-- `search.provider`：`mcp`（預設，接既有 SearXNG MCP）或 `searxng_http`（備援，`http://127.0.0.1:8888`）
+- `search.provider`：`searxng_http`（預設，直接打 SearXNG JSON API）、`mcp`（接 SearXNG MCP server，選用）、`none`（不搜尋，只靠結構化 API）
+- `fetch.provider`：`builtin`（預設，httpx + 無相依的 HTML 轉文字，保留標題/清單/連結）或 `mcp`（v0.1.1 起；減少維護面）
 - `search.mcp.url`（預設 `http://127.0.0.1:3000/mcp`；容器未映射到本機時改填該主機位址，見 §11）
 - `budget.max_searches`（預設 8）、`budget.max_fetches`（預設 10）：SearXNG MCP 有 20 req/min 限流
 - `identity.history_days`（預設 90）、`identity.min_stable_revisions`（預設 3）：見 §4.1

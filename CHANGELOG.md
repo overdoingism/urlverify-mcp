@@ -1,6 +1,13 @@
 # Changelog
 
-## Unreleased
+## v0.1.1 — 2026-09-17
+
+- **Built-in page fetching is now the default** (`fetch.provider: builtin`): httpx plus a dependency-free HTML→text converter
+  that keeps the title, headings, list bullets and link targets. The SearXNG MCP fetch tool remains available as
+  `fetch.provider: mcp`.
+- **Search defaults to SearXNG's JSON API** (`search.provider: searxng_http`); the MCP server is optional (`mcp`), and
+  `none` runs with structured sources only. One fewer service to run and no MCP client stack in the default setup.
+- `check-env` probes the fetcher as well.
 
 - Registry fast path: `VERIFIED_TRUE` now requires a **bidirectional** repository link (registry metadata → GitHub repo
   whose manifest declares the package; pyproject/setup.cfg/setup.py/package.json parsed properly). Popularity is no longer a

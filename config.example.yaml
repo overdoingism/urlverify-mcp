@@ -9,7 +9,7 @@ llm:
   timeout_s: 300
 
 search:
-  provider: mcp                           # mcp | searxng_http
+  provider: searxng_http                  # searxng_http (default) | mcp (SearXNG MCP server) | none (structured APIs only)
   call_timeout_s: 45                      # one search / fetch call may take at most this long
   mcp:
     url: "http://127.0.0.1:3000/mcp"      # existing SearXNG MCP (Streamable HTTP)
@@ -17,6 +17,9 @@ search:
     fetch_tool: "web_url_read"
   searxng_http:
     base_url: "http://127.0.0.1:8888"
+
+fetch:
+  provider: builtin                       # builtin (httpx + dependency-free HTML->text, default) | mcp (SearXNG MCP fetch tool)
 
 budget:
   max_searches: 8

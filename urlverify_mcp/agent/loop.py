@@ -59,10 +59,11 @@ class Budget:
 
 
 class Investigator:
-    def __init__(self, cfg: Config, llm: LLM, search: SearchProvider, structured: Structured):
+    def __init__(self, cfg: Config, llm: LLM, search: SearchProvider, structured: Structured, fetcher=None):
         self.cfg = cfg
         self.llm = llm
         self.search = search
+        self.fetcher = fetcher or search
         self.structured = structured
         self.budget = Budget(cfg)
         self.evidence_store: dict[str, str] = {}      # source url/key -> raw text (for quote verification)
@@ -95,7 +96,7 @@ class Investigator:
                 if not self.budget.take("fetches"):
                     return "BUDGET EXHAUSTED for fetches. Use what you have or submit_verdict."
                 url = str(args.get("url", "")).strip()
-                out = await self.search.fetch(url)
+                out = await self.fetcher.fetch(url)
                 out = out[: self.cfg.budget.fetch_max_chars]
                 self._remember(url, out)
                 if self.target_etld1 and _etld1(url) == self.target_etld1 and self.target_page_text is None:

@@ -159,13 +159,29 @@ async def _check_env(cfg) -> None:
         await probe("npm registry", st.npm("lodash"), lambda r: r.get("ok"))
     finally:
         await st.close()
-    print(f"search provider={cfg.search.provider}: ", end="")
+    print(f"search provider={cfg.search.provider}: ", end="", flush=True)
+    if cfg.search.provider == "none":
+        print("disabled (structured APIs only)")
+    else:
+        try:
+            from .providers.search import make_search_provider
+            p = make_search_provider(cfg)
+            out = await p.search("URLVerify smoke test")
+            await p.close()
+            print(f"OK ({len(out)} chars)")
+        except Exception as e:  # noqa: BLE001
+            print(f"FAIL ({type(e).__name__}: {e})")
+    print(f"fetch provider={cfg.fetch.provider}: ", end="", flush=True)
     try:
+        from .providers.fetch import make_fetcher
         from .providers.search import make_search_provider
-        p = make_search_provider(cfg)
-        out = await p.search("URLVerify smoke test")
-        await p.close()
-        print(f"OK ({len(out)} chars)")
+        sp = make_search_provider(cfg) if cfg.fetch.provider == "mcp" else None
+        f = make_fetcher(cfg, sp)
+        out = await f.fetch("https://example.com/")
+        await f.close()
+        if sp:
+            await sp.close()
+        print(f"OK ({len(out)} chars)" if "Example Domain" in out else f"FAIL (unexpected content: {out[:80]!r})")
     except Exception as e:  # noqa: BLE001
         print(f"FAIL ({type(e).__name__}: {e})")
 

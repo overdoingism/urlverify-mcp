@@ -180,28 +180,36 @@ class SearxngHTTPProvider:
         return text
 
     async def fetch(self, url: str) -> str:
-        """Document only: no images / CSS / scripts are ever requested; binaries are not downloaded; body capped at 2 MB."""
-        TRACE.log("search_request", provider="searxng_http", tool="fetch", args={"url": url})
-        async with self.client.stream("GET", url, headers={"Accept": "text/html,application/xhtml+xml,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.1"}) as r:
-            ct = r.headers.get("content-type", "")
-            if not any(t in ct for t in ("text", "json", "xml")):
-                body = f"(binary content-type {ct}, {r.headers.get('content-length')} bytes; body not downloaded)"
-            else:
-                chunks, size = [], 0
-                async for chunk in r.aiter_bytes():
-                    chunks.append(chunk); size += len(chunk)
-                    if size > MAX_FETCH_BYTES:
-                        break
-                body = b"".join(chunks).decode(r.encoding or "utf-8", errors="replace")
-        text = _strip_html(body) if "html" in ct else body
-        TRACE.log("search_response", provider="searxng_http", tool="fetch", status=r.status_code, content_type=ct, chars=len(text), text=text)
-        return text
+        from .fetch import BuiltinFetcher
+        f = BuiltinFetcher(self.cfg)
+        try:
+            return await f.fetch(url)
+        finally:
+            await f.close()
 
     async def close(self) -> None:
         await self.client.aclose()
 
 
+class NoSearchProvider:
+    """search.provider: none — every search reports 'unavailable'; the agent relies on structured APIs."""
+
+    def __init__(self, cfg: Config):
+        self.cfg = cfg
+
+    async def search(self, query: str) -> str:
+        raise SearchUnavailable("web search is disabled (search.provider: none); use structured lookups")
+
+    async def fetch(self, url: str) -> str:
+        raise SearchUnavailable("no search provider configured")
+
+    async def close(self) -> None:
+        pass
+
+
 def make_search_provider(cfg: Config) -> SearchProvider:
     if cfg.search.provider == "mcp":
         return MCPSearchProvider(cfg)
+    if cfg.search.provider == "none":
+        return NoSearchProvider(cfg)
     return SearxngHTTPProvider(cfg)
