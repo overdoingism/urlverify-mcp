@@ -102,6 +102,7 @@ def _describe(cert: dict, der: bytes) -> dict[str, Any]:
         "not_before_ts": _parse_ts(cert["notBefore"]) if cert.get("notBefore") else None,
         "not_after_ts": _parse_ts(cert["notAfter"]) if cert.get("notAfter") else None,
         "fingerprint_sha256": hashlib.sha256(der).hexdigest(),
+        "serial": (cert.get("serialNumber") or "").lower().lstrip("0"),
         "validation_level": "OV/EV" if subj.get("organizationName") else "DV",
     }
 
@@ -126,6 +127,7 @@ def _unverified_details(host: str, port: int, timeout: float) -> dict[str, Any]:
         out["subject_org"] = _attr(c.subject, NameOID.ORGANIZATION_NAME)
         out["issuer"] = _attr(c.issuer, NameOID.COMMON_NAME)
         out["issuer_org"] = _attr(c.issuer, NameOID.ORGANIZATION_NAME)
+        out["serial"] = format(c.serial_number, "x")
         out["not_before_ts"] = c.not_valid_before_utc.timestamp()
         out["not_after_ts"] = c.not_valid_after_utc.timestamp()
         try:

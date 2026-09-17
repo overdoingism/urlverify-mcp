@@ -90,6 +90,8 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
     # --- TLS (cached), redirects, CT in parallel
     dns_task = asyncio.sleep(0, result=dns_r)
     cert_cached = store.get_cert(host)
+    if cert_cached and "has_scts" not in cert_cached:
+        cert_cached = None                      # cached before the SCT flag existed: refetch rather than misjudge
     if cert_cached:
         cache_hits.append("cert")
         tls_task = asyncio.sleep(0, result=cert_cached)
@@ -128,26 +130,32 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
                                           detail={k: tls_r.get(k) for k in ("error", "issuer", "subject_org", "self_signed", "expired", "hostname_match")},
                                           message=err))
 
-    # Certificate Transparency membership of the leaf (rogue local CA / interception detector)
+    # Certificate Transparency compliance of the leaf (rogue local CA / interception detector).
+    # Embedded SCTs settle it. Without them, SCTs may still travel in the TLS extension (invisible to Python's ssl),
+    # so a certificate from a well-known public CA only warns; an issuer nobody has heard of, unknown to crt.sh as
+    # well, is the signature of a locally installed interception CA.
     if cfg.net.ct_check and not isinstance(tls_r, Exception) and tls_r.get("trusted"):
-        fp = tls_r.get("fingerprint_sha256")
-        has_scts = tls_r.get("has_scts")
-        age_h = ((time.time() - float(tls_r["not_before_ts"])) / 3600) if tls_r.get("not_before_ts") else None
-        if has_scts:
+        issuer = f"{tls_r.get('issuer_org') or ''} {tls_r.get('issuer') or ''}".lower()
+        public_ca = any(name.lower() in issuer for name in cfg.net.known_public_cas)
+        if tls_r.get("has_scts"):
             res.checks.append(CheckResult(name="ct_logged", status="pass", detail={"embedded_scts": True}, message="leaf carries embedded SCTs (publicly logged)"))
+        elif public_ca:
+            res.risk_signals.append("no_embedded_scts")
+            res.checks.append(CheckResult(name="ct_logged", status="warn", detail={"embedded_scts": False, "issuer": tls_r.get("issuer_org")},
+                                          message=f"no embedded SCTs, but issued by a well-known public CA ({tls_r.get('issuer_org')}); SCTs may be delivered in the TLS handshake"))
         else:
-            logged = await ct_mod.cert_logged(fp, cfg.net.timeout_s, cfg.net.user_agent) if fp else {"ok": False, "error": "no fingerprint"}
+            logged = await ct_mod.cert_logged(tls_r.get("fingerprint_sha256") or "", cfg.net.timeout_s, cfg.net.user_agent)
+            age_h = ((time.time() - float(tls_r["not_before_ts"])) / 3600) if tls_r.get("not_before_ts") else None
             if logged.get("ok") and logged.get("logged"):
                 res.checks.append(CheckResult(name="ct_logged", status="pass", detail=logged, message="leaf found in Certificate Transparency (crt.sh)"))
-            elif logged.get("ok") and age_h is not None and age_h > 24:
-                res.checks.append(CheckResult(name="ct_logged", status="fail", fatal=True, detail={**logged, "cert_age_h": round(age_h)},
-                                              message="certificate is trusted locally but has no SCTs and is not in Certificate Transparency: "
-                                                      "a locally installed CA / TLS interception is suspected"))
-            elif logged.get("ok"):
-                res.checks.append(CheckResult(name="ct_logged", status="warn", detail=logged, message="certificate is very new and not yet visible in CT"))
-                res.risk_signals.append("ct_not_yet_logged")
+            elif logged.get("ok") and (age_h is None or age_h > 24):
+                res.checks.append(CheckResult(name="ct_logged", status="fail", fatal=True, detail={**logged, "issuer": tls_r.get("issuer_org"), "cert_age_h": round(age_h or 0)},
+                                              message=f"certificate is trusted by this machine but its issuer ({tls_r.get('issuer_org') or tls_r.get('issuer')}) is not a known public CA, "
+                                                      "it has no SCTs and is unknown to Certificate Transparency: a locally installed CA / TLS interception is suspected"))
             else:
-                res.checks.append(CheckResult(name="ct_logged", status="skip", detail=logged, message=f"CT lookup unavailable: {logged.get('error')}"))
+                res.risk_signals.append("ct_unverified")
+                res.checks.append(CheckResult(name="ct_logged", status="warn", detail={**logged, "issuer": tls_r.get("issuer_org")},
+                                              message=f"unknown issuer ({tls_r.get('issuer_org') or tls_r.get('issuer')}) and no SCTs; CT lookup {'found nothing yet (new cert)' if logged.get('ok') else 'unavailable: ' + str(logged.get('error'))}"))
     elif cfg.net.ct_check:
         res.checks.append(CheckResult(name="ct_logged", status="skip", message="no trusted certificate to check"))
 

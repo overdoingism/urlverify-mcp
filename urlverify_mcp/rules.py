@@ -30,12 +30,27 @@ STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback",
 _DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b")
 
 
+_ELLIPSIS_RE = re.compile(r"\s*(?:\.\.\.|…|\[\.\.\.\]|\[…\])\s*")
+
+
 def _anchors(ev: Evidence) -> set[str]:
-    """Fact anchors that must appear in the raw source output: domains and quoted names from claim + quote."""
-    text = _norm_ws(ev.claim + " " + ev.quote)
+    """Fact anchors that must appear in the raw source output: domains, quoted strings ('x' or "x") and
+    capitalised multi-word names from claim + quote. JSON keys are not anchors."""
+    raw = ev.claim + " " + ev.quote
+    text = _norm_ws(raw)
     out = set(_DOMAIN_RE.findall(text))
-    out |= {m.lower() for m in re.findall(r"'([^']{3,40})'", ev.claim + " " + ev.quote)}
-    return out
+    for m in re.findall(r"'([^']{3,60})'", raw) + re.findall(r'"([^"]{3,60})"', raw):
+        m = m.strip()
+        if m and not re.fullmatch(r"[a-z0-9_]+", m):            # "developer_fields" is a key, "OpenJS Foundation" is a value
+            out.add(m.lower())
+    for m in re.findall(r"\b([A-Z][\w.-]+(?:\s+[A-Z][\w.-]+)+)\b", ev.claim):
+        out.add(m.lower())
+    return {a for a in out if len(a) >= 3}
+
+
+def _fragments(q: str) -> list[str]:
+    """A quote may elide with '...' — each remaining fragment must be found verbatim."""
+    return [f for f in (_norm_ws(x) for x in _ELLIPSIS_RE.split(q)) if len(f) >= 8]
 
 
 def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
@@ -54,7 +69,10 @@ def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
                 # api results are also stored under "<tool>:<args>" keys; match by kind name
                 texts = [store_norm[k] for k in store_norm if k.startswith(ev.kind) or (ev.kind == "package_registry" and k.startswith("package_registry"))]
             anchors = _anchors(ev)
-            if texts and (any(q in t for t in texts if len(q) >= 8) or (anchors and any(a in t for a in anchors for t in texts))):
+            frags = _fragments(ev.quote)
+            quote_ok = bool(frags) and any(all(f in t for f in frags) for t in texts)
+            anchor_ok = bool(anchors) and any(a in t for a in anchors for t in texts)
+            if texts and (quote_ok or anchor_ok):
                 ev.verified_quote = True
                 ev.notes.append("structured source: fact anchors found in raw tool output")
             else:
@@ -73,7 +91,8 @@ def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
         if not candidates:
             candidates = list(store_norm.values())
             ev.notes.append("source not fetched under that exact URL; matched against all fetched content")
-        ev.verified_quote = any(q in c for c in candidates)
+        frags = _fragments(ev.quote)
+        ev.verified_quote = bool(frags) and any(all(f in c for f in frags) for c in candidates)
         if not ev.verified_quote:
             ev.notes.append("quote not found in fetched content; evidence discarded")
 

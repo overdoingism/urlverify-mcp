@@ -70,7 +70,12 @@ class IdentityConfig(BaseModel):
 
 class NetConfig(BaseModel):
     timeout_s: int = 15
-    ct_check: bool = True                      # leaf certificate must be publicly logged (embedded SCTs, or found in crt.sh)
+    ct_check: bool = True                      # leaf must show Certificate Transparency compliance (embedded SCTs; see known_public_cas)
+    known_public_cas: list[str] = Field(default_factory=lambda: [
+        "Let's Encrypt", "ISRG", "Google Trust Services", "DigiCert", "Sectigo", "Comodo", "USERTrust", "GlobalSign", "Amazon",
+        "Cloudflare", "GoDaddy", "Starfield", "Entrust", "IdenTrust", "Microsoft", "Apple", "Buypass", "ZeroSSL", "SSL.com",
+        "Actalis", "Certum", "HARICA", "SwissSign", "Telia", "QuoVadis", "Baltimore", "Thawte", "GeoTrust", "RapidSSL",
+        "Trustwave", "SECOM", "TWCA", "Chunghwa", "Certigna", "D-TRUST", "T-Systems", "e-commerce monitoring", "Izenpe", "WoSign"])
     doh_cross_check: bool = True               # resolve the host again over DNS-over-HTTPS and compare with the system resolver
     doh_resolvers: list[str] = Field(default_factory=lambda: ["https://cloudflare-dns.com/dns-query", "https://dns.google/resolve"])
     user_agent: str = "URLVerify-MCP/0.1 (+https://github.com/overdoingism/urlverify-mcp)"   # Wikimedia UA policy: must carry a contact URL/email

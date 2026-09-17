@@ -71,7 +71,8 @@ Callers may override `min_sources`, `allow_tier3`, `history_days` and the `ident
 | Field | Type / default | Meaning |
 |---|---|---|
 | `timeout_s` | int · `15` | Timeout for L0 checks (TLS, DNS, redirects, CT) and the search MCP handshake. Structured APIs use `max(timeout_s, 30)`. |
-| `ct_check` | bool · `true` | The leaf certificate must be publicly logged: embedded SCTs, or found in crt.sh by fingerprint. A certificate that the machine trusts but that no public log knows (older than 24 h) is the signature of a locally installed CA / TLS interception → `VERIFIED_FALSE`. |
+| `ct_check` | bool · `true` | Certificate Transparency compliance of the leaf. Embedded SCTs → pass. No SCTs but a well-known public CA (`known_public_cas`) → warn only (SCTs may travel in the TLS handshake, which Python cannot see). No SCTs, unknown issuer, and unknown to crt.sh (older than 24 h) → `VERIFIED_FALSE`: the signature of a locally installed interception CA. |
+| `known_public_cas` | list · major public CAs | Issuer names treated as public CAs for the rule above. Add your own if a legitimate CA you use is missing. |
 | `doh_cross_check` | bool · `true` | Resolve the host again over DNS-over-HTTPS and compare with the system resolver. Differing answers are not an error by themselves (GeoDNS); when they differ, a TLS handshake against the DoH address decides: system path invalid + DoH path valid → `VERIFIED_FALSE` (local DNS spoofing suspected). Sends the host name to the resolvers; disable if that matters. |
 | `doh_resolvers` | list · Cloudflare, Google | DoH JSON endpoints tried in order. |
 | `user_agent` | str · `URLVerify-MCP/0.1 (+https://github.com/overdoingism/urlverify-mcp)` | Sent on every request. **Keep a contact URL or email**: Wikipedia's API returns 403 to user agents without one. |

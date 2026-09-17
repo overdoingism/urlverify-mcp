@@ -43,7 +43,8 @@ URLVerify_MCP 是一個 **來源驗證用的 MCP Server**。
 ```
 L0  確定性檢查（不經 LLM）
     - TLS：系統信任根簽發、未過期、SAN 吻合主機名（必要；自簽/不明 CA → FALSE）
-    - CT 登錄：leaf 須含 SCT 或可在 crt.sh 查到；本機信任卻未公開登錄（>24h）→ FALSE（本機攔截 CA）
+    - CT：leaf 含內嵌 SCT → 通過；知名公開 CA 但無內嵌 SCT → 只警告（SCT 可能走 TLS 擴充，Python 看不到）；
+      不明簽發者、無 SCT、crt.sh 也查無（>24h）→ FALSE（本機攔截 CA）。crt.sh 指紋查詢只有 HTML，且有延遲，不可單獨當致命依據
     - DoH 交叉解析：與系統 resolver 無交集時對 DoH 位址再握手；系統路徑失敗而 DoH 成功 → FALSE（DNS 污染）；兩者皆成功只記備註（GeoDNS）
     - TLS Organization 欄位：有則與 L1 開發者比對（吻合=強證據；不符=強反證；無=中性）
     - Certificate Transparency：網域首張憑證太新 + L1 無佐證 → 風險訊號

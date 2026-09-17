@@ -2,8 +2,12 @@
 
 ## Unreleased
 
-- L0: `ct_logged` — the leaf certificate must carry embedded SCTs or be found in crt.sh; a locally trusted but unlogged
-  certificate (older than 24 h) is fatal (TLS interception). `dns_cross_check` — DNS-over-HTTPS cross-resolution with a
+- L0: `ct_logged` — embedded SCTs pass; a well-known public CA without embedded SCTs only warns (SCTs may be delivered
+  in the handshake); an unknown issuer with no SCTs and no crt.sh record (older than 24 h) is fatal (TLS interception).
+  crt.sh fingerprint lookups parse the HTML page (its JSON output does not support fingerprints); certificate cache
+  entries created before the SCT flag are refetched.
+- Evidence fact-anchoring accepts double-quoted values and elided quotes ("…"); Wikipedia / Wikidata evidence was
+  being discarded systematically when the LLM quoted JSON with double quotes. `dns_cross_check` — DNS-over-HTTPS cross-resolution with a
   TLS handshake against the DoH address when answers differ; poisoned-resolver signature is fatal, GeoDNS is a note.
   Both configurable under `net`.
 
