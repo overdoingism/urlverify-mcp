@@ -150,7 +150,9 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         # temporal provenance for tier-3 sources the LLM cited (deterministic; no LLM involved)
         ages: dict = {}
         target_age: dict | None = None
-        tier3_urls = [e.source for e in sub.evidence if classify(e.source, e.tier, cfg.identity)[0] == 3]
+        from .rules import STRUCTURED_KINDS
+        tier3_urls = [e.source for e in sub.evidence
+                      if classify(e.source, e.tier, cfg.identity)[0] == 3 and e.kind not in STRUCTURED_KINDS]   # API/registry results are not pages to date
         if tier3_urls and not cfg.identity.allow_tier3:
             await progress.report(f"dating {len(tier3_urls)} tier-3 source(s)", 0.82)
             aging = Aging(max(cfg.net.timeout_s, 30), cfg.net.user_agent, structured, cfg.identity.aging_sources)

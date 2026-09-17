@@ -56,7 +56,8 @@ PROMPTS: dict[str, PromptMeta] = {
 
 class PromptStore:
     def __init__(self, override_dir: str | os.PathLike | None = None):
-        self.override_dir = Path(os.path.expanduser(str(override_dir or "~/.urlverify_mcp/prompts")))
+        from .config import resolve_path
+        self.override_dir = resolve_path(str(override_dir or "state/prompts"))
         self._cache: dict[str, tuple[float, str]] = {}
 
     # ---- paths
@@ -134,6 +135,7 @@ _store: PromptStore | None = None
 
 def get_store(override_dir: str | None = None) -> PromptStore:
     global _store
-    if _store is None or (override_dir and Path(os.path.expanduser(override_dir)) != _store.override_dir):
+    from .config import resolve_path
+    if _store is None or (override_dir and resolve_path(override_dir) != _store.override_dir):
         _store = PromptStore(override_dir)
     return _store

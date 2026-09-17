@@ -79,13 +79,32 @@ class CacheConfig(BaseModel):
     anchor_refresh_days: int = 30
 
 
+_BASE_DIR: Path = Path.cwd()          # directory of the loaded config.yaml; relative paths resolve against it
+
+
+def resolve_path(p: str) -> Path:
+    q = Path(os.path.expanduser(p))
+    return q if q.is_absolute() else (_BASE_DIR / q)
+
+
 class StorageConfig(BaseModel):
-    path: str = "~/.urlverify_mcp/urlverify.sqlite3"
+    dir: str = "state"                 # plain JSON files: caches, history, health, auth, prompt overrides
 
     def resolved(self) -> Path:
-        p = Path(os.path.expanduser(self.path))
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
+        d = resolve_path(self.dir)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+
+class LogConfig(BaseModel):
+    dir: str = "log"                   # everything log-like lives here; delete the whole folder any time
+    process_max_bytes: int = 1_048_576 # rotation for log/server/*.log and log/admin/*.log
+    process_backups: int = 5
+
+    def resolved(self) -> Path:
+        d = resolve_path(self.dir)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
 
 
 class AllowEntry(BaseModel):
@@ -100,12 +119,12 @@ class ListsConfig(BaseModel):
 
 class FullLogConfig(BaseModel):
     enabled: bool = False
-    dir: str = "~/.urlverify_mcp/logs"
+    dir: str = "log/full"
     max_bytes: int = 1_048_576          # rotate to a new full-YYYYMMDDHHMMSS.log beyond this size
 
 
 class PromptsConfig(BaseModel):
-    dir: str = "~/.urlverify_mcp/prompts"   # user overrides; defaults ship inside the package
+    dir: str = "state/prompts"        # user overrides; defaults ship inside the package
 
 
 class ServerConfig(BaseModel):
@@ -121,7 +140,7 @@ class ServerConfig(BaseModel):
 class AdminConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8765
-    auth_file: str = "~/.urlverify_mcp/admin.auth"   # PBKDF2 hash + salt + session key; delete it to reset the password to "admin"
+    auth_file: str = "state/admin.auth"   # PBKDF2 hash + salt + session key; delete it to reset the password to "admin"
     session_days: int = 7
 
 
@@ -148,6 +167,7 @@ class Config(BaseModel):
     net: NetConfig = NetConfig()
     cache: CacheConfig = CacheConfig()
     storage: StorageConfig = StorageConfig()
+    log: LogConfig = LogConfig()
     lists: ListsConfig = ListsConfig()
     injection_patterns: list[str] = Field(default_factory=lambda: [
         r"\b(ai|llm|language model|assistant|agent|verifier|claude|gpt|chatgpt|copilot)\b[^.\n]{0,80}\b(this (site|website|page|domain) is|we are|trust|official|legitimate|safe|verified)",
@@ -202,7 +222,9 @@ def find_config_path(explicit: str | None = None) -> Path | None:
 
 
 def load_config(explicit: str | None = None) -> Config:
+    global _BASE_DIR
     path = find_config_path(explicit)
+    _BASE_DIR = path.parent.resolve() if path else Path.cwd()
     if path is None:
         cfg = Config()
     else:
@@ -221,7 +243,7 @@ def load_config(explicit: str | None = None) -> Config:
 
 
 def save_config(cfg: Config, path: Path | None = None) -> Path:
-    target = path or cfg.source_path or Path(os.path.expanduser("~/.urlverify_mcp/config.yaml"))
+    target = path or cfg.source_path or (_BASE_DIR / "config.yaml")
     target.parent.mkdir(parents=True, exist_ok=True)
     with open(target, "w", encoding="utf-8") as f:
         yaml.safe_dump(cfg.model_dump(mode="json"), f, allow_unicode=True, sort_keys=False)

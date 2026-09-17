@@ -49,7 +49,7 @@ class State:
     def __init__(self, config_path: str | None):
         self.config_path = config_path
         self.cfg: Config = load_config(config_path)
-        self.store = Storage(self.cfg.storage.resolved())
+        self.store = Storage(self.cfg.storage.resolved(), self.cfg.log.resolved())
         configure_from(self.cfg)
         self.prompts = get_store(self.cfg.prompts.dir)
         self.auth = AdminAuth(self.cfg.admin.auth_file, self.cfg.admin.session_days)
@@ -235,6 +235,14 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(404)
         st.prompts.reset(name)
         return {"ok": True}
+
+    @app.get("/api/status")
+    async def status():
+        from .. import __version__
+        c = st.cfg
+        return {"version": __version__, "config_path": str(c.source_path) if c.source_path else None,
+                "state_dir": str(c.storage.resolved()), "log_dir": str(c.log.resolved()), "full_log": c.full_log.enabled,
+                "search_provider": c.search.provider, "fetch_provider": c.fetch.provider, "llm_model": c.llm.model, "llm_base_url": c.llm.base_url}
 
     @app.get("/api/health")
     async def health_table():

@@ -135,6 +135,19 @@ scoped npm name) or suspicious (a far more popular near-name) → the full inves
 risk signal. Small hobby packages with a properly linked repository pass; small packages without one come back `UNVERIFIABLE`
 from the full path, which is the honest answer. `options.mode` = `auto` (default) | `quick` (fast path only) | `full` (skip it).
 
+### Where things live
+
+```
+<project>/
+  config.yaml            machine-specific settings (relative paths below resolve against this file's folder)
+  state/                 rebuildable caches and settings: cert_cache.json, identity_cache.json, pypi_top.json,
+                         admin.auth, prompts/ (edited prompts). Safe to copy to another machine or hand to someone.
+  log/                   records of what this installation did: full/ (full data log), history/ (one JSON per
+                         verification + index.jsonl), health.json (observed dependency health), server/ and admin/
+                         (process output incl. "!! DEPENDENCY" lines, rotated). May be private; delete freely.
+```
+No database, no files outside the project folder. Both folders are git-ignored.
+
 ### Security notes
 
 - **Non-public targets are refused.** Loopback, private, link-local and `.local`-style hosts, and redirects that land on

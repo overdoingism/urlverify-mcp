@@ -27,6 +27,7 @@ class Structured:
     def __init__(self, timeout: float, user_agent: str, github_token: str = ""):
         headers = {"User-Agent": user_agent, "Accept": "application/json"}
         self.client = httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True)
+        self._wayback_down = 0
         self.gh_headers = {"Authorization": f"Bearer {github_token}"} if github_token else {}
 
     async def close(self):
@@ -158,32 +159,62 @@ class Structured:
 
     # ---------------- Wayback
     async def _wayback_first_seen(self, domain: str) -> dict[str, Any]:
-        try:
-            r = None
-            last_exc = None
-            for attempt in range(5):          # archive.org throttles with 503 / slow reads; back off 2s, 4s, 6s, 8s
-                try:
-                    r = await self.client.get("https://web.archive.org/cdx/search/cdx",
-                                              params={"url": domain, "limit": 1, "fl": "timestamp,original", "output": "json"})
-                except httpx.TimeoutException as e:
-                    last_exc = e
-                    r = None
-                if r is not None and r.status_code < 500 and r.status_code != 429:
-                    break
-                await asyncio.sleep(2.0 * (attempt + 1))
-            if r is None:
-                return {"ok": False, "error": f"timeout after retries: {type(last_exc).__name__}"}
+        """Earliest capture of a domain / URL. The availability API (cached, rarely throttled) is asked for the capture
+        closest to 1996 on a couple of host variants; CDX is only a fallback and is tried at most twice. After two
+        consecutive 503s within this Structured instance (one verification) Wayback is not asked again."""
+        if self._wayback_down >= 2:
+            return {"ok": False, "error": "wayback skipped for the rest of this verification (repeated 503)"}
+        target = domain.strip()
+        bare = re.sub(r"^https?://", "", target).rstrip("/")
+        variants = [bare]
+        if "/" not in bare:
+            variants.append(("www." + bare) if not bare.startswith("www.") else bare[4:])
+        best = None
+        for v in variants:
+            try:
+                r = await self.client.get("https://archive.org/wayback/available", params={"url": v, "timestamp": "19960101"})
+                if r.status_code >= 500 or r.status_code == 429:
+                    self._wayback_down += 1
+                    continue
+                self._wayback_down = 0
+                snap = (r.json().get("archived_snapshots") or {}).get("closest")
+                if snap and snap.get("timestamp"):
+                    ts = snap["timestamp"][:8]
+                    if best is None or ts < best[0]:
+                        best = (ts, snap.get("url"))
+            except Exception as ex:  # noqa: BLE001
+                self._wayback_down += 1
+                last = f"{type(ex).__name__}: {ex}"
+        if best:
+            first = datetime.strptime(best[0], "%Y%m%d").replace(tzinfo=timezone.utc)
+            return {"ok": True, "found": True, "domain": domain, "first_snapshot": first.date().isoformat(),
+                    "age_days": (datetime.now(timezone.utc) - first).days, "source": best[1] or f"https://web.archive.org/web/*/{bare}", "via": "availability"}
+        # CDX fallback: at most 2 attempts, no status filter
+        for attempt in range(2):
+            if self._wayback_down >= 2:
+                break
+            try:
+                r = await self.client.get("https://web.archive.org/cdx/search/cdx",
+                                          params={"url": bare, "limit": 1, "fl": "timestamp,original", "output": "json"})
+            except httpx.TimeoutException as e:
+                self._wayback_down += 1
+                last = f"{type(e).__name__}"
+                continue
+            if r.status_code >= 500 or r.status_code == 429:
+                self._wayback_down += 1
+                last = f"HTTP {r.status_code}"
+                await asyncio.sleep(2.0)
+                continue
             if r.status_code != 200:
                 return {"ok": False, "error": f"HTTP {r.status_code}"}
             rows = r.json()
             if len(rows) < 2:
-                return {"ok": True, "found": False, "domain": domain, "source": f"https://web.archive.org/web/*/{domain}"}
+                return {"ok": True, "found": False, "domain": domain, "source": f"https://web.archive.org/web/*/{bare}"}
             ts = rows[1][0]
             first = datetime.strptime(ts[:8], "%Y%m%d").replace(tzinfo=timezone.utc)
             return {"ok": True, "found": True, "domain": domain, "first_snapshot": first.date().isoformat(),
-                    "age_days": (datetime.now(timezone.utc) - first).days, "source": f"https://web.archive.org/web/{ts}/{rows[1][1]}"}
-        except Exception as ex:  # noqa: BLE001
-            return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+                    "age_days": (datetime.now(timezone.utc) - first).days, "source": f"https://web.archive.org/web/{ts}/{rows[1][1]}", "via": "cdx"}
+        return {"ok": False, "error": f"wayback unavailable ({locals().get('last', 'no capture')})"}
 
     # ---------------- GitHub
     async def _github(self, owner: str, repo: str | None = None) -> dict[str, Any]:

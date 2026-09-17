@@ -234,7 +234,10 @@ class Investigator:
         for e in data.get("evidence") or []:
             if not isinstance(e, dict) or not e.get("source"):
                 continue
-            evs.append({"kind": str(e.get("kind") or "page"), "source": str(e["source"]), "tier": int(e.get("tier") or 3),
+            src = _clean_url(str(e["source"]))
+            if not src:
+                continue
+            evs.append({"kind": str(e.get("kind") or "page"), "source": src, "tier": int(e.get("tier") or 3),
                         "claim": str(e.get("claim") or ""), "quote": str(e.get("quote") or ""), "summary": str(e.get("summary") or ""),
                         "supports": bool(e.get("supports", True))})
         pv = str(data.get("proposed_verdict") or "UNVERIFIABLE").upper()
@@ -243,6 +246,12 @@ class Investigator:
         return LLMSubmission.model_validate({"identity": ident, "evidence": evs, "proposed_verdict": pv,
                                              "proposed_reason": str(data.get("proposed_reason") or ""),
                                              "risk_notes": [str(x) for x in data.get("risk_notes") or []]})
+
+
+def _clean_url(s: str) -> str:
+    """The LLM sometimes annotates a source ('https://x (via package_registry npm)'): keep only the URL token."""
+    m = re.search(r"https?://[^\s<>()\"']+", s)
+    return m.group(0).rstrip(".,;") if m else ""
 
 
 def _short(args: dict[str, Any]) -> str:

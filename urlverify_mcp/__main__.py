@@ -55,8 +55,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "serve":
         from .config import load_config
+        from .logsetup import setup as _log_setup
         from .server import build_server
         cfg = load_config(args.config)
+        _log_setup(cfg, "server")
         transport = args.transport or cfg.server.transport
         host, port = args.host or cfg.server.host, args.port or cfg.server.port
         srv = build_server(args.config, host, port)
@@ -84,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
         from .admin.app import create_app
         from .config import load_config
         cfg = load_config(args.config)
+        from .logsetup import setup as _log_setup
+        _log_setup(cfg, "admin")
         app = create_app(args.config)
         try:
             uvicorn.run(app, host=args.host or cfg.admin.host, port=args.port or cfg.admin.port, log_level="info", use_colors=False)
@@ -97,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         from .pipeline import verify
         from .storage import Storage
         cfg = load_config(args.config)
-        store = Storage(cfg.storage.resolved())
+        store = Storage(cfg.storage.resolved(), cfg.log.resolved())
         opts = {}
         if args.min_sources: opts["min_sources"] = args.min_sources
         if args.allow_tier3: opts["allow_tier3"] = True

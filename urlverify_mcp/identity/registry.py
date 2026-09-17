@@ -111,7 +111,7 @@ class RegistryFastPath:
         (the file is sorted by downloads), re-validated at most every toplist_refresh_days with If-None-Match so an
         unchanged list costs a 304 and no body. Returns None when nothing is available (signal unknown)."""
         fp = self.cfg.package_registry_fast_path
-        cache = Path(os.path.expanduser("~/.urlverify_mcp/pypi_top.json"))
+        cache = self.cfg.storage.resolved() / "pypi_top.json"
         cached: dict[str, Any] | None = None
         if cache.is_file():
             try:

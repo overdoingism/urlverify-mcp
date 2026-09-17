@@ -8,7 +8,7 @@ def _client(tmp_path, monkeypatch):
     # as_posix(): YAML double-quoted scalars treat backslash as an escape char, so Windows paths must be slash-form
     tp = tmp_path.as_posix()
     cfg_path.write_text(
-        f'storage:\n  path: "{tp}/t.sqlite3"\nfull_log:\n  enabled: false\n  dir: "{tp}/logs"\nprompts:\n  dir: "{tp}/prompts"\nadmin:\n  auth_file: "{tp}/admin.auth"\n',
+        f'storage:\n  dir: "{tp}/state"\nlog:\n  dir: "{tp}/log"\nfull_log:\n  enabled: false\n  dir: "{tp}/logs"\nprompts:\n  dir: "{tp}/prompts"\nadmin:\n  auth_file: "{tp}/admin.auth"\n',
         encoding="utf-8")
     import urlverify_mcp.promptstore as ps
     monkeypatch.setattr(ps, "_store", None)

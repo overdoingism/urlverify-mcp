@@ -124,7 +124,7 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 | 平台錨點 | 內建種子：github.com、huggingface.co、pypi.org、npmjs.com 等根網域與預期憑證發行者 | 隨版本更新 + 背景刷新 |
 | 憑證 | 每主機的指紋、發行者、Organization、到期日 | 憑證到期或 TTL，取先到者 |
 | 身分圖 | 專案 → 公司 → 別名 → 官方網域/倉庫，附證據 URL | TTL；管理介面可手動作廢 |
-儲存於 SQLite；命中結果要在輸出 `cache_hits` 標示。
+儲存於 `state/` 的 JSON 檔（cert_cache.json、identity_cache.json）；命中結果要在輸出 `cache_hits` 標示。
 
 ## 6.1 規則寫死 vs. LLM 自主：責任分工
 原則：**密碼學與結構性事實、安全不變量歸規則；語意推理歸 LLM。LLM 提議，規則驗證。**
@@ -169,6 +169,9 @@ PyPI / npm 目標先跑結構化檢查（存在、首發年齡、版本數、**r
 - 可攜：`uv` / `pipx`，單一 `config.yaml`，Windows / macOS / Linux
 - **Prompt 一律英文**；輸出語言跟隨呼叫方
 
+- 儲存：**純 JSON 檔，不用資料庫**（roger 的可攜原則，2026-09-17）。`state/` 只放可重建的快取與設定；`log/` 放所有紀錄
+  （full/、history/、health.json、server/、admin/），可能含隱私，可整個刪。相對路徑以 config.yaml 所在資料夾為基準。
+
 ## 9. 目錄結構（預定）
 ```
 urlverify_mcp/
@@ -211,6 +214,6 @@ config.example.yaml
   `aclose()` 會撞「exit a cancel scope that isn't current」。`task.cancelling()` 分不出內外取消。
   定案：`providers/search.py` 把 transport 的 context manager 放進專屬 worker task，呼叫端經 Future 取得 session
   或普通的 `SearchUnavailable`（2026-09-15，來自另一套 LLM 的 bug 報告，已核實並修復）。
-- **探測 vs 觀察**（2026-09-17 定案）：外部依賴不做自動探測；每次真實呼叫回報成敗到 `health.py`（SQLite 持久化），失敗在 stderr 印
+- **探測 vs 觀察**（2026-09-17 定案）：外部依賴不做自動探測；每次真實呼叫回報成敗到 `health.py`（持久化於 `log/health.json`），失敗在 stderr 印
   `!! DEPENDENCY …`、full log 記 `dependency_failure`、結果帶 `degraded`。健康表**只是報告，永遠不是啟用與否的判準**。
   `check-env` 只在使用者手動觸發時跑，且只用各服務最輕的端點；管理頁載入時不打任何外部服務。

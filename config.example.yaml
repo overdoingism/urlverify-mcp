@@ -58,7 +58,12 @@ cache:
   anchor_refresh_days: 30
 
 storage:
-  path: "~/.urlverify_mcp/urlverify.sqlite3"
+  dir: "state"                 # plain JSON files (caches, history, health, auth, prompt overrides); relative to this file
+
+log:
+  dir: "log"                   # every log lives here (full/, server/, admin/); delete the folder any time
+  process_max_bytes: 1048576
+  process_backups: 5
 
 lists:
   allowlist: []             # eTLD+1 or full hosts always considered official for a project: {project: "...", domain: "..."}
@@ -73,11 +78,11 @@ injection_patterns:         # regex, case-insensitive; a hit on the target site 
 
 full_log:                   # full data log: MCP in/out, every LLM turn (incl. reasoning), search requests/responses, L0, decisions
   enabled: false            # toggle here or in the admin UI (Config tab); applies immediately
-  dir: "~/.urlverify_mcp/logs"
+  dir: "log/full"
   max_bytes: 1048576        # new full-YYYYMMDDHHMMSS.log once the current file exceeds this
 
 prompts:
-  dir: "~/.urlverify_mcp/prompts"   # edited prompts are stored here (admin UI > Prompts); defaults live in the package
+  dir: "state/prompts"          # edited prompts are stored here (admin UI > Prompts); defaults live in the package
 
 server:                     # the MCP server itself (urlverify-mcp serve); CLI flags override these
   transport: stdio          # stdio | http   (http = Streamable HTTP at http://host:port/mcp)
@@ -91,7 +96,7 @@ server:                     # the MCP server itself (urlverify-mcp serve); CLI f
 admin:                      # management web UI (urlverify-mcp admin); password-only login, default "admin"
   host: "127.0.0.1"
   port: 8765
-  auth_file: "~/.urlverify_mcp/admin.auth"   # PBKDF2 hash + salt + session key; delete to reset the password
+  auth_file: "state/admin.auth"         # PBKDF2 hash + salt + session key; delete to reset the password
   session_days: 7
 
 package_registry_fast_path:   # PyPI / npm: structured checks first, LLM only when inconclusive

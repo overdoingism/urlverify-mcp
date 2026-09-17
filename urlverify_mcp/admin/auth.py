@@ -19,7 +19,8 @@ COOKIE = "urlverify_session"
 
 class AdminAuth:
     def __init__(self, path: str | os.PathLike, session_days: int = 7):
-        self.path = Path(os.path.expanduser(str(path)))
+        from ..config import resolve_path
+        self.path = resolve_path(str(path))
         self.session_seconds = max(1, session_days) * 86400
         self._data: dict | None = None
 

@@ -4,23 +4,25 @@ from urlverify_mcp.health import Health, begin_collect, end_collect, HEALTH, obs
 from urlverify_mcp.storage import Storage
 
 
-def test_observe_counts_escalates_and_recovers(tmp_path, capsys):
+def test_observe_counts_escalates_and_recovers(tmp_path, caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="urlverify")
     h = Health()
-    h.attach(Storage(tmp_path / "h.sqlite3"))
+    h.attach(Storage(tmp_path / "state"))
     h.observe("wayback", False, "HTTP 503")
     h.observe("wayback", False, "HTTP 503")
     h.observe("wayback", False, "HTTP 503")
     row = h.table()[0]
     assert row["dep"] == "wayback" and row["consecutive_fail"] == 3 and row["fail_count"] == 3
-    err = capsys.readouterr().err
+    err = caplog.text
     assert "!! DEPENDENCY wayback" in err and "!!! DEPENDENCY DOWN wayback" in err
     h.observe("wayback", True)
     row = h.table()[0]
     assert row["consecutive_fail"] == 0 and row["ok_count"] == 1 and row["last_ok"]
-    assert "recovered" in capsys.readouterr().err
+    assert "recovered" in caplog.text
     # persisted: a fresh Health attached to the same store sees the counts
     h2 = Health()
-    h2.attach(Storage(tmp_path / "h.sqlite3"))
+    h2.attach(Storage(tmp_path / "state"))
     assert h2.table()[0]["fail_count"] == 3
 
 

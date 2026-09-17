@@ -1,61 +1,89 @@
-"""SQLite storage: three caches (anchors / certs / identity) + audit history + fetched-content store."""
+"""Plain-text state store. Everything lives under one directory as human-readable JSON, so a user can inspect,
+edit or delete any part of it (deleting a file resets that part). No database.
+
+  <state>/cert_cache.json        host -> certificate facts (+ expiry)          } state: rebuildable caches,
+  <state>/identity_cache.json    project key -> established identity (+ expiry) } safe to hand to someone else
+  <state>/anchor_cache.json      observed platform-anchor data
+  <log>/health.json              observed dependency health                    } log: records of what this
+  <log>/history/index.jsonl      one line per verification (summary)          } installation did; may be
+  <log>/history/<trace_id>.json  full result                                   } private, delete freely
+
+Writes are atomic (temp file + rename). Two processes (serve + admin) may write the same cache file: each write
+re-reads the file and merges its own change, so the worst case is losing a concurrent cache entry, never corrupting.
+"""
 from __future__ import annotations
 
 import json
-import sqlite3
+import os
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS cert_cache (
-    host TEXT PRIMARY KEY, data TEXT NOT NULL, expires REAL NOT NULL, updated REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS identity_cache (
-    key TEXT PRIMARY KEY, project TEXT NOT NULL, data TEXT NOT NULL, expires REAL NOT NULL, updated REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS anchor_cache (
-    etld1 TEXT PRIMARY KEY, data TEXT NOT NULL, updated REAL NOT NULL);
-CREATE TABLE IF NOT EXISTS history (
-    trace_id TEXT PRIMARY KEY, ts REAL NOT NULL, project TEXT, url TEXT, description TEXT,
-    verdict TEXT, confidence REAL, result TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS dep_health (
-    dep TEXT PRIMARY KEY, last_ok REAL, last_fail REAL, last_error TEXT, consecutive_fail INTEGER NOT NULL DEFAULT 0,
-    ok_count INTEGER NOT NULL DEFAULT 0, fail_count INTEGER NOT NULL DEFAULT 0);
-"""
+
+def _atomic_write(path: Path, data: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + f".tmp{os.getpid()}")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+def _read_json(path: Path, default):
+    if not path.is_file():
+        return default
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return default
 
 
 class Storage:
-    def __init__(self, path: Path):
-        self.path = path
-        self.conn = sqlite3.connect(str(path), check_same_thread=False)
-        self.conn.row_factory = sqlite3.Row
-        self.conn.executescript(SCHEMA)
-        self.conn.commit()
+    def __init__(self, directory: str | os.PathLike, log_dir: str | os.PathLike | None = None):
+        self.dir = Path(os.path.expanduser(str(directory)))
+        self.log_dir = Path(os.path.expanduser(str(log_dir))) if log_dir else self.dir
+        self.dir.mkdir(parents=True, exist_ok=True)
+        (self.log_dir / "history").mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
 
-    # ---- generic helpers
-    def _get(self, table: str, keycol: str, key: str) -> dict[str, Any] | None:
-        row = self.conn.execute(f"SELECT * FROM {table} WHERE {keycol}=?", (key,)).fetchone()
+    # ---- generic map files: {key: {"data": ..., "expires": ts|None, "updated": ts}}
+    def _map(self, name: str) -> dict[str, Any]:
+        return _read_json(self.dir / f"{name}.json", {})
+
+    def _map_get(self, name: str, key: str) -> dict[str, Any] | None:
+        row = self._map(name).get(key)
         if not row:
             return None
-        d = dict(row)
-        if "expires" in d and d["expires"] and d["expires"] < time.time():
+        if row.get("expires") and row["expires"] < time.time():
             return None
-        d["data"] = json.loads(d["data"])
-        return d
+        return row
+
+    def _map_put(self, name: str, key: str, data: Any, expires: float | None) -> None:
+        with self._lock:
+            m = self._map(name)                       # re-read: merge with what another process may have written
+            m[key] = {"data": data, "expires": expires, "updated": time.time()}
+            _atomic_write(self.dir / f"{name}.json", m)
+
+    def _map_delete(self, name: str, key: str | None) -> None:
+        with self._lock:
+            if key is None:
+                _atomic_write(self.dir / f"{name}.json", {})
+                return
+            m = self._map(name)
+            m.pop(key, None)
+            _atomic_write(self.dir / f"{name}.json", m)
 
     # ---- cert cache
     def get_cert(self, host: str) -> dict[str, Any] | None:
-        r = self._get("cert_cache", "host", host.lower())
+        r = self._map_get("cert_cache", host.lower())
         return r["data"] if r else None
 
     def put_cert(self, host: str, data: dict[str, Any], ttl_s: float) -> None:
-        now = time.time()
-        exp = now + ttl_s
-        # never cache past the certificate's own expiry
+        exp = time.time() + ttl_s
         if data.get("not_after_ts"):
-            exp = min(exp, float(data["not_after_ts"]))
-        self.conn.execute("REPLACE INTO cert_cache VALUES (?,?,?,?)", (host.lower(), json.dumps(data), exp, now))
-        self.conn.commit()
+            exp = min(exp, float(data["not_after_ts"]))          # never past the certificate's own expiry
+        self._map_put("cert_cache", host.lower(), data, exp)
 
     # ---- identity cache
     @staticmethod
@@ -63,83 +91,101 @@ class Storage:
         return " ".join(project.lower().split())
 
     def get_identity(self, project: str) -> dict[str, Any] | None:
-        r = self._get("identity_cache", "key", self.identity_key(project))
+        r = self._map_get("identity_cache", self.identity_key(project))
         return r["data"] if r else None
 
     def put_identity(self, project: str, data: dict[str, Any], ttl_s: float) -> None:
-        now = time.time()
-        self.conn.execute("REPLACE INTO identity_cache VALUES (?,?,?,?,?)",
-                          (self.identity_key(project), project, json.dumps(data), now + ttl_s, now))
-        self.conn.commit()
+        data = dict(data)
+        data.setdefault("project", project)
+        self._map_put("identity_cache", self.identity_key(project), data, time.time() + ttl_s)
 
     def invalidate_identity(self, key: str) -> None:
-        self.conn.execute("DELETE FROM identity_cache WHERE key=?", (key,))
-        self.conn.commit()
+        self._map_delete("identity_cache", key)
 
     # ---- anchors (observed data on top of the built-in seed)
     def get_anchor(self, etld1: str) -> dict[str, Any] | None:
-        r = self._get("anchor_cache", "etld1", etld1)
+        r = self._map_get("anchor_cache", etld1)
         return r["data"] if r else None
 
     def put_anchor(self, etld1: str, data: dict[str, Any]) -> None:
-        self.conn.execute("REPLACE INTO anchor_cache VALUES (?,?,?)", (etld1, json.dumps(data), time.time()))
-        self.conn.commit()
+        self._map_put("anchor_cache", etld1, data, None)
 
-    # ---- history
+    # ---- history: one file per verification + an index line
     def add_history(self, trace_id: str, project: str, url: str, description: str,
                     verdict: str, confidence: float, result: dict[str, Any]) -> None:
-        self.conn.execute("REPLACE INTO history VALUES (?,?,?,?,?,?,?,?)",
-                          (trace_id, time.time(), project, url, description, verdict, confidence, json.dumps(result)))
-        self.conn.commit()
+        _atomic_write(self.log_dir / "history" / f"{trace_id}.json", result)
+        line = {"trace_id": trace_id, "ts": time.time(), "project": project, "url": url, "description": description,
+                "verdict": verdict, "confidence": confidence}
+        with self._lock, open(self.log_dir / "history" / "index.jsonl", "a", encoding="utf-8") as f:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
     def list_history(self, limit: int = 100) -> list[dict[str, Any]]:
-        rows = self.conn.execute("SELECT trace_id, ts, project, url, description, verdict, confidence FROM history ORDER BY ts DESC LIMIT ?", (limit,)).fetchall()
-        return [dict(r) for r in rows]
+        p = self.log_dir / "history" / "index.jsonl"
+        if not p.is_file():
+            return []
+        rows: dict[str, dict[str, Any]] = {}
+        with open(p, "r", encoding="utf-8") as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                    rows[r["trace_id"]] = r                       # a re-added trace_id keeps its latest line
+                except (json.JSONDecodeError, KeyError):
+                    continue
+        return sorted(rows.values(), key=lambda r: r["ts"], reverse=True)[:limit]
 
     def get_history(self, trace_id: str) -> dict[str, Any] | None:
-        row = self.conn.execute("SELECT * FROM history WHERE trace_id=?", (trace_id,)).fetchone()
-        if not row:
+        if not trace_id or "/" in trace_id or "\\" in trace_id or trace_id.startswith("."):
             return None
-        d = dict(row)
-        d["result"] = json.loads(d["result"])
-        return d
+        result = _read_json(self.log_dir / "history" / f"{trace_id}.json", None)
+        if result is None:
+            return None
+        meta = next((r for r in self.list_history(10_000) if r["trace_id"] == trace_id), {})
+        return {**meta, "trace_id": trace_id, "result": result}
 
     # ---- listing for the admin UI
     def dump_table(self, table: str, limit: int = 500) -> list[dict[str, Any]]:
         assert table in {"cert_cache", "identity_cache", "anchor_cache"}
-        rows = self.conn.execute(f"SELECT * FROM {table} ORDER BY updated DESC LIMIT ?", (limit,)).fetchall()
+        keycol = {"cert_cache": "host", "identity_cache": "key", "anchor_cache": "etld1"}[table]
         out = []
-        for r in rows:
-            d = dict(r)
-            d["data"] = json.loads(d["data"])
+        for k, row in self._map(table).items():
+            d = {keycol: k, "data": row.get("data"), "expires": row.get("expires"), "updated": row.get("updated")}
+            if table == "identity_cache":
+                d["project"] = (row.get("data") or {}).get("project", k)
             out.append(d)
-        return out
+        out.sort(key=lambda r: r.get("updated") or 0, reverse=True)
+        return out[:limit]
 
     def delete_row(self, table: str, key: str) -> None:
-        keycol = {"cert_cache": "host", "identity_cache": "key", "anchor_cache": "etld1"}[table]
-        self.conn.execute(f"DELETE FROM {table} WHERE {keycol}=?", (key,))
-        self.conn.commit()
+        self._map_delete(table, key)
 
     def clear_table(self, table: str) -> None:
         assert table in {"cert_cache", "identity_cache", "anchor_cache", "history"}
-        self.conn.execute(f"DELETE FROM {table}")
-        self.conn.commit()
+        if table == "history":
+            with self._lock:
+                for p in (self.log_dir / "history").glob("*.json"):
+                    p.unlink()
+                idx = self.log_dir / "history" / "index.jsonl"
+                if idx.exists():
+                    idx.unlink()
+            return
+        self._map_delete(table, None)
 
-    # ---- observed dependency health
+    # ---- observed dependency health: {dep: row}
     def load_health(self) -> list[dict[str, Any]]:
-        return [dict(r) for r in self.conn.execute("SELECT * FROM dep_health").fetchall()]
+        return list(_read_json(self.log_dir / "health.json", {}).values())
 
     def save_health(self, row: dict[str, Any]) -> None:
-        self.conn.execute("REPLACE INTO dep_health VALUES (?,?,?,?,?,?,?)",
-                          (row["dep"], row.get("last_ok"), row.get("last_fail"), row.get("last_error"),
-                           int(row.get("consecutive_fail") or 0), int(row.get("ok_count") or 0), int(row.get("fail_count") or 0)))
-        self.conn.commit()
+        with self._lock:
+            m = _read_json(self.log_dir / "health.json", {})
+            m[row["dep"]] = row
+            _atomic_write(self.log_dir / "health.json", m)
 
-    # ---- kv
+    # ---- kv (small settings, e.g. remembered probes)
     def kv_get(self, k: str) -> str | None:
-        row = self.conn.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
-        return row["v"] if row else None
+        return (_read_json(self.dir / "kv.json", {}) or {}).get(k)
 
     def kv_set(self, k: str, v: str) -> None:
-        self.conn.execute("REPLACE INTO kv VALUES (?,?)", (k, v))
-        self.conn.commit()
+        with self._lock:
+            m = _read_json(self.dir / "kv.json", {})
+            m[k] = v
+            _atomic_write(self.dir / "kv.json", m)

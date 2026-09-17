@@ -16,3 +16,5 @@ start*.bat
 reports/
 README.work.md
 report/
+state/
+log/

@@ -82,8 +82,8 @@ def test_total_deadline_yields_unverifiable(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "_verify", slow)
     cfg = Config()
     cfg.budget.max_total_s = 1
-    cfg.storage.path = str(tmp_path / "t.sqlite3")
-    store = Storage(cfg.storage.resolved())
+    cfg.storage.dir = str(tmp_path / "state")
+    store = Storage(cfg.storage.resolved(), cfg.log.resolved())
 
     async def run():
         pr = progress.Progress(None, events=False, heartbeat_s=0)

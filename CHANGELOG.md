@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **No more SQLite.** Rebuildable caches and settings are plain JSON under `state/` (cert/identity caches, auth,
+  prompt overrides, PyPI top list); everything that records what the installation did is under `log/` (`full/`,
+  `history/` as one file per verification, `health.json`, `server/`, `admin/`). Both folders sit next to
+  `config.yaml`, relative paths in the config resolve against that folder, and each can be deleted to reset. The old
+  `~/.urlverify_mcp/` contents are not migrated; caches and history simply start over.
+- Wayback: first-seen lookups use the availability API (bare and `www.` variants, closest to 1996) with CDX as a
+  two-attempt fallback; after two consecutive 503s Wayback is not asked again within the same verification.
+- Evidence `source` strings from the LLM are reduced to their URL token (annotations like "(via package_registry npm)"
+  no longer reach Wayback); `npmjs.org` / `pythonhosted.org` are tier 1; API/registry evidence is never sent for dating.
+- Admin: new Status tab (version, paths, observed health, Run check-env); History tab shows rows again (a duplicate
+  element id had sent them to the wrong table); process logs also go to `log/server` and `log/admin`.
+
 - Observed dependency health replaces automatic probing: every real call to an external dependency records success or
   failure (persisted in SQLite), failures print `!! DEPENDENCY …` on stderr and log a `dependency_failure` record, results
   carry a `degraded` list, the admin Test tab shows the table. It is a report, never a gate.

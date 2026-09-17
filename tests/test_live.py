@@ -18,7 +18,7 @@ def test_live_case(case, request):
     from urlverify_mcp.pipeline import verify
     from urlverify_mcp.storage import Storage
     cfg = load_config()
-    store = Storage(cfg.storage.resolved())
+    store = Storage(cfg.storage.resolved(), cfg.log.resolved())
     res = asyncio.run(verify(VerifyRequest(project=case["project"], url=case["url"], description=case["description"]), cfg, store))
     print(res.model_dump_json(indent=1))
     if "expect_any" in case:

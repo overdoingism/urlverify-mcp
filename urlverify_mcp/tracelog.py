@@ -134,6 +134,7 @@ TRACE = TraceLog()
 
 
 def configure_from(cfg) -> TraceLog:
+    from .config import resolve_path
     fl = cfg.full_log
-    TRACE.configure(fl.enabled, fl.dir, fl.max_bytes)
+    TRACE.configure(fl.enabled, str(resolve_path(fl.dir)), fl.max_bytes)
     return TRACE

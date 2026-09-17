@@ -4,7 +4,7 @@ decide whether a dependency is enabled: networks flap, and the next call may wel
 from __future__ import annotations
 
 import contextvars
-import sys
+import logging
 import threading
 import time
 from typing import Any
@@ -12,6 +12,13 @@ from typing import Any
 from .tracelog import TRACE
 
 ESCALATE_AT = 3   # consecutive failures that trigger the louder log line
+log = logging.getLogger("urlverify")
+if not log.handlers:                       # library use without logsetup: still reach stderr
+    import sys
+    _h = logging.StreamHandler(sys.stderr)
+    _h.setFormatter(logging.Formatter("%(message)s"))
+    log.addHandler(_h)
+    log.setLevel(logging.INFO)
 
 _degraded: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar("urlverify_degraded", default=None)
 
@@ -40,14 +47,14 @@ class Health:
                 was_down = st["consecutive_fail"] >= ESCALATE_AT
                 st.update(last_ok=now, consecutive_fail=0, ok_count=st["ok_count"] + 1)
                 if was_down:
-                    print(f"!! DEPENDENCY {dep}: recovered", file=sys.stderr, flush=True)
+                    log.warning("!! DEPENDENCY %s: recovered", dep)
                     TRACE.log("dependency_recovered", dep=dep)
             else:
                 st.update(last_fail=now, last_error=(error or "")[:300], consecutive_fail=st["consecutive_fail"] + 1,
                           fail_count=st["fail_count"] + 1)
                 n = st["consecutive_fail"]
                 tag = "!! DEPENDENCY" if n < ESCALATE_AT else "!!! DEPENDENCY DOWN"
-                print(f"{tag} {dep}: {st['last_error']} ({n} consecutive)", file=sys.stderr, flush=True)
+                log.warning("%s %s: %s (%d consecutive)", tag, dep, st["last_error"], n)
                 TRACE.log("dependency_failure", dep=dep, error=st["last_error"], consecutive=n)
                 bag = _degraded.get()
                 if bag is not None:

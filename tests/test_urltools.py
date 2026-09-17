@@ -29,3 +29,10 @@ def test_typosquat():
 
 def test_skeleton():
     assert skeleton("rnicrosoft") == "microsoft"
+
+
+def test_clean_url_strips_llm_annotations():
+    from urlverify_mcp.agent.loop import _clean_url
+    assert _clean_url("https://registry.npmjs.org/@electron/asar (via package_registry npm)") == "https://registry.npmjs.org/@electron/asar"
+    assert _clean_url("see https://x.example/a/b, then") == "https://x.example/a/b"
+    assert _clean_url("no url here") == ""

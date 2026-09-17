@@ -85,7 +85,14 @@ Callers may override `min_sources`, `allow_tier3`, `history_days` and the `ident
 
 | Field | Type / default | Meaning |
 |---|---|---|
-| `path` | str · `~/.urlverify_mcp/urlverify.sqlite3` | SQLite file holding caches, verification history and the identity graph. |
+| `dir` | str · `state` | Directory of plain JSON files: `cert_cache.json`, `identity_cache.json`, `anchor_cache.json`, `pypi_top.json`, `admin.auth`, `prompts/` — rebuildable caches and settings only. Relative paths resolve against the folder of `config.yaml`. Delete a file to reset that part. |
+
+## `log`
+
+| Field | Type / default | Meaning |
+|---|---|---|
+| `dir` | str · `log` | Root of everything log-like: `full/` (full data log), `history/` (one JSON per verification + `index.jsonl`), `health.json` (observed dependency health), `server/server.log`, `admin/admin.log`. Records of what this installation did, possibly private: safe to delete at any time. |
+| `process_max_bytes` / `process_backups` | int · `1048576` / `5` | Rotation of the server / admin process logs. |
 
 ## `lists`
 
@@ -110,7 +117,7 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 | `require_project_match` | bool · `true` | The caller's `project` must match the package name (normalised, substring either way). A mismatch (asked for "requests", given `reqests-utils`) sends the case to the full pipeline with a `project_package_mismatch` risk signal. |
 | `typosquat_check` | bool · `true` | Compare the name against far more popular near-names (PyPI: popularity list; npm: bulk download counts of generated variants). `false` skips it and relies on the bidirectional repository link alone — you accept the look-alike risk. |
 | `toplist_size` | int · `1500` | Rows kept from the PyPI popularity list, ~60 bytes each (1500 ≈ 90 KB). The file is sorted by downloads and streamed: the connection is closed after N rows, the rest is never downloaded. Nothing is bundled with the package. |
-| `toplist_refresh_days` | int · `60` | The cached list (`~/.urlverify_mcp/pypi_top.json`) is re-validated at most this often, with `If-None-Match`; an unchanged list costs a 304 and no body. The first download happens on the first PyPI target, never at install or start-up. |
+| `toplist_refresh_days` | int · `60` | The cached list (`state/pypi_top.json`) is re-validated at most this often, with `If-None-Match`; an unchanged list costs a 304 and no body. The first download happens on the first PyPI target, never at install or start-up. |
 | `toplist_url` | str · hugovk top-pypi-packages | Source of the list (JSON rows `{download_count, project}` sorted descending). |
 
 `VERIFIED_TRUE` needs existence + age + release count + project-name match + a **bidirectional** repository link (registry →
@@ -126,14 +133,14 @@ that is the boundary of source verification, not a gap (file contents are out of
 | Field | Type / default | Meaning |
 |---|---|---|
 | `enabled` | bool · `false` | Record, in order, every MCP request/response, LLM turn (messages, response, reasoning), search exchange, structured API result, L0 result, aging result and rules decision as JSONL. Toggle in the admin Config tab; applies immediately. |
-| `dir` | str · `~/.urlverify_mcp/logs` | Log directory. Each process writes its own `full-YYYYMMDDHHMMSS.log`. |
+| `dir` | str · `log/full` | Full-log directory (relative to the config folder). Each process writes its own `full-YYYYMMDDHHMMSS.log`. |
 | `max_bytes` | int · `1048576` | Start a new file once the current one exceeds this size. |
 
 ## `prompts`
 
 | Field | Type / default | Meaning |
 |---|---|---|
-| `dir` | str · `~/.urlverify_mcp/prompts` | Where edited prompts are stored (admin Prompts tab). Defaults live in `urlverify_mcp/prompt_defaults/`. `agent_*` prompts apply on the next verification; `mcp_*` texts are registered at server start. Agent prompts may use the optional tokens `{current_date}`, `{current_datetime}`, `{timezone}` (filled at run time, UTC); other braces are left untouched. |
+| `dir` | str · `state/prompts` | Where edited prompts are stored (admin Prompts tab). Defaults live in `urlverify_mcp/prompt_defaults/`. `agent_*` prompts apply on the next verification; `mcp_*` texts are registered at server start. Agent prompts may use the optional tokens `{current_date}`, `{current_datetime}`, `{timezone}` (filled at run time, UTC); other braces are left untouched. |
 
 ## `server` — the MCP server (`urlverify-mcp serve`)
 
@@ -151,7 +158,7 @@ that is the boundary of source verification, not a gap (file contents are out of
 | Field | Type / default | Meaning |
 |---|---|---|
 | `host` / `port` | str · `127.0.0.1` / int · `8765` | Bind address. The UI can edit this file, open the log folder and run verifications: keep it local. |
-| `auth_file` | str · `~/.urlverify_mcp/admin.auth` | JSON file with the PBKDF2-HMAC-SHA256 password hash, its random salt and the session-signing key. Created on first use with the default password `admin`; **delete it to reset the password** (all sessions are invalidated). |
+| `auth_file` | str · `state/admin.auth` | JSON file with the PBKDF2-HMAC-SHA256 password hash, its random salt and the session-signing key. Created on first use with the default password `admin`; **delete it to reset the password** (all sessions are invalidated). |
 | `session_days` | int · `7` | Lifetime of the login cookie. |
 
 ---

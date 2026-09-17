@@ -94,8 +94,8 @@ def test_pipeline_with_scripted_llm(monkeypatch, tmp_path):
     from urlverify_mcp import pipeline
     monkeypatch.setattr(pipeline, "LLM", ScriptedLLM)
     cfg = load_config()
-    cfg.storage.path = str(tmp_path / "t.sqlite3")
-    store = Storage(cfg.storage.resolved())
+    cfg.storage.dir = str(tmp_path / "state")
+    store = Storage(cfg.storage.resolved(), cfg.log.resolved())
     from urlverify_mcp.pipeline import verify
     res = asyncio.run(verify(VerifyRequest(project="LM Studio", url="https://lmstudio.ai/download", description="download page"), cfg, store))
     print(res.model_dump_json(indent=1))

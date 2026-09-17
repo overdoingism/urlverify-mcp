@@ -22,7 +22,7 @@ def _init(config_path: str | None = None) -> tuple[Config, Storage]:
     global _cfg, _store
     if _cfg is None:
         _cfg = load_config(config_path)
-        _store = Storage(_cfg.storage.resolved())
+        _store = Storage(_cfg.storage.resolved(), _cfg.log.resolved())
     return _cfg, _store  # type: ignore[return-value]
 
 

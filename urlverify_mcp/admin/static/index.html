@@ -41,7 +41,8 @@
 <header>
   <h1>URLVerify_MCP</h1>
   <nav>
-    <button data-tab="test" class="active">Test</button>
+    <button data-tab="status" class="active">Status</button>
+    <button data-tab="test">Test</button>
     <button data-tab="history">History</button>
     <button data-tab="config">Config</button>
     <button data-tab="lists">Allow / Deny</button>
@@ -64,7 +65,24 @@
   <div class="muted" id="pw-status" style="margin-top:8px"></div>
 </dialog>
 <main>
-  <section id="tab-test" class="active">
+  <section id="tab-status" class="active">
+    <div class="card"><b>URLVerify_MCP</b> <span class="muted" id="s-version"></span>
+      <div class="muted" id="s-paths" style="margin-top:6px"></div></div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px"><b>Observed dependency health</b>
+        <span class="muted">what real verifications reported, most recent first. A report only, never a gate: networks flap and every call is always attempted.</span>
+        <button class="small" id="hl-refresh" style="margin-left:auto">Refresh</button></div>
+      <table id="hl-table" style="margin-top:8px"><thead><tr><th>Dependency</th><th>Last OK</th><th>Last failure</th><th>Consecutive failures</th><th>OK / fail total</th><th>Last error</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px"><b>Environment check</b>
+        <button class="small" id="ce-run">Run check-env</button>
+        <span class="muted">manual, lightweight probes of the configured endpoints (same as <code>urlverify-mcp check-env</code>). A snapshot of this moment only.</span></div>
+      <table id="ce-table" style="margin-top:8px;display:none"><thead><tr><th>Dependency</th><th>Result</th><th>ms</th><th>Detail</th></tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <section id="tab-test">
     <div class="card">
       <div class="grid">
         <div><label>Project</label><input id="t-project" placeholder="LM Studio"></div>
@@ -76,14 +94,6 @@
         <div><label>allow_tier3</label><select id="t-t3"><option value="">config</option><option value="true">true</option><option value="false">false</option></select></div>
       </div>
       <button class="primary" id="t-run">Verify</button> <span id="t-status" class="muted"></span>
-    </div>
-    <div class="card">
-      <div style="display:flex;align-items:center;gap:10px"><b>Environment check</b>
-        <button class="small" id="ce-run">Run check-env</button>
-        <span class="muted">manual, lightweight probes of the configured endpoints (same as <code>urlverify-mcp check-env</code>). A snapshot only: the table below shows what real verifications observed.</span></div>
-      <table id="ce-table" style="margin-top:8px;display:none"><thead><tr><th>Dependency</th><th>Result</th><th>ms</th><th>Detail</th></tr></thead><tbody></tbody></table>
-      <details style="margin-top:10px"><summary>Observed dependency health (from real calls; a report, never a gate)</summary>
-        <table id="h-table"><thead><tr><th>Dependency</th><th>Last OK</th><th>Last failure</th><th>Consecutive failures</th><th>OK / fail total</th><th>Last error</th></tr></thead><tbody></tbody></table></details>
     </div>
     <div class="card" id="t-result" style="display:none">
       <div><span class="verdict" id="r-verdict"></span> <span class="muted" id="r-conf"></span> <span class="muted" id="r-meta"></span></div>
@@ -174,7 +184,7 @@ let cfg = null;
 document.querySelectorAll('nav button[data-tab]').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button[data-tab]').forEach(x => x.classList.remove('active')); b.classList.add('active');
   document.querySelectorAll('section').forEach(s => s.classList.remove('active')); $('#tab-'+b.dataset.tab).classList.add('active');
-  ({history: loadHistory, config: loadConfig, lists: loadLists, cache: loadCaches, prompts: loadPrompts, logs: loadLogs})[b.dataset.tab]?.();
+  ({status: loadStatus, history: loadHistory, config: loadConfig, lists: loadLists, cache: loadCaches, prompts: loadPrompts, logs: loadLogs})[b.dataset.tab]?.();
 });
 
 async function loadEnv(){ try { const h = await api('/api/health'); const rows = h.rows || [];
@@ -276,8 +286,11 @@ $('#ce-run').onclick = async () => { $('#ce-run').disabled = true; $('#ce-run').
   catch(e){ $('#ce-table').style.display = 'table'; $('#ce-table tbody').innerHTML = `<tr><td colspan="4">error: ${esc(e.message)}</td></tr>`; }
   $('#ce-run').disabled = false; $('#ce-run').textContent = 'Run check-env'; loadHealth(); };
 async function loadHealth(){ try { const h = await api('/api/health'); const fmt = t => t ? new Date(t*1000).toLocaleString() : '—';
-    $('#h-table tbody').innerHTML = (h.rows||[]).map(r => `<tr><td>${esc(r.dep)}</td><td>${fmt(r.last_ok)}</td><td>${fmt(r.last_fail)}</td><td class="${r.consecutive_fail?'VERIFIED_FALSE':''}">${r.consecutive_fail}</td><td>${r.ok_count} / ${r.fail_count}</td><td class="muted">${esc(r.last_error||'')}</td></tr>`).join('') || '<tr><td class="muted" colspan="6">nothing observed yet</td></tr>'; } catch(e){} }
-loadHealth();
+    $('#hl-table tbody').innerHTML = (h.rows||[]).map(r => `<tr><td>${esc(r.dep)}</td><td>${fmt(r.last_ok)}</td><td>${fmt(r.last_fail)}</td><td class="${r.consecutive_fail?'VERIFIED_FALSE':''}">${r.consecutive_fail}</td><td>${r.ok_count} / ${r.fail_count}</td><td class="muted">${esc(r.last_error||'')}</td></tr>`).join('') || '<tr><td class="muted" colspan="6">nothing observed yet — run a verification</td></tr>'; } catch(e){} }
+$('#hl-refresh').onclick = loadHealth;
+async function loadStatus(){ loadHealth(); try { const st = await api('/api/status'); $('#s-version').textContent = 'v' + st.version;
+    $('#s-paths').innerHTML = `config: <code>${esc(st.config_path||'(defaults)')}</code> · state: <code>${esc(st.state_dir)}</code> · logs: <code>${esc(st.log_dir)}</code> · full log: <b>${st.full_log ? 'ON' : 'off'}</b> · search: ${esc(st.search_provider)} · fetch: ${esc(st.fetch_provider)} · LLM: ${esc(st.llm_model)} @ ${esc(st.llm_base_url)}`; } catch(e){} }
+loadStatus();
 loadAuth();
 loadEnv();
 </script>
