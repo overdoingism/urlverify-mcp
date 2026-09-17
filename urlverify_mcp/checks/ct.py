@@ -35,3 +35,21 @@ async def first_seen(etld1: str, timeout: float, user_agent: str) -> dict[str, A
     first = min(dates)
     age_days = (datetime.now(timezone.utc) - first).days
     return {"ok": True, "count": len(dates), "first_seen": first.isoformat(), "age_days": age_days}
+
+
+async def cert_logged(fingerprint_sha256: str, timeout: float, user_agent: str) -> dict[str, Any]:
+    """Is this exact leaf certificate known to Certificate Transparency (via crt.sh)? Best effort."""
+    url = f"https://crt.sh/?q={fingerprint_sha256}&output=json"
+    try:
+        async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": user_agent}) as client:
+            r = await client.get(url)
+            if r.status_code != 200:
+                observe("crt.sh", False, f"status {r.status_code}")
+                return {"ok": False, "error": f"crt.sh status {r.status_code}"}
+            data = r.json()
+            observe("crt.sh", True)
+    except Exception as e:  # noqa: BLE001
+        observe("crt.sh", False, f"{type(e).__name__}: {e}")
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    rows = data if isinstance(data, list) else []
+    return {"ok": True, "logged": bool(rows), "entries": len(rows), "source": url}

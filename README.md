@@ -152,6 +152,11 @@ No database, no files outside the project folder. Both folders are git-ignored.
 
 ### Security notes
 
+- **DNS spoofing and TLS interception.** The trusted-certificate requirement already defeats plain DNS poisoning (an
+  attacker's server cannot present a valid certificate for the host). Two checks cover what remains: the leaf certificate
+  must be publicly logged in Certificate Transparency (`net.ct_check`) — a locally installed interception CA never is — and
+  the host is resolved again over DNS-over-HTTPS (`net.doh_cross_check`); when the answers differ, a handshake against the
+  DoH address tells GeoDNS apart from a poisoned local resolver. No IP lists are bundled.
 - **Non-public targets are refused.** Loopback, private, link-local and `.local`-style hosts, and redirects that land on
   them, fail L0 with `public_address` and never get probed. A verification server should not be usable for LAN reconnaissance.
 - **Admin UI**: password-only login (default `admin`, change it in the UI). The hash (PBKDF2-HMAC-SHA256, random salt) and the
@@ -180,7 +185,8 @@ unverifiable; Reddit dating uses the public RSS feed, which lacks the edit times
 ### Data flow (what leaves your machine)
 
 Project name and URL go to the search engines behind your SearXNG, to Wikipedia / Wikidata, archive.org, GitHub, Hugging Face,
-PyPI / npm, crt.sh and (for tier-3 dating) Reddit / HN / Stack Exchange as needed. Fetched page text and the investigator's
+PyPI / npm, crt.sh, deps.dev, the DoH resolvers in `net.doh_resolvers` (host names only) and (for tier-3 dating) Reddit / HN /
+Stack Exchange as needed. Fetched page text and the investigator's
 messages go to the LLM endpoint you configured: with a local model nothing else leaves; with a cloud API the provider sees them.
 Nothing is sent anywhere else, and no telemetry exists.
 

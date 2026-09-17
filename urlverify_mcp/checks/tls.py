@@ -31,8 +31,17 @@ def _flatten(rdns) -> dict[str, str]:
     return out
 
 
-def fetch_cert_sync(host: str, port: int = 443, timeout: float = 10.0) -> dict[str, Any]:
-    """Blocking. Returns a dict with trusted/valid info. Never raises for TLS problems; records them."""
+SCT_OID_DER = bytes.fromhex("060a2b06010401d679020402")   # OID 1.3.6.1.4.1.11129.2.4.2 (embedded SCT list) as DER
+
+
+def has_embedded_scts(der: bytes) -> bool:
+    """Public CAs embed Signed Certificate Timestamps; a locally issued interception certificate has none."""
+    return SCT_OID_DER in der
+
+
+def fetch_cert_sync(host: str, port: int = 443, timeout: float = 10.0, connect_ip: str | None = None) -> dict[str, Any]:
+    """Blocking. Returns a dict with trusted/valid info. Never raises for TLS problems; records them.
+    `connect_ip` connects to that address while still presenting/validating `host` (used for the DoH cross-check)."""
     result: dict[str, Any] = {"host": host, "port": port, "checked_at": time.time(), "trusted": False,
                               "error": None, "issuer": None, "issuer_org": None, "subject_org": None,
                               "san": [], "not_before_ts": None, "not_after_ts": None, "fingerprint_sha256": None,
@@ -41,11 +50,13 @@ def fetch_cert_sync(host: str, port: int = 443, timeout: float = 10.0) -> dict[s
     for store in ("system", "certifi"):
         ctx = _ctx(store == "certifi")
         try:
-            with socket.create_connection((host, port), timeout=timeout) as sock:
+            with socket.create_connection((connect_ip or host, port), timeout=timeout) as sock:
                 with ctx.wrap_socket(sock, server_hostname=host) as ssock:
                     cert = ssock.getpeercert()
                     der = ssock.getpeercert(binary_form=True)
             result.update(_describe(cert, der))
+            result["has_scts"] = has_embedded_scts(der)
+            result["connect_ip"] = connect_ip
             result["trusted"] = True
             result["hostname_match"] = True
             result["trust_store"] = store
@@ -127,5 +138,5 @@ def _unverified_details(host: str, port: int, timeout: float) -> dict[str, Any]:
     return out
 
 
-async def fetch_cert(host: str, port: int = 443, timeout: float = 10.0) -> dict[str, Any]:
-    return await asyncio.to_thread(fetch_cert_sync, host, port, timeout)
+async def fetch_cert(host: str, port: int = 443, timeout: float = 10.0, connect_ip: str | None = None) -> dict[str, Any]:
+    return await asyncio.to_thread(fetch_cert_sync, host, port, timeout, connect_ip)

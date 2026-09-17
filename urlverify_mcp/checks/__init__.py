@@ -12,6 +12,7 @@ from ..storage import Storage
 from . import ct as ct_mod
 from . import dns as dns_mod
 from . import redirects as redir_mod
+from . import doh as doh_mod
 from . import tls as tls_mod
 from .injection import find_injection
 from .private import looks_local_hostname, non_public
@@ -96,7 +97,8 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
         tls_task = tls_mod.fetch_cert(host, urlsplit(norm).port or 443, cfg.net.timeout_s)
     redir_task = redir_mod.expand(norm, cfg.net.timeout_s, cfg.net.user_agent)
     ct_task = asyncio.sleep(0, result={"ok": False, "error": "skipped for platform anchor"}) if anchor else ct_mod.first_seen(e1, cfg.net.timeout_s, cfg.net.user_agent)
-    dns_r, tls_r, redir_r, ct_r = await asyncio.gather(dns_task, tls_task, redir_task, ct_task, return_exceptions=True)
+    doh_task = doh_mod.resolve_doh(host, cfg.net.doh_resolvers, cfg.net.timeout_s, cfg.net.user_agent) if cfg.net.doh_cross_check else asyncio.sleep(0, result=None)
+    dns_r, tls_r, redir_r, ct_r, doh_r = await asyncio.gather(dns_task, tls_task, redir_task, ct_task, doh_task, return_exceptions=True)
 
     # DNS
     if isinstance(dns_r, Exception) or not dns_r.get("resolved"):
@@ -125,6 +127,47 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
             res.checks.append(CheckResult(name="tls", status="error" if transient else "fail", fatal=not transient,
                                           detail={k: tls_r.get(k) for k in ("error", "issuer", "subject_org", "self_signed", "expired", "hostname_match")},
                                           message=err))
+
+    # Certificate Transparency membership of the leaf (rogue local CA / interception detector)
+    if cfg.net.ct_check and not isinstance(tls_r, Exception) and tls_r.get("trusted"):
+        fp = tls_r.get("fingerprint_sha256")
+        has_scts = tls_r.get("has_scts")
+        age_h = ((time.time() - float(tls_r["not_before_ts"])) / 3600) if tls_r.get("not_before_ts") else None
+        if has_scts:
+            res.checks.append(CheckResult(name="ct_logged", status="pass", detail={"embedded_scts": True}, message="leaf carries embedded SCTs (publicly logged)"))
+        else:
+            logged = await ct_mod.cert_logged(fp, cfg.net.timeout_s, cfg.net.user_agent) if fp else {"ok": False, "error": "no fingerprint"}
+            if logged.get("ok") and logged.get("logged"):
+                res.checks.append(CheckResult(name="ct_logged", status="pass", detail=logged, message="leaf found in Certificate Transparency (crt.sh)"))
+            elif logged.get("ok") and age_h is not None and age_h > 24:
+                res.checks.append(CheckResult(name="ct_logged", status="fail", fatal=True, detail={**logged, "cert_age_h": round(age_h)},
+                                              message="certificate is trusted locally but has no SCTs and is not in Certificate Transparency: "
+                                                      "a locally installed CA / TLS interception is suspected"))
+            elif logged.get("ok"):
+                res.checks.append(CheckResult(name="ct_logged", status="warn", detail=logged, message="certificate is very new and not yet visible in CT"))
+                res.risk_signals.append("ct_not_yet_logged")
+            else:
+                res.checks.append(CheckResult(name="ct_logged", status="skip", detail=logged, message=f"CT lookup unavailable: {logged.get('error')}"))
+    elif cfg.net.ct_check:
+        res.checks.append(CheckResult(name="ct_logged", status="skip", message="no trusted certificate to check"))
+
+    # DNS-over-HTTPS cross-check
+    if cfg.net.doh_cross_check:
+        if isinstance(doh_r, Exception) or not doh_r:
+            res.checks.append(CheckResult(name="dns_cross_check", status="skip", message="DoH lookup failed"))
+        else:
+            sys_ips = dns_r.get("addresses", []) if isinstance(dns_r, dict) else []
+            sys_tls_ok = None if isinstance(tls_r, Exception) else bool(tls_r.get("trusted"))
+            doh_tls_ok = None
+            if doh_r["addresses"] and not (set(sys_ips) & set(doh_r["addresses"])):
+                alt = await tls_mod.fetch_cert(host, urlsplit(norm).port or 443, cfg.net.timeout_s, connect_ip=doh_r["addresses"][0])
+                doh_tls_ok = bool(alt.get("trusted"))
+            status, fatal, msg = doh_mod.assess(sys_ips, doh_r["addresses"], sys_tls_ok, doh_tls_ok)
+            detail = {"system": sys_ips, "doh": doh_r["addresses"], "resolvers": doh_r["resolvers"], "dnssec_ad": doh_r["dnssec_ad"],
+                      "system_tls_ok": sys_tls_ok, "doh_tls_ok": doh_tls_ok}
+            if status == "warn":
+                res.risk_signals.append("dns_answers_differ")
+            res.checks.append(CheckResult(name="dns_cross_check", status=status, fatal=fatal, detail=detail, message=msg))
 
     # Redirects
     if isinstance(redir_r, Exception):

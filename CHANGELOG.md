@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- L0: `ct_logged` — the leaf certificate must carry embedded SCTs or be found in crt.sh; a locally trusted but unlogged
+  certificate (older than 24 h) is fatal (TLS interception). `dns_cross_check` — DNS-over-HTTPS cross-resolution with a
+  TLS handshake against the DoH address when answers differ; poisoned-resolver signature is fatal, GeoDNS is a note.
+  Both configurable under `net`.
+
 - **Build provenance is now the package "verified badge".** The registry fast path requires npm Sigstore attestations or
   PyPI PEP 740 provenance whose repository owner is a domain-verified GitHub organisation (deps.dev corroboration recorded);
   scoped npm packages must have scope == provenance owner. Packages without provenance are never trusted on metadata

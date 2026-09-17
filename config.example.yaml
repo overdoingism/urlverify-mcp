@@ -50,6 +50,9 @@ identity:
 
 net:
   timeout_s: 15
+  ct_check: true            # the leaf certificate must be publicly logged (embedded SCTs or crt.sh); catches TLS interception by a local CA
+  doh_cross_check: true     # resolve again over DNS-over-HTTPS and compare; sends the host name to the resolvers below
+  doh_resolvers: ["https://cloudflare-dns.com/dns-query", "https://dns.google/resolve"]
   user_agent: "URLVerify-MCP/0.1 (+https://github.com/overdoingism/urlverify-mcp)"   # keep a contact URL or email: Wikipedia returns 403 without one
 
 cache:
