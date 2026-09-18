@@ -189,6 +189,12 @@ class Storage:
     def load_health(self) -> list[dict[str, Any]]:
         return list(_read_json(self.log_dir / "health.json", {}).values())
 
+    def clear_health(self) -> None:
+        with self._lock:
+            p = self.log_dir / "health.json"
+            if p.exists():
+                p.unlink()
+
     def save_health(self, row: dict[str, Any]) -> None:
         with self._lock:
             m = _read_json(self.log_dir / "health.json", {})

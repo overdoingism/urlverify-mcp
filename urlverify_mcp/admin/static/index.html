@@ -71,7 +71,8 @@
     <div class="card">
       <div style="display:flex;align-items:center;gap:10px"><b>Observed dependency health</b>
         <span class="muted">what real verifications reported, most recent first. A report only, never a gate: networks flap and every call is always attempted.</span>
-        <button class="small" id="hl-refresh" style="margin-left:auto">Refresh</button></div>
+        <button class="small" id="hl-refresh" style="margin-left:auto">Refresh</button>
+        <button class="small" id="hl-clear">Clear</button></div>
       <table id="hl-table" style="margin-top:8px"><thead><tr><th>Dependency</th><th>Last OK</th><th>Last failure</th><th>Consecutive failures</th><th>OK / fail total</th><th>Last error</th></tr></thead><tbody></tbody></table>
     </div>
     <div class="card">
@@ -302,6 +303,7 @@ $('#ce-run').onclick = async () => { $('#ce-run').disabled = true; $('#ce-run').
 async function loadHealth(){ try { const h = await api('/api/health'); const fmt = t => t ? new Date(t*1000).toLocaleString() : '—';
     $('#hl-table tbody').innerHTML = (h.rows||[]).map(r => `<tr><td>${esc(r.dep)}</td><td>${fmt(r.last_ok)}</td><td>${fmt(r.last_fail)}</td><td class="${r.consecutive_fail?'VERIFIED_FALSE':''}">${r.consecutive_fail}</td><td>${r.ok_count} / ${r.fail_count}</td><td class="muted">${esc(r.last_error||'')}</td></tr>`).join('') || '<tr><td class="muted" colspan="6">nothing observed yet — run a verification</td></tr>'; } catch(e){} }
 $('#hl-refresh').onclick = loadHealth;
+$('#hl-clear').onclick = async () => { if(confirm('Forget all observed dependency health (log/health.json)?')){ await api('/api/health', {method:'DELETE'}); loadHealth(); } };
 async function loadStatus(){ loadHealth(); try { const st = await api('/api/status'); $('#s-version').textContent = 'v' + st.version;
     $('#s-paths').innerHTML = `config: <code>${esc(st.config_path||'(defaults)')}</code> · state: <code>${esc(st.state_dir)}</code> · logs: <code>${esc(st.log_dir)}</code> · full log: <b>${st.full_log ? 'ON' : 'off'}</b> · search: ${esc(st.search_provider)} · fetch: ${esc(st.fetch_provider)} · LLM: ${esc(st.llm_model)} @ ${esc(st.llm_base_url)}`; } catch(e){} }
 loadStatus();

@@ -269,6 +269,11 @@ def create_app(config_path: str | None = None) -> FastAPI:
         """Observed dependency health: what real calls reported. A report only; never a gate."""
         return {"rows": HEALTH.table(), "note": "observed from real calls; a report, never a gate: networks flap and the next call is always attempted"}
 
+    @app.delete("/api/health")
+    async def clear_health():
+        """Forget observed dependency health (log/health.json). Harmless: it is a report, never a gate."""
+        return {"ok": True, "removed": HEALTH.reset()}
+
     @app.post("/api/checkenv")
     async def check_env():
         """Manual lightweight probes (same as `urlverify-mcp check-env`). Runs only when the button is pressed."""

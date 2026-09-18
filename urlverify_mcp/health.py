@@ -66,6 +66,18 @@ class Health:
             except Exception:  # noqa: BLE001
                 pass
 
+    def reset(self) -> int:
+        """Forget all observations (memory + log/health.json). Returns how many dependency rows were dropped."""
+        with self._lock:
+            n = len(self._state)
+            self._state.clear()
+        if self._store is not None:
+            try:
+                self._store.clear_health()
+            except Exception:  # noqa: BLE001
+                pass
+        return n
+
     def table(self) -> list[dict[str, Any]]:
         with self._lock:
             return sorted((dict(v) for v in self._state.values()), key=lambda r: r["dep"])

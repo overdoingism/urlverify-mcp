@@ -48,3 +48,14 @@ def test_admin_health_and_checkenv(tmp_path, monkeypatch):
     r = c.post("/api/checkenv").json()
     assert r["results"][0]["name"] == "llm"
     assert c.get("/api/env").status_code == 404      # the automatic probe endpoint is gone
+
+
+def test_health_reset(tmp_path):
+    from urlverify_mcp.health import Health
+    from urlverify_mcp.storage import Storage
+    h = Health(); st = Storage(str(tmp_path / "state"), str(tmp_path / "log")); h.attach(st)
+    h.observe("wayback", False, "HTTP 503"); h.observe("llm", True)
+    assert len(h.table()) == 2 and (tmp_path / "log" / "health.json").exists()
+    assert h.reset() == 2
+    assert h.table() == [] and not (tmp_path / "log" / "health.json").exists()
+    h2 = Health(); h2.attach(st); assert h2.table() == []
