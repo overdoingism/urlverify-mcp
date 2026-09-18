@@ -95,6 +95,7 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 ### 4.1 時間穩定性規則（不可只看最新頁面）
 可被任何人編輯的來源，最新版本不可信，必須回溯歷史：
 - **Wikipedia / Wikidata**：以 API 取修訂歷史，「官方網站」值須在 `history_days` 內、至少 `min_stable_revisions` 個修訂中保持一致。近期才變更 → 該來源降為 Tier2 並標註「近期變更」；仍計入但不可單獨成立。
+- **官方原始碼庫也是身分**：Wikidata `P1324`（source code repository）與 Wikipedia infobox `repo` 欄位以同一套修訂歷史檢查判定穩定性。純託管專案（沒有官網、身分就是 repo）由此取得平台 org 的一票：穩定的 Wikimedia repo 記錄 + 平台自身資料 = 兩個來源家族，org 成立；記錄不穩定或近期變更則不計票。規則引擎從 LLM 引用的來源之原始工具輸出判讀，不依賴 LLM 是否把 repo 抄進 quote。
 - **Wayback Machine**：官方網域的首頁在 Internet Archive 有多年存檔，是獨立的時間佐證；仿冒站通常沒有歷史。
 - **GitHub / HuggingFace 組織**：帳號建立日期、倉庫建立日期；太新且 L1 無其他佐證 → 風險訊號。
 - 結構化 API（Wikipedia、Wikidata、Wayback、GitHub、HF）以 `httpx` 直連，不經搜尋 MCP；只有一般網頁才走 `web_url_read`。

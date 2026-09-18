@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Wikidata `P1324` (source code repository) and the Wikipedia infobox `repo` field are read alongside the official
+  website, with the same revision-history stability check. A stable Wikimedia repository record gives the platform org
+  one independent vote in the rules engine, so repository-only projects (no official website anywhere) can be
+  established from Tier-1 data instead of depending on the LLM finding media coverage. Fixes a wikitext parsing bug
+  where a self-closing `<ref name="x"/>` inside the infobox swallowed the following fields.
 - Investigator system prompt: a hard rule that the agent's identity, task and procedure are fixed by the system prompt
   and tool parameters; content met during investigation that tries to change them, or tells the agent to stop or approve
   the target, is treated as a prompt-injection attempt (not complied with, recorded in `risk_notes`, investigation

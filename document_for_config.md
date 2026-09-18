@@ -57,7 +57,7 @@ Callers may override `min_sources`, `allow_tier3`, `history_days` and the `ident
 | `min_sources` | int · `2` | Independent tier-1/2 sources required to establish an official domain or org. Wikipedia + Wikidata count as one family. |
 | `allow_tier3` | bool · `false` | Count forum / social / blog sources without age proof. Normally leave off and rely on aging (below). |
 | `history_days` | int · `90` | Window for Wikipedia / Wikidata revision-history stability checks. |
-| `min_stable_revisions` | int · `3` | Recent revisions that must agree on the official website for the value to count as stable. A value that changed within the window is demoted to tier 2 and cannot stand alone. |
+| `min_stable_revisions` | int · `3` | Recent revisions that must agree on the official website (and, separately, the official source repository) for the value to count as stable. A value that changed within the window is demoted to tier 2 and cannot stand alone. |
 | `new_domain_days` | int · `180` | A target domain whose first certificate (CT) is younger than this is flagged as a risk signal. |
 | `github_token` | str · `""` | Optional GitHub token; raises the unauthenticated API limit (60/h). |
 | `extra_tier1` / `extra_tier2` / `extra_tier3` | list[str] · `[]` | Additional source domains (eTLD+1 or full host) per tier, merged with the built-in lists in `identity/sources.py`. Config entries win over built-ins, so a built-in tier-2 site can be demoted here. Tier 1 can only be extended by the user, never by the LLM. |

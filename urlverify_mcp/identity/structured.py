@@ -50,7 +50,8 @@ class Structured:
 
     # ---------------- Wikidata
     async def _wikidata(self, name: str, history_days: int, min_stable: int) -> dict[str, Any]:
-        """Search entity, read P856 (official website), P178 (developer), P1448/P1813 (names), P8687?, and check P856 stability."""
+        """Search entity, read P856 (official website), P1324 (source code repository), P178 (developer), names/aliases,
+        and check P856 / P1324 revision-history stability."""
         try:
             s = await self._json(WIKIDATA_API, {"action": "wbsearchentities", "search": name, "language": "en", "format": "json", "limit": 5})
             hits = s.get("search", [])
@@ -74,6 +75,7 @@ class Structured:
                             vals.append(dv)
                     return vals
                 official = _vals("P856")
+                repos = [r for r in (_norm_repo(v) for v in _vals("P1324")) if r]
                 dev_ids = _vals("P178") + _vals("P123") + _vals("P176")  # developer, publisher, manufacturer
                 dev_labels = []
                 if dev_ids:
@@ -86,50 +88,52 @@ class Structured:
                             if isinstance(v, str):
                                 dweb.append(v)
                         dev_labels.append({"id": did, "label": lab, "official_website": dweb})
-                stability = await self._wikidata_stability(qid, history_days, min_stable) if official else None
+                stab = await self._wikidata_stability(qid, history_days, min_stable, [p for p, v in (("P856", official), ("P1324", repos)) if v])
                 out_entities.append({
                     "qid": qid, "label": e.get("labels", {}).get("en", {}).get("value"),
                     "description": e.get("descriptions", {}).get("en", {}).get("value"),
-                    "official_website": official, "developer": dev_labels,
+                    "official_website": official, "official_repos": repos, "developer": dev_labels,
                     "aliases": [a["value"] for a in e.get("aliases", {}).get("en", [])] if e.get("aliases") else [],
                     "enwiki": (e.get("sitelinks", {}).get("enwiki", {}) or {}).get("title"),
-                    "stability": stability,
+                    "stability": stab.get("P856"), "repo_stability": stab.get("P1324"),
                     "source": f"https://www.wikidata.org/wiki/{qid}",
                 })
             return {"ok": True, "found": True, "entities": out_entities}
         except Exception as ex:  # noqa: BLE001
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
-    async def _wikidata_stability(self, qid: str, history_days: int, min_stable: int) -> dict[str, Any]:
+    async def _wikidata_stability(self, qid: str, history_days: int, min_stable: int, pids: list[str]) -> dict[str, Any]:
+        """Revision-history stability of the given properties (P856 official website, P1324 source repository), one fetch."""
+        if not pids:
+            return {}
         cutoff = (datetime.now(timezone.utc) - timedelta(days=history_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        def _claim_vals(content: str, pid: str) -> list[str] | None:
+            try:
+                j = json.loads(content)
+            except Exception:
+                return None
+            vals = [c["mainsnak"]["datavalue"]["value"] for c in j.get("claims", {}).get(pid, []) if "datavalue" in c.get("mainsnak", {})]
+            if pid == "P1324":
+                vals = [r for r in (_norm_repo(v) for v in vals if isinstance(v, str)) if r]
+            return sorted(v for v in vals if isinstance(v, str))
         try:
             r = await self._json(WIKIDATA_API, {"action": "query", "prop": "revisions", "titles": qid, "rvprop": "ids|timestamp|content",
                                                 "rvslots": "main", "rvlimit": 20, "rvdir": "older", "format": "json", "formatversion": 2})
             revs = r["query"]["pages"][0].get("revisions", [])
-            values = []
-            for rev in revs:
-                content = rev.get("slots", {}).get("main", {}).get("content", "")
-                try:
-                    j = json.loads(content)
-                    v = [c["mainsnak"]["datavalue"]["value"] for c in j.get("claims", {}).get("P856", []) if "datavalue" in c.get("mainsnak", {})]
-                except Exception:
-                    v = []
-                values.append({"ts": rev["timestamp"], "official": sorted(v)})
             # revision ≥ history_days old
             old = await self._json(WIKIDATA_API, {"action": "query", "prop": "revisions", "titles": qid, "rvprop": "ids|timestamp|content",
                                                   "rvslots": "main", "rvlimit": 1, "rvstart": cutoff, "rvdir": "older", "format": "json", "formatversion": 2})
             old_revs = old["query"]["pages"][0].get("revisions", [])
-            old_val = None
-            if old_revs:
-                content = old_revs[0].get("slots", {}).get("main", {}).get("content", "")
-                try:
-                    j = json.loads(content)
-                    old_val = sorted(c["mainsnak"]["datavalue"]["value"] for c in j.get("claims", {}).get("P856", []) if "datavalue" in c.get("mainsnak", {}))
-                except Exception:
-                    old_val = None
-            return _stability_verdict(values, old_val, min_stable, history_days)
+            old_content = old_revs[0].get("slots", {}).get("main", {}).get("content", "") if old_revs else None
+            out: dict[str, Any] = {}
+            for pid in pids:
+                values = [{"ts": rev["timestamp"], "official": _claim_vals(rev.get("slots", {}).get("main", {}).get("content", ""), pid) or []} for rev in revs]
+                old_val = _claim_vals(old_content, pid) if old_content is not None else None
+                out[pid] = _stability_verdict(values, old_val, min_stable, history_days)
+            return out
         except Exception as ex:  # noqa: BLE001
-            return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+            return {pid: {"ok": False, "error": f"{type(ex).__name__}: {ex}"} for pid in pids}
 
     # ---------------- Wikipedia (infobox website + revision history)
     async def _wikipedia_history(self, title: str, history_days: int, min_stable: int, lang: str = "en") -> dict[str, Any]:
@@ -142,17 +146,23 @@ class Structured:
             if page.get("missing"):
                 return {"ok": True, "found": False, "source": f"https://{lang}.wikipedia.org/wiki/{title}"}
             revs = page.get("revisions", [])
-            values = [{"ts": rev["timestamp"], "official": _infobox_sites(rev.get("slots", {}).get("main", {}).get("content", ""))} for rev in revs]
+            contents = [rev.get("slots", {}).get("main", {}).get("content", "") for rev in revs]
+            values = [{"ts": rev["timestamp"], "official": _infobox_sites(c)} for rev, c in zip(revs, contents)]
+            repo_values = [{"ts": rev["timestamp"], "official": _infobox_repos(c)} for rev, c in zip(revs, contents)]
             old = await self._json(api, {"action": "query", "prop": "revisions", "titles": page["title"], "rvprop": "ids|timestamp|content", "rvslots": "main",
                                          "rvlimit": 1, "rvstart": cutoff, "rvdir": "older", "format": "json", "formatversion": 2})
             old_revs = old["query"]["pages"][0].get("revisions", [])
-            old_val = _infobox_sites(old_revs[0].get("slots", {}).get("main", {}).get("content", "")) if old_revs else None
+            old_content = old_revs[0].get("slots", {}).get("main", {}).get("content", "") if old_revs else None
+            old_val = _infobox_sites(old_content) if old_content is not None else None
+            old_repo = _infobox_repos(old_content) if old_content is not None else None
             current = values[0]["official"] if values else []
+            current_repos = repo_values[0]["official"] if repo_values else []
             latest_text = revs[0].get("slots", {}).get("main", {}).get("content", "") if revs else ""
             devs = re.findall(r"\|\s*(?:developer|author|publisher|company)\s*=\s*([^\n|]+)", latest_text, flags=re.I)
-            return {"ok": True, "found": True, "title": page["title"], "official_website": current,
+            return {"ok": True, "found": True, "title": page["title"], "official_website": current, "official_repos": current_repos,
                     "developer_fields": [re.sub(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", r"\1", d).strip() for d in devs][:5],
                     "stability": _stability_verdict(values, old_val, min_stable, history_days),
+                    "repo_stability": _stability_verdict(repo_values, old_repo, min_stable, history_days) if current_repos else None,
                     "source": f"https://{lang}.wikipedia.org/wiki/{page['title'].replace(' ', '_')}"}
         except Exception as ex:  # noqa: BLE001
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
@@ -288,10 +298,51 @@ class Structured:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
 
 
+def _strip_refs(wikitext: str) -> str:
+    """Remove <ref .../> (self-closing first, so it can never swallow text up to a later </ref>), <ref>...</ref> and
+    {{cite ...}} templates, so citation URLs on an infobox line are ignored."""
+    text = re.sub(r"<ref\b[^>]*/\s*>", " ", wikitext or "", flags=re.I)
+    text = re.sub(r"<ref\b[^>]*>.*?</ref\s*>", " ", text, flags=re.S | re.I)
+    return re.sub(r"\{\{\s*cite[^{}]*\}\}", " ", text, flags=re.I)
+
+
+def _norm_repo(url: str) -> str | None:
+    """'https://GitHub.com/Org/Repo.git/' -> 'github.com/org/repo' (host + path, lower-case, no scheme/www/.git)."""
+    u = (url or "").strip()
+    if not u:
+        return None
+    if "://" not in u:
+        u = "https://" + u
+    h = host_of(u)
+    if not h:
+        return None
+    path = u.split("://", 1)[1].split("/", 1)[1] if "/" in u.split("://", 1)[1] else ""
+    path = path.split("?", 1)[0].split("#", 1)[0].strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    h = h.lower()[4:] if h.lower().startswith("www.") else h.lower()
+    return f"{h}/{path.lower()}" if path else h
+
+
+def _infobox_repos(wikitext: str) -> list[str]:
+    # infobox "repo"/"repository" field only; cite templates stripped so citation URLs on the same line are ignored
+    text = _strip_refs(wikitext)
+    repos = set()
+    for line in re.findall(r"^\s*\|\s*(?:repo|repository)\s*=\s*([^\n]+)", text, flags=re.I | re.M):
+        for u in URL_RE.findall(line):
+            r = _norm_repo(u)
+            if r:
+                repos.add(r)
+        for u in re.findall(r"\{\{\s*URL\s*\|\s*([^|}]+)", line, flags=re.I):
+            r = _norm_repo(u.strip())
+            if r:
+                repos.add(r)
+    return sorted(repos)
+
+
 def _infobox_sites(wikitext: str) -> list[str]:
     # only the infobox "website"/"homepage" field; strip cite templates so citation URLs on the same line are ignored
-    text = re.sub(r"<ref[^>]*>.*?</ref>|<ref[^>]*/>", " ", wikitext or "", flags=re.S | re.I)
-    text = re.sub(r"\{\{\s*cite[^{}]*\}\}", " ", text, flags=re.I)
+    text = _strip_refs(wikitext)
     m = re.findall(r"^\s*\|\s*(?:website|homepage)\s*=\s*([^\n]+)", text, flags=re.I | re.M)
     sites = set()
     for line in m:

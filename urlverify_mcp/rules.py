@@ -1,6 +1,7 @@
 """Verdict rules engine. The LLM proposes; these rules verify and decide. The LLM cannot override them."""
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 
@@ -173,6 +174,16 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
                 key = f"{platform}:{org.lower()}"
                 if org.lower() in claim:
                     org_support.setdefault(key, set()).add(src_e1)
+    # a stable Wikimedia "source code repository" record (Wikidata P1324 / infobox repo) names the official org on a
+    # hosting platform; read from the raw tool output of evidence the LLM cited, independent of what it quoted
+    for ev in usable:
+        if not ev.supports or ev.kind not in ("wikidata", "wikipedia"):
+            continue
+        for platform, orgs in sub.identity.official_orgs.items():
+            for org in orgs:
+                if _wikimedia_repo_names_org(org, platform, ev.source, store):
+                    org_support.setdefault(f"{platform}:{org.lower()}", set()).add(etld1_of(host_of(ev.source)))
+                    notes.append(f"{ev.kind} records a stable official repository under {platform} org '{org}' ({ev.source})")
     # a Wikipedia/Wikidata pair counts as one family
     def _distinct(srcs: set[str]) -> int:
         fam = set()
@@ -409,6 +420,33 @@ def _bidirectional(org: str, platform: str, established: list[str], store: dict[
         site_text = " ".join(v.lower() for k, v in store.items() if etld1_of(host_of(k)) == d)
         if d in org_text and org_l in site_text:
             return True
+    return False
+
+
+_PLATFORM_HOSTS = {"github": "github.com", "huggingface": "huggingface.co", "gitlab": "gitlab.com"}
+
+
+def _wikimedia_repo_names_org(org: str, platform: str, source: str, store: dict[str, str]) -> bool:
+    """True when the Wikidata entity / Wikipedia article at `source` lists an official repository under `org` on
+    `platform` and that repository value has been stable across the history window."""
+    host = _PLATFORM_HOSTS.get(platform)
+    raw = store.get(source)
+    if not host or not raw:
+        return False
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return False
+    records = [e for e in data.get("entities", []) if e.get("source") == source] if isinstance(data.get("entities"), list) else [data]
+    prefix = f"{host}/{org.lower()}"
+    for rec in records:
+        stab = rec.get("repo_stability") or {}
+        if not stab.get("stable") or stab.get("recent_change"):
+            continue
+        for repo in rec.get("official_repos") or []:
+            r = str(repo).lower()
+            if r == prefix or r.startswith(prefix + "/"):
+                return True
     return False
 
 

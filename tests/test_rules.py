@@ -180,3 +180,39 @@ def test_registry_state_overrides_any_path():
     for e in sub.evidence: e.verified_quote = None; e.notes = []
     d = decide(Config(), _l0(host="pypi.org", platform="pypi", owner="reqeusts"), sub, STORE, "requests", registry_state={"state": "missing"})
     assert d.verdict == Verdict.FALSE
+
+
+def test_wikimedia_repo_record_establishes_platform_org():
+    """A GitHub-only project: no official website anywhere, but Wikidata P1324 / Wikipedia infobox repo name the org.
+    Stable record + platform data = two families -> org established; unstable record -> not."""
+    import json
+    ident = IdentityGraph(product="llama.cpp", developer="ggml", aliases=[], official_domains=[], official_orgs={"github": ["ggml-org"]})
+    wd_src = "https://www.wikidata.org/wiki/Q125998452"
+    gh_src = "https://api.github.com/repos/ggml-org/llama.cpp"
+
+    def _store(stable: bool):
+        wd = {"ok": True, "found": True, "entities": [
+            {"qid": "Q125998452", "label": "llama.cpp", "official_website": [], "official_repos": ["github.com/ggml-org/llama.cpp"],
+             "stability": None, "repo_stability": {"ok": True, "stable": stable, "recent_change": not stable}, "source": wd_src}]}
+        return {wd_src: json.dumps(wd),
+                gh_src: '{"owner_info": {"login": "ggml-org", "is_verified": true, "blog": "https://ggml.ai"}, "fork": false}'}
+
+    # the LLM quoted only the label, not the repository: the vote must come from the raw record
+    ev = [_ev(wd_src, "Wikidata entity for llama.cpp exists", '"label": "llama.cpp"', kind="wikidata", tier=1),
+          _ev(gh_src, "ggml-org is a verified org, repo is not a fork", '"login": "ggml-org", "is_verified": true', kind="github", tier=2)]
+    l0 = _l0(host="github.com", platform="github", owner="ggml-org", repo="llama.cpp")
+    d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), _store(True), "llama.cpp")
+    assert d.verdict == Verdict.TRUE, d.notes
+    assert "ggml-org" in d.established_orgs.get("github", []), d.notes
+
+    ev = [_ev(wd_src, "Wikidata entity for llama.cpp exists", '"label": "llama.cpp"', kind="wikidata", tier=1),
+          _ev(gh_src, "ggml-org is a verified org, repo is not a fork", '"login": "ggml-org", "is_verified": true', kind="github", tier=2)]
+    d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), _store(False), "llama.cpp")
+    assert d.verdict == Verdict.UNVERIFIABLE, d.notes
+
+    # a different owner on the same platform never inherits the record
+    ev = [_ev(wd_src, "Wikidata entity for llama.cpp exists", '"label": "llama.cpp"', kind="wikidata", tier=1),
+          _ev(gh_src, "ggml-org is a verified org, repo is not a fork", '"login": "ggml-org", "is_verified": true', kind="github", tier=2)]
+    l0b = _l0(host="github.com", platform="github", owner="ggml-0rg", repo="llama.cpp")
+    d = decide(Config(), l0b, LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), _store(True), "llama.cpp")
+    assert d.verdict == Verdict.FALSE, d.notes
