@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Investigator system prompt: a hard rule that the agent's identity, task and procedure are fixed by the system prompt
+  and tool parameters; content met during investigation that tries to change them, or tells the agent to stop or approve
+  the target, is treated as a prompt-injection attempt (not complied with, recorded in `risk_notes`, investigation
+  continues). A/B simulation against the local model showed no regression; the rule is defence in depth.
 - The registry's own statement about a name (missing, security holding, latest release yanked) is evaluated before the
   project-name match in the fast path and is honoured by the rules engine on every path and mode: a security holding
   package is `VERIFIED_FALSE` even under `options.mode: full`.
