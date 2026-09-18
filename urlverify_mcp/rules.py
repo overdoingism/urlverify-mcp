@@ -181,6 +181,8 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
             de1 = etld1_of(d)
             if de1 and (de1 in claim or d.lower() in claim):
                 support.setdefault(de1, set()).add(src_e1)
+        if ev.kind == "wayback" or src_e1 == "archive.org":
+            continue   # an archived copy of the owner's own platform page proves age, not identity: no org vote
         for platform, orgs in sub.identity.official_orgs.items():
             for org in orgs:
                 key = f"{platform}:{org.lower()}"

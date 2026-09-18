@@ -86,6 +86,7 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
   同平台其他人的頁面不是自我宣稱，而是使用者內容（上一條）。結構化 API 記錄不受此限。
 - **自我發佈專案的信心上限**：owner 只靠跨平台自洽成立（GitHub 記錄 + HF 記錄），沒有 Wikimedia / registry / 媒體 / 自有網域證據時，
   TRUE 的信心上限 0.75（`rules.SELF_PUBLISHED_MAX_CONFIDENCE`）並在 engine_notes 註明；只有單一平台足跡 → UNVERIFIABLE（設計如此）。
+  Wayback 存檔只證明時間、不證明身分：對 org 計票不算一家（對官方網域的計票維持 §4.1 的設計）。
 
 ### 4.2 Tier3 的時間回溯升級（2026-09-15 定案）
 論壇 / 社群來源若能**確定性地**證明存在超過 `tier3_min_age_days`（預設 365 天），視為 Tier2 計入門檻，

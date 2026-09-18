@@ -11,7 +11,8 @@
   platforms listed by the LLM in `official_domains` are ignored (noted in `engine_notes`) instead of turning every page
   on that platform into "self".
 - A `VERIFIED_TRUE` whose owner is established only by cross-platform consistency (self-published project) is capped at
-  confidence 0.75 and labelled in `engine_notes`.
+  confidence 0.75 and labelled in `engine_notes`. Wayback snapshots no longer count as an org vote (they prove age,
+  not identity), which previously let the owner's own archived page defeat the cap.
 - Admin Status tab: Clear button next to Refresh forgets the observed dependency health (`log/health.json`).
 - Admin: the full-data-log switch (with folder path / open / copy) moved from the Config tab to the Logs tab; it still writes config.yaml and stays in step with the Config JSON editor.
 - Admin History tab: refresh and clear buttons (clear deletes `log/history`).

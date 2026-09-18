@@ -306,8 +306,12 @@ def test_self_published_project_true_is_capped():
     hf = "https://huggingface.co/drluoto"
     store = {gh: json.dumps({"full_name": "drluoto/flash-next-strix-halo", "fork": False}),
              hf: json.dumps({"name": "drluoto", "fullname": "Johannes Luoto", "num_models": 2})}
+    wb = "https://web.archive.org/web/*/github.com/drluoto/flash-next-strix-halo"
+    store[wb] = json.dumps({"first_snapshot": "2026-08-30", "age_days": 20})
     ev = [_ev(gh, "repo under drluoto, not a fork", '"full_name": "drluoto/flash-next-strix-halo", "fork": false', kind="github"),
-          _ev(hf, "HF account drluoto ties to the GitHub login", '"name": "drluoto", "fullname": "Johannes Luoto"', kind="huggingface")]
+          _ev(hf, "HF account drluoto ties to the GitHub login", '"name": "drluoto", "fullname": "Johannes Luoto"', kind="huggingface"),
+          # an archived copy of the owner's own page must not act as a third, non-platform family
+          _ev(wb, "github.com/drluoto/flash-next-strix-halo archived since 2026-08-30", '"first_snapshot": "2026-08-30"', kind="wayback", tier=1)]
     d = decide(Config(), _l0(host="github.com", platform="github", owner="drluoto", repo="flash-next-strix-halo"),
                LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "flash-next-strix-halo")
     assert d.verdict == Verdict.TRUE, d.notes
