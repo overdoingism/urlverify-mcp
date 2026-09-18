@@ -76,6 +76,16 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 官方套件管理器的 manifest 倉庫（winget-pkgs、homebrew-core/cask、ScoopInstaller、nixpkgs、flathub、conda-forge…）住在 github.com 這類通用代碼託管上，
 單看網域分不出來，故以「host/path 前綴」判為 Tier1，清單在 `urlverify_mcp/data/tier1_paths.yaml`（隨套件出貨、mtime 變更即重讀、管理頁 Caches 分頁可看與開啟編輯）；列的是套件管理器，不是套件，路徑前綴優先於網域判定。
 設定檔的分級優先於內建清單。Tier1 只能由使用者在設定檔加，LLM 可替未知來源提議 Tier2/3，**不得提升任何來源為 Tier1**。
+- **託管平台上的使用者內容是 Tier3**（2026-09-19 定案）：github.com / githubusercontent.com / github.io、huggingface.co / hf.co、gitlab.com、codeberg.org
+  底下的 repo 頁、README、issue、discussion 任何人都能發佈，一律 Tier3，只能靠老化機制（`github_api` 以 repo 建立日、`huggingface_api` 以
+  createdAt 定年）計票。平台自身的記錄（API 主機、`/api/` 路徑、owner profile 根頁、我們工具抓回的 JSON 記錄）維持 Tier2；Tier1 manifest 前綴優先。
+- **來源家族**：獨立來源數以「家族」計，一個平台的所有網域是一家（github.com + githubusercontent.com + github.io；huggingface.co + hf.co），
+  Wikipedia + Wikidata 一家。同一平台上兩個帳號互相背書永遠只算一票。
+- **平台根網域不是身分**：LLM 若把 github.com 之類放進 official_domains，規則層剔除並註記；owner 走 official_orgs。
+- **自我宣稱的定義**（平台目標）：owner 自己路徑下的頁面（github.com/<owner>/…、raw.githubusercontent.com/<owner>/…、<owner>.github.io）與候選官方網域的頁面；
+  同平台其他人的頁面不是自我宣稱，而是使用者內容（上一條）。結構化 API 記錄不受此限。
+- **自我發佈專案的信心上限**：owner 只靠跨平台自洽成立（GitHub 記錄 + HF 記錄），沒有 Wikimedia / registry / 媒體 / 自有網域證據時，
+  TRUE 的信心上限 0.75（`rules.SELF_PUBLISHED_MAX_CONFIDENCE`）並在 engine_notes 註明；只有單一平台足跡 → UNVERIFIABLE（設計如此）。
 
 ### 4.2 Tier3 的時間回溯升級（2026-09-15 定案）
 論壇 / 社群來源若能**確定性地**證明存在超過 `tier3_min_age_days`（預設 365 天），視為 Tier2 計入門檻，
@@ -141,7 +151,8 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 | TLS 信任鏈、到期、SAN 吻合 | 決定搜什麼、搜幾輪、下一步查哪裡 |
 | 同形字、punycode、子網域濫用、重導終點 eTLD+1 | 實體解析：產品 ↔ 公司 ↔ 品牌/前端別名 ↔ 收購/改名（如 LM Studio / Element Labs / Bionic） |
 | 對 AI 說話的文字 → FALSE | 判斷某來源**是否真的支持**該主張（同時提到兩個名字 ≠ 支持） |
-| 來源計數與 Tier 門檻（算術） | 為未知來源提議 Tier2/3 |
+| 來源計數與 Tier 門檻（算術）；來源家族折疊；平台使用者內容 = Tier3 | 為未知來源提議 Tier2/3 |
+| 平台根網域從 official_domains 剔除；自我宣稱以 owner 路徑判定 | 決定哪些帳號屬於同一個開發者（規則只驗其一致性） |
 | Tier1 白名單固定 | 憑證 Organization 與開發者名稱的模糊比對（"Element Labs, Inc." vs "Element Labs"），須附連結證據 |
 | L0 失敗 → 不得 TRUE |
 | 解析出的產品身分與呼叫方 `project` 明顯不同 → 不得 TRUE（降為 UNVERIFIABLE） | 撰寫 reason（呼叫方語言）與風險敘述 |

@@ -26,14 +26,15 @@ DEFAULT_AGING_SOURCES: dict[str, str] = {
     "stackoverflow.com": "stackexchange_api", "stackexchange.com": "stackexchange_api", "superuser.com": "stackexchange_api",
     "serverfault.com": "stackexchange_api", "askubuntu.com": "stackexchange_api", "mathoverflow.net": "stackexchange_api",
     "x.com": "snowflake", "twitter.com": "snowflake",
-    "github.com": "github_api",
+    "github.com": "github_api", "githubusercontent.com": "github_api",
+    "huggingface.co": "huggingface_api", "hf.co": "huggingface_api",
     "youtube.com": "jsonld", "medium.com": "jsonld", "dev.to": "jsonld", "substack.com": "jsonld", "hashnode.dev": "jsonld",
     # login-walled / unarchivable: never promoted
     "facebook.com": "none", "instagram.com": "none", "threads.net": "none", "discord.com": "none", "discord.gg": "none",
     "t.me": "none", "telegram.org": "none", "linkedin.com": "none", "whatsapp.com": "none",
 }
 METHOD_STRENGTH = {"reddit_api": "strong", "hn_api": "strong", "stackexchange_api": "strong", "snowflake": "strong",
-                   "discourse": "strong", "github_api": "strong", "wayback": "strong", "jsonld": "weak", "none": "none"}
+                   "discourse": "strong", "github_api": "strong", "huggingface_api": "strong", "wayback": "strong", "jsonld": "weak", "none": "none"}
 TWITTER_EPOCH_MS = 1288834974657
 BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
 
@@ -201,13 +202,35 @@ class Aging:
     async def _github_api(self, url: str) -> dict[str, Any]:
         m = re.search(r"github\.com/([^/]+)/([^/]+)/(issues|pull|discussions)/(\d+)", url)
         if not m:
-            return _result("github_api", url, ok=True, error="not an issue/PR/discussion URL")
+            # repository page / README / raw file: dated by the repository's creation (its current text is not dated)
+            m2 = re.search(r"(?:github\.com|raw\.githubusercontent\.com)/([^/?#]+)/([^/?#]+)", url)
+            if not m2 or m2.group(1).lower() in ("orgs", "users", "search", "topics", "settings", "marketplace", "sponsors"):
+                return _result("github_api", url, ok=True, error="not a repository, issue, PR or discussion URL")
+            o, r_ = m2.groups()
+            api = f"https://api.github.com/repos/{o}/{r_}"
+            j = (await self.client.get(api, headers=self.structured.gh_headers)).json()
+            created = j.get("created_at")
+            ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp() if created else None
+            return _result("github_api", url, created_ts=ts, api=api, note="repository creation date; page text itself is undated",
+                           quality={"stars": j.get("stargazers_count"), "fork": j.get("fork")})
         o, r_, kind, n = m.groups()
         api = f"https://api.github.com/repos/{o}/{r_}/{'issues' if kind != 'pull' else 'pulls'}/{n}"
         j = (await self.client.get(api, headers=self.structured.gh_headers)).json()
         created = j.get("created_at")
         ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp() if created else None
         return _result("github_api", url, created_ts=ts, api=api, quality={"state": j.get("state"), "comments": j.get("comments")})
+
+    async def _huggingface_api(self, url: str) -> dict[str, Any]:
+        m = re.search(r"(?:huggingface\.co|hf\.co)/(?:(datasets|spaces)/)?([^/?#]+)/([^/?#]+)", url)
+        if not m or m.group(2).lower() in ("api", "docs", "blog", "papers", "collections", "settings"):
+            return _result("huggingface_api", url, ok=True, error="not a model / dataset / space URL")
+        kind, o, r_ = m.groups()
+        api = f"https://huggingface.co/api/{kind or 'models'}/{o}/{r_}"
+        j = (await self.client.get(api)).json()
+        created = j.get("createdAt")
+        ts = datetime.fromisoformat(created.replace("Z", "+00:00")).timestamp() if created else None
+        return _result("huggingface_api", url, created_ts=ts, api=api, note="repository creation date; page text itself is undated",
+                       quality={"downloads": j.get("downloads"), "likes": j.get("likes")})
 
     async def _jsonld(self, url: str) -> dict[str, Any]:
         r = await self.client.get(url, headers={"Accept": "text/html"})

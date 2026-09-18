@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Independence counting folds every domain of one hosting platform into one source family (github.com +
+  githubusercontent.com + github.io, huggingface.co + hf.co, ...): two accounts on the same platform can never vouch for
+  each other. Repository pages, READMEs, issues and discussions on hosting platforms are user content: tier 3, countable
+  only with proven age (`github_api` now dates repository pages by repository creation; new `huggingface_api` method).
+  Platform API records and owner-profile roots stay tier 2; tier-1 manifest prefixes still win.
+- Self-attestation for platform targets is decided by the owner's own paths, not by the platform domain; hosting
+  platforms listed by the LLM in `official_domains` are ignored (noted in `engine_notes`) instead of turning every page
+  on that platform into "self".
+- A `VERIFIED_TRUE` whose owner is established only by cross-platform consistency (self-published project) is capped at
+  confidence 0.75 and labelled in `engine_notes`.
 - Admin Status tab: Clear button next to Refresh forgets the observed dependency health (`log/health.json`).
 - Admin: the full-data-log switch (with folder path / open / copy) moved from the Config tab to the Logs tab; it still writes config.yaml and stays in step with the Config JSON editor.
 - Admin History tab: refresh and clear buttons (clear deletes `log/history`).

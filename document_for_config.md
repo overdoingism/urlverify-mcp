@@ -64,7 +64,7 @@ Callers may override `min_sources`, `allow_tier3`, `history_days` and the `ident
 | `tier3_min_age_days` | int · `365` | A tier-3 post proven older than this is promoted to tier 2. |
 | `tier3_aged_max_count` | int · `1` | How many promoted tier-3 sources may count toward `min_sources` per verification. |
 | `domain_age_contradiction_years` | int · `3` | "Post predates the domain" is only applied when the target domain's earliest evidence (CT or Wayback) is younger than this; CT coverage before 2018 is incomplete. |
-| `aging_sources` | map · `{}` | Domain → dating method override: `reddit_api`, `hn_api`, `stackexchange_api`, `snowflake` (X post id), `discourse`, `github_api`, `jsonld` (weak, needs Wayback), `wayback`, `none` (login-walled, never promoted). Unlisted domains use `wayback`. |
+| `aging_sources` | map · `{}` | Domain → dating method override: `reddit_api`, `hn_api`, `stackexchange_api`, `snowflake` (X post id), `discourse`, `github_api` (issue / PR / discussion creation, or repository creation for repo pages, READMEs and raw files), `huggingface_api` (model / dataset / space creation), `jsonld` (weak, needs Wayback), `wayback`, `none` (login-walled, never promoted). Unlisted domains use `wayback`. |
 
 ## `net` — outbound HTTP
 

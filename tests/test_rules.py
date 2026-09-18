@@ -225,12 +225,13 @@ def test_manifest_repositories_are_tier1_by_path_prefix():
     assert classify("https://github.com/Homebrew/homebrew-cask/blob/master/Casks/l/lm-studio.rb")[0] == 1
     assert classify("https://github.com/flathub/org.example.App/blob/master/org.example.App.json")[0] == 1
     assert classify("https://raw.githubusercontent.com/someone/winget-pkgs-fork/master/x.yaml")[0] == 3      # look-alike path -> unknown
-    assert classify("https://github.com/microsoft/vscode")[0] == 2                                           # github.com itself stays tier 2
-    assert classify("https://github.com/microsoft/winget-pkgsx/y")[0] == 2                                   # prefix must end at a segment
+    assert classify("https://github.com/microsoft")[0] == 2                                                  # owner profile root: platform record
+    assert classify("https://github.com/microsoft/vscode")[0] == 3                                           # a repo page is user content, not tier 1
+    assert classify("https://github.com/microsoft/winget-pkgsx/y")[0] == 3                                   # prefix must end at a segment
     ic = IdentityConfig(extra_tier1=["https://www.GitHub.com/MyOrg/manifests"], extra_tier3=["github.com/spam-org/"])
     assert classify("https://github.com/myorg/manifests/apps/foo.yaml", None, ic)[0] == 1
     assert classify("https://github.com/spam-org/anything", None, ic)[0] == 3
-    assert classify("https://github.com/other/repo", None, ic)[0] == 2
+    assert classify("https://github.com/other/repo", None, ic)[0] == 3
 
 
 def test_tier1_paths_file_loads():
@@ -238,3 +239,76 @@ def test_tier1_paths_file_loads():
     st = tier1_paths_status()
     assert TIER1_PATHS_FILE.exists() and st["error"] is None and st["count"] > 10
     assert "github.com/microsoft/winget-pkgs/" in st["prefixes"]
+
+
+def test_platform_families_fold_and_user_content_is_tier3():
+    from urlverify_mcp.identity.sources import classify, family_of
+    assert family_of("githubusercontent.com") == "github" == family_of("github.io") == family_of("github.com")
+    assert family_of("hf.co") == "huggingface" and family_of("wikidata.org") == "wikimedia" and family_of("example.org") == "example.org"
+    assert classify("https://raw.githubusercontent.com/someone/tool/main/README.md")[0] == 3
+    assert classify("https://github.com/someone/tool/issues/5")[0] == 3
+    assert classify("https://huggingface.co/someone/model")[0] == 3
+    assert classify("https://github.com/someone")[0] == 2                       # owner profile root: platform record
+    assert classify("https://api.github.com/repos/a/b")[0] == 2
+    assert classify("https://huggingface.co/api/models/a/b")[0] == 2
+    assert classify("https://huggingface.co/unsloth/Model", api_record=True)[0] == 2   # our own structured tool output
+    assert classify("https://raw.githubusercontent.com/microsoft/winget-pkgs/master/m/x.yaml")[0] == 1   # manifest prefix wins
+
+
+def test_two_github_family_sources_never_establish_an_owner():
+    """ROCmFPX pattern: the owner's API record plus another user's README on raw.githubusercontent.com used to count
+    as two independent families (github.com vs githubusercontent.com). Same platform = one family."""
+    import json
+    ident = IdentityGraph(product="ROCmFPX", developer="Carlo", aliases=[], official_domains=["github.com"], official_orgs={"github": ["charlie12345"]})
+    api = "https://api.github.com/repos/charlie12345/ROCmFPX"
+    readme = "https://raw.githubusercontent.com/daimonionnn/amd-rocmfpx-for-win/main/README.md"
+    store = {api: json.dumps({"full_name": "charlie12345/ROCmFPX", "fork": False}),
+             readme: "the only Windows build of the ROCmFPX (https://github.com/charlie12345/ROCmFPX) llama.cpp fork"}
+
+    def _sub():
+        return LLMSubmission(identity=ident, evidence=[
+            _ev(api, "repo exists under charlie12345, not a fork", '"full_name": "charlie12345/ROCmFPX", "fork": false', kind="github"),
+            _ev(readme, "third party names charlie12345/ROCmFPX as upstream", "https://github.com/charlie12345/ROCmFPX", kind="page")],
+            proposed_verdict="VERIFIED_TRUE")
+    l0 = _l0(host="github.com", platform="github", owner="charlie12345", repo="ROCmFPX")
+    d = decide(Config(), l0, _sub(), store, "ROCmFPX")
+    assert d.verdict == Verdict.UNVERIFIABLE, d.notes
+    assert any("hosting platform, not an identity" in n for n in d.notes)
+    assert any("user content on github" in n for n in d.evidence[1].notes)
+    # even an old, promoted README from another GitHub user is still the same family
+    old = {readme: {"ok": True, "method": "github_api", "strength": "strong", "created_ts": 1.0, "age_days": 2000}}
+    d = decide(Config(), l0, _sub(), store, "ROCmFPX", ages=old)
+    assert d.verdict == Verdict.UNVERIFIABLE, d.notes
+
+
+def test_self_attestation_is_owner_path_not_platform_domain():
+    """olliehm pattern: a discussion on ggml-org/llama.cpp is NOT the target's self-attestation even though the LLM
+    put github.com in official_domains; the owner's own README IS."""
+    ident = IdentityGraph(product="x", developer="olliehm", aliases=[], official_domains=["github.com"], official_orgs={"github": ["olliehm"]})
+    own = "https://raw.githubusercontent.com/olliehm/x/main/README.md"
+    disc = "https://github.com/ggml-org/llama.cpp/discussions/27950"
+    store = {own: "x by olliehm: a Windows recipe", disc: "Qwen3.8-Flash-Next on Strix Halo (gfx1151): working MTP on ROCm"}
+    ev = [_ev(own, "README matches", "x by olliehm: a Windows recipe", kind="page"),
+          _ev(disc, "ecosystem corroboration", "working MTP on ROCm", kind="page")]
+    d = decide(Config(), _l0(host="github.com", platform="github", owner="olliehm", repo="x"),
+               LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "x")
+    assert any("self-attestation" in n for n in d.evidence[0].notes), d.evidence[0].notes
+    assert not any("self-attestation" in n for n in d.evidence[1].notes), d.evidence[1].notes
+    assert d.verdict == Verdict.UNVERIFIABLE
+
+
+def test_self_published_project_true_is_capped():
+    """drluoto pattern: owner established only by GitHub API record + Hugging Face profile record."""
+    import json
+    ident = IdentityGraph(product="flash-next-strix-halo", developer="drluoto", aliases=[], official_domains=[],
+                          official_orgs={"github": ["drluoto"], "huggingface": ["drluoto"]})
+    gh = "https://api.github.com/repos/drluoto/flash-next-strix-halo"
+    hf = "https://huggingface.co/drluoto"
+    store = {gh: json.dumps({"full_name": "drluoto/flash-next-strix-halo", "fork": False}),
+             hf: json.dumps({"name": "drluoto", "fullname": "Johannes Luoto", "num_models": 2})}
+    ev = [_ev(gh, "repo under drluoto, not a fork", '"full_name": "drluoto/flash-next-strix-halo", "fork": false', kind="github"),
+          _ev(hf, "HF account drluoto ties to the GitHub login", '"name": "drluoto", "fullname": "Johannes Luoto"', kind="huggingface")]
+    d = decide(Config(), _l0(host="github.com", platform="github", owner="drluoto", repo="flash-next-strix-halo"),
+               LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "flash-next-strix-halo")
+    assert d.verdict == Verdict.TRUE, d.notes
+    assert d.confidence <= 0.75 and any("self-published" in n for n in d.notes), (d.confidence, d.notes)

@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 from .cache.anchors import anchor_for
 from .checks.urltools import etld1_of, host_of
 from .config import Config
-from .identity.sources import classify
+from .cache.anchors import SEED
+from .identity.sources import PLATFORM_FAMILIES, classify, family_of
 from .models import Evidence, L0Result, LLMSubmission, Verdict
 
 
@@ -32,6 +33,7 @@ def _squash(s: str) -> str:
     return re.sub(r"\s+", "", s or "").lower()
 
 
+SELF_PUBLISHED_MAX_CONFIDENCE = 0.75   # TRUE for an owner established only by cross-platform consistency
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro"}
 _DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b")
 
@@ -116,19 +118,29 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     # ---- 1. evidence hygiene
     evidence = list(sub.evidence)
     verify_quotes(evidence, store)
-    self_domains = {l0.etld1}
+    # hosting platforms are not identities: github.com in official_domains would make every GitHub page "self" and
+    # would be counted as a domain to establish. Owners on platforms are handled through official_orgs.
+    platform_roots = {d for a in SEED for d in a.etld1s}
+    official_domains: list[str] = []
     for d in sub.identity.official_domains:
-        self_domains.add(etld1_of(d))
+        if etld1_of(d) in platform_roots:
+            if f"'{d}' is a hosting platform, not an identity; ignored as official domain (owners go in official_orgs)" not in notes:
+                notes.append(f"'{d}' is a hosting platform, not an identity; ignored as official domain (owners go in official_orgs)")
+        elif d not in official_domains:
+            official_domains.append(d)
+    self_domains = {etld1_of(d) for d in official_domains}
     usable: list[Evidence] = []
     for ev in evidence:
-        tier, why = classify(ev.source, ev.tier, ic)
+        # a structured tool record (JSON we fetched from an API) is platform data, not a page anyone could have written
+        api_record = ev.kind in STRUCTURED_KINDS and store.get(ev.source, "").lstrip().startswith("{")
+        tier, why = classify(ev.source, ev.tier, ic, api_record=api_record)
         ev.tier = tier
         ev.notes.append(why)
         src_e1 = etld1_of(host_of(ev.source))
         if not ev.verified_quote:
             continue
-        if src_e1 in self_domains and ev.kind not in ("github", "huggingface", "wayback", "wikidata", "wikipedia", "package_registry"):
-            ev.notes.append("self-attestation (source is the candidate/target domain); not counted")
+        if not api_record and ev.kind not in ("wayback", "wikidata", "wikipedia", "package_registry", "distro") and _is_self(ev.source, l0, self_domains):
+            ev.notes.append("self-attestation (the target's own pages / the candidate official domain); not counted")
             continue
         if tier == 3 and not ic.allow_tier3:
             age = ages.get(ev.source)
@@ -165,7 +177,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
             continue
         claim = _norm_ws(ev.claim + " " + ev.quote)
         src_e1 = etld1_of(host_of(ev.source))
-        for d in sub.identity.official_domains:
+        for d in official_domains:
             de1 = etld1_of(d)
             if de1 and (de1 in claim or d.lower() in claim):
                 support.setdefault(de1, set()).add(src_e1)
@@ -186,10 +198,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
                     notes.append(f"{ev.kind} records a stable official repository under {platform} org '{org}' ({ev.source})")
     # a Wikipedia/Wikidata pair counts as one family
     def _distinct(srcs: set[str]) -> int:
-        fam = set()
-        for s in srcs:
-            fam.add("wikimedia" if s in ("wikipedia.org", "wikidata.org") else s)
-        return len(fam)
+        return len({family_of(s) for s in srcs})
 
     established = [d for d, s in support.items() if _distinct(s) >= ic.min_sources]
     weak = [d for d, s in support.items() if 0 < _distinct(s) < ic.min_sources]
@@ -303,6 +312,12 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
         if owner in platform_orgs:
             conf = min(0.95, 0.75 + 0.05 * len(usable)) - risk_penalty
             notes.append(f"path owner '{owner}' is the established official {anchor.platform} org")
+            fams = {family_of(x) for x in org_support.get(f"{anchor.platform}:{owner}", set())}
+            if fams and fams <= PLATFORM_FAMILIES and not established:
+                conf = min(conf, SELF_PUBLISHED_MAX_CONFIDENCE)
+                notes.append(f"self-published project: '{owner}' is established only by consistency across hosting platforms "
+                             f"({', '.join(sorted(fams))}), with no Wikimedia, registry, media or own-domain evidence; "
+                             f"confidence capped at {SELF_PUBLISHED_MAX_CONFIDENCE}")
             if l0.platform_repo:
                 if _fork_of_other(l0, store):
                     notes.append("repository is a fork of another repository")
@@ -337,13 +352,30 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
             conf = min(0.95, conf + 0.1)
         return Decision(Verdict.FALSE, conf, notes, evidence, support, established, est_orgs)
 
-    if target_e1 in weak or target_e1 in [etld1_of(d) for d in sub.identity.official_domains]:
+    if target_e1 in weak or target_e1 in [etld1_of(d) for d in official_domains]:
         notes.append("insufficient independent evidence to establish the official domain")
     else:
         notes.append("official identity could not be established from verifiable evidence")
     if sub.proposed_verdict == Verdict.FALSE.value:
         notes.append(f"investigator proposed FALSE: {sub.proposed_reason[:200]}")
     return Decision(Verdict.UNVERIFIABLE, 0.2, notes, evidence, support, established, est_orgs)
+
+
+def _is_self(source: str, l0: L0Result, self_domains: set[str]) -> bool:
+    """Self-attestation: for a platform target, pages under the target owner's own paths on that platform
+    (github.com/<owner>/..., raw.githubusercontent.com/<owner>/..., <owner>.github.io); other owners' pages on the same
+    platform are not self (they are user content, tiered separately). For any target, pages on a candidate official
+    domain are self. Platform roots themselves are never self."""
+    host = host_of(source).lower()
+    e1 = etld1_of(host)
+    if l0.platform and l0.platform_owner and family_of(e1) == family_of(l0.etld1):
+        owner = l0.platform_owner.lower()
+        path = source.split("://", 1)[-1].split("/", 1)[1] if "/" in source.split("://", 1)[-1] else ""
+        segs = [x for x in path.split("?", 1)[0].split("/") if x]
+        return (bool(segs) and segs[0].lower() == owner) or host.startswith(owner + ".")
+    if l0.platform and l0.platform_owner:
+        return e1 in self_domains
+    return e1 == l0.etld1 or e1 in self_domains
 
 
 def _aged_enough(age: dict | None, ic, l0: L0Result, target_domain_age: dict | None, cfg: Config) -> tuple[bool, str]:

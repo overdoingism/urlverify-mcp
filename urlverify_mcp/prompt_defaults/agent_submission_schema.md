@@ -4,7 +4,7 @@ submit_verdict args schema:
     "product": "...",
     "developer": "company / org name or null",
     "aliases": ["other names, brand names, former names"],
-    "official_domains": ["etld+1 or host, e.g. lmstudio.ai"],
+    "official_domains": ["the developer's OWN sites, e.g. lmstudio.ai — never a hosting platform (github.com, huggingface.co ...); platform owners go in official_orgs"],
     "official_repos": ["github.com/org/repo", "huggingface.co/org"],
     "official_orgs": {"github": ["org"], "huggingface": ["org"], "pypi": ["package"], "npm": ["package"]},
     "narrative": "how the chain was resolved"

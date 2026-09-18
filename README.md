@@ -180,6 +180,12 @@ prove a site is *safe*, only that it is the project's own channel; `UNVERIFIABLE
 not "dangerous". Results depend on the LLM you point it at and on third-party services (Wikipedia, Wikidata, archive.org,
 GitHub, registries) being reachable and rate-limit friendly.
 
+Self-published projects (a personal GitHub / Hugging Face account with no website, no package, no Wikipedia entry) can
+only be checked for consistency: the owner must appear as the same identity on at least two different platforms (all
+domains of one platform count as one source; other users' READMEs, issues and discussions on the same platform are user
+content and never a second vote). Such a `VERIFIED_TRUE` is capped at confidence 0.75 and says so in `engine_notes`; a
+project known from one platform only comes back `UNVERIFIABLE` by design.
+
 Known weak spots: very new projects and projects without a Wikipedia / Wikidata presence tend to come back `UNVERIFIABLE`
 (a design choice: absence of independent evidence is not evidence); dynamic download pages may show a different OS's link
 than the one described; tier-3 sources only count when their age can be proven, so a project known only from forums stays

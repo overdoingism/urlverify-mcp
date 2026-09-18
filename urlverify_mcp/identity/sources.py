@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import yaml
 
+from ..cache.anchors import anchor_for
 from ..checks.urltools import etld1_of, host_of
 
 if TYPE_CHECKING:
@@ -73,9 +74,40 @@ def tier1_paths_status() -> dict:
 FORUM_HINTS = ("forum", "community", "discuss", "board", "bbs", "/t/", "/thread", "/topic", "reddit", "comments")
 
 
-def classify(source_url: str, llm_proposed: int | None = None, extra: "IdentityConfig | None" = None) -> tuple[int, str]:
+# Hosting platforms whose repository pages, READMEs, issues and discussions are user-generated content: anyone can
+# publish there, so such pages are tier 3 (countable only with proven age). The platform's own records (API hosts,
+# bare owner-profile roots) stay tier 2. All domains of one platform form ONE source family for independence counting.
+PLATFORM_FAMILIES = {"github", "gitlab", "codeberg", "huggingface"}
+
+
+def family_of(etld1: str) -> str:
+    """Independence family of a source domain: Wikipedia+Wikidata are one, every domain of a hosting platform
+    (github.com + githubusercontent.com + github.io, huggingface.co + hf.co, ...) is one, anything else is itself."""
+    if etld1 in ("wikipedia.org", "wikidata.org"):
+        return "wikimedia"
+    a = anchor_for(etld1)
+    return a.platform if a else etld1
+
+
+def is_platform_endpoint(source_url: str) -> bool:
+    """The platform's own verification data rather than user content: an API host, an /api/ path, or a bare
+    owner-profile root such as github.com/<org> or huggingface.co/<org>."""
+    hp = _host_path(source_url)
+    host, _, path = hp.partition("/")
+    if host.startswith("api."):
+        return True
+    path = path.strip("/")
+    if path.startswith("api/"):
+        return True
+    return len([seg for seg in path.split("/") if seg]) <= 1
+
+
+def classify(source_url: str, llm_proposed: int | None = None, extra: "IdentityConfig | None" = None,
+             api_record: bool = False) -> tuple[int, str]:
     """Return (tier, reason). Built-in lists + config extras (identity.extra_tier1/2/3).
-    The LLM may propose 2 or 3 for unknown domains; it can never produce tier 1."""
+    The LLM may propose 2 or 3 for unknown domains; it can never produce tier 1.
+    `api_record`: the evidence is a structured tool record (JSON from our own API call), not a fetched page; such
+    records keep the platform's tier even when their URL is a repository page (e.g. a Hugging Face model page)."""
     host = host_of(source_url)
     e1 = etld1_of(host)
     x1, p1 = _split_extra(getattr(extra, "extra_tier1", []))
@@ -91,6 +123,9 @@ def classify(source_url: str, llm_proposed: int | None = None, extra: "IdentityC
         hit = next((pfx for pfx in prefixes if hp.startswith(pfx)), None)
         if hit:
             return tier, f"{hit} is a tier-{tier} {why}"
+    fam = family_of(e1)
+    if fam in PLATFORM_FAMILIES and not api_record and not is_platform_endpoint(source_url):
+        return 3, f"user content on {fam} (repository page, README, issue or discussion): anyone can publish it; counts only with proven age"
     if e1 in t1 or host in t1:
         return 1, f"{e1} is a tier-1 structured source"
     if e1 in t3 or host in t3:
