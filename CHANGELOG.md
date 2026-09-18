@@ -12,7 +12,8 @@
   on that platform into "self".
 - A `VERIFIED_TRUE` whose owner is established only by cross-platform consistency (self-published project) is capped at
   confidence 0.75 and labelled in `engine_notes`. Wayback snapshots no longer count as an org vote (they prove age,
-  not identity), which previously let the owner's own archived page defeat the cap.
+  not identity), which previously let the owner's own archived page defeat the cap. Org votes are taken from the
+  verified quote only, never from the LLM's claim text (a claim saying "not <owner>" used to count as support).
 - Admin Status tab: Clear button next to Refresh forgets the observed dependency health (`log/health.json`).
 - Admin: the full-data-log switch (with folder path / open / copy) moved from the Config tab to the Logs tab; it still writes config.yaml and stays in step with the Config JSON editor.
 - Admin History tab: refresh and clear buttons (clear deletes `log/history`).

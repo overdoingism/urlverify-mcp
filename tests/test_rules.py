@@ -328,3 +328,8 @@ def test_self_published_project_true_is_capped():
                LLMSubmission(identity=ident2, evidence=ev2, proposed_verdict="VERIFIED_TRUE"), store, "flash-next-strix-halo")
     assert "qwen.ai" in d.established_domains and d.verdict == Verdict.TRUE, d.notes
     assert d.confidence <= 0.75, (d.confidence, d.notes)
+    # an LLM claim that merely MENTIONS the owner ("... not drluoto") on a Wikimedia source is not a Wikimedia vote
+    ev3 = ev + [_ev(wd, "Qwen official repos are under QwenLM, not drluoto", '"official_website": ["https://qwen.ai"]', kind="wikidata", tier=1)]
+    d = decide(Config(), _l0(host="github.com", platform="github", owner="drluoto", repo="flash-next-strix-halo"),
+               LLMSubmission(identity=ident2, evidence=ev3, proposed_verdict="VERIFIED_TRUE"), store, "flash-next-strix-halo")
+    assert d.verdict == Verdict.TRUE and d.confidence <= 0.75, (d.confidence, d.notes)

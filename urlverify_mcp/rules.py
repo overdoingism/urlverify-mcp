@@ -183,10 +183,12 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
                 support.setdefault(de1, set()).add(src_e1)
         if ev.kind == "wayback" or src_e1 == "archive.org":
             continue   # an archived copy of the owner's own platform page proves age, not identity: no org vote
+        # org votes come from the verified QUOTE only: the claim is the LLM's own text and may well say "not <org>"
+        quote_text = _norm_ws(ev.quote)
         for platform, orgs in sub.identity.official_orgs.items():
             for org in orgs:
                 key = f"{platform}:{org.lower()}"
-                if org.lower() in claim:
+                if org.lower() in quote_text:
                     org_support.setdefault(key, set()).add(src_e1)
     # a stable Wikimedia "source code repository" record (Wikidata P1324 / infobox repo) names the official org on a
     # hosting platform; read from the raw tool output of evidence the LLM cited, independent of what it quoted
