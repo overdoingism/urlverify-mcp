@@ -216,3 +216,18 @@ def test_wikimedia_repo_record_establishes_platform_org():
     l0b = _l0(host="github.com", platform="github", owner="ggml-0rg", repo="llama.cpp")
     d = decide(Config(), l0b, LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), _store(True), "llama.cpp")
     assert d.verdict == Verdict.FALSE, d.notes
+
+
+def test_manifest_repositories_are_tier1_by_path_prefix():
+    from urlverify_mcp.identity.sources import classify
+    from urlverify_mcp.config import IdentityConfig
+    assert classify("https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/k/KhronosGroup/VulkanSDK/1.4.357.0/x.yaml")[0] == 1
+    assert classify("https://github.com/Homebrew/homebrew-cask/blob/master/Casks/l/lm-studio.rb")[0] == 1
+    assert classify("https://github.com/flathub/org.example.App/blob/master/org.example.App.json")[0] == 1
+    assert classify("https://raw.githubusercontent.com/someone/winget-pkgs-fork/master/x.yaml")[0] == 3      # look-alike path -> unknown
+    assert classify("https://github.com/microsoft/vscode")[0] == 2                                           # github.com itself stays tier 2
+    assert classify("https://github.com/microsoft/winget-pkgsx/y")[0] == 2                                   # prefix must end at a segment
+    ic = IdentityConfig(extra_tier1=["https://www.GitHub.com/MyOrg/manifests"], extra_tier3=["github.com/spam-org/"])
+    assert classify("https://github.com/myorg/manifests/apps/foo.yaml", None, ic)[0] == 1
+    assert classify("https://github.com/spam-org/anything", None, ic)[0] == 3
+    assert classify("https://github.com/other/repo", None, ic)[0] == 2

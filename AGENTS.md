@@ -72,7 +72,9 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 
 | 2 | 雲端/硬體廠商技術文件（vultr、digitalocean、nvidia、redhat…） | 計入門檻（2026-09-15 加入） |
 
-內建清單在 `identity/sources.py`；設定檔 `identity.extra_tier1/2/3` 可**加成**（eTLD+1 或完整主機名），
+內建清單在 `identity/sources.py`；設定檔 `identity.extra_tier1/2/3` 可**加成**（eTLD+1、完整主機名，或含路徑的 `host/path` 前綴），
+官方套件管理器的 manifest 倉庫（winget-pkgs、homebrew-core/cask、ScoopInstaller、nixpkgs、flathub、conda-forge…）住在 github.com 這類通用代碼託管上，
+單看網域分不出來，故內建 `TIER1_PATH_PREFIXES` 以「host/path 前綴」判為 Tier1；列的是套件管理器，不是套件，路徑前綴優先於網域判定。
 設定檔的分級優先於內建清單。Tier1 只能由使用者在設定檔加，LLM 可替未知來源提議 Tier2/3，**不得提升任何來源為 Tier1**。
 
 ### 4.2 Tier3 的時間回溯升級（2026-09-15 定案）

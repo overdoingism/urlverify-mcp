@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Source tiers: official package-manager manifest repositories hosted on generic code hosts (microsoft/winget-pkgs,
+  Homebrew, ScoopInstaller, nixpkgs, flathub, conda-forge, MacPorts, F-Droid, ...) are tier 1 by `host/path` prefix
+  instead of falling to tier 3 as "unknown domain". `identity.extra_tier1/2/3` accept `host/path` prefixes too.
+- `verify_source` tool description: `project` is the product name only; vendor / notes belong in `description`.
 - Wikidata `P1324` (source code repository) and the Wikipedia infobox `repo` field are read alongside the official
   website, with the same revision-history stability check. A stable Wikimedia repository record gives the platform org
   one independent vote in the rules engine, so repository-only projects (no official website anywhere) can be
