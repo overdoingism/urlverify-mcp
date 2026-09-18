@@ -231,3 +231,8 @@ config.example.yaml
 - **探測 vs 觀察**（2026-09-17 定案）：外部依賴不做自動探測；每次真實呼叫回報成敗到 `health.py`（持久化於 `log/health.json`），失敗在 stderr 印
   `!! DEPENDENCY …`、full log 記 `dependency_failure`、結果帶 `degraded`。健康表**只是報告，永遠不是啟用與否的判準**。
   `check-env` 只在使用者手動觸發時跑，且只用各服務最輕的端點；管理頁載入時不打任何外部服務。
+- **待議：專案名稱比對可否採用已成立網域自己的頁面**（2026-09-19 記錄，尚未動）：Vulkan SDK 案例中 lunarg.com 由 3 個獨立來源成立、
+  LunarG 的 GitHub org 也成立，但被計入的引文只提「LunarG」，沒有一條提「Vulkan SDK」，`_project_matches` 擋下 TRUE。LLM 抓到的
+  lunarg.com 自家頁面明確寫著 Vulkan SDK、引文驗證通過，卻因「自我宣稱」在名稱比對前就被剔除。自我宣稱不能用來**成立**網域是對的；
+  但網域已獨立成立之後，用該網域自己的頁面回答「這個站是否在發佈 host 問的產品」性質不同：假站永遠成立不了網域，放寬不會讓假站得利，
+  殘餘風險只剩 host 把產品歸錯廠商（今天已存在）。長尾比「分段比對」小得多。是否採用由使用者決定；未經指示不得實作。
