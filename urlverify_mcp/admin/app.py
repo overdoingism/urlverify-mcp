@@ -61,6 +61,23 @@ class State:
         self.prompts = get_store(self.cfg.prompts.dir)
 
 
+def _os_open(path) -> dict:
+    """Open a file or folder with the desktop's default handler. Local-only convenience; reports failure instead of raising."""
+    import platform, subprocess
+    try:
+        sysname = platform.system()
+        if sysname == "Windows":
+            import os
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        elif sysname == "Darwin":
+            subprocess.Popen(["open", str(path)])
+        else:
+            subprocess.Popen(["xdg-open", str(path)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"ok": True, "path": str(path), "dir": str(path)}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "path": str(path), "dir": str(path), "error": f"{type(e).__name__}: {e}"}
+
+
 def create_app(config_path: str | None = None) -> FastAPI:
     st = State(config_path)
     app = FastAPI(title="URLVerify_MCP admin")
@@ -184,21 +201,20 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.post("/api/fulllog/open")
     async def fulllog_open():
         """Open the log folder in the OS file manager (admin UI is local-only by default)."""
-        import platform, subprocess
         d = TRACE.dir
         d.mkdir(parents=True, exist_ok=True)
-        try:
-            sysname = platform.system()
-            if sysname == "Windows":
-                import os
-                os.startfile(str(d))  # type: ignore[attr-defined]
-            elif sysname == "Darwin":
-                subprocess.Popen(["open", str(d)])
-            else:
-                subprocess.Popen(["xdg-open", str(d)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return {"ok": True, "dir": str(d)}
-        except Exception as e:  # noqa: BLE001
-            return {"ok": False, "dir": str(d), "error": f"{type(e).__name__}: {e}"}
+        return _os_open(d)
+
+    @app.get("/api/tier1paths")
+    async def tier1paths():
+        from ..identity.sources import tier1_paths_status
+        return tier1_paths_status()
+
+    @app.post("/api/tier1paths/open")
+    async def tier1paths_open():
+        """Open data/tier1_paths.yaml in the local default editor."""
+        from ..identity.sources import TIER1_PATHS_FILE
+        return _os_open(TIER1_PATHS_FILE)
 
     @app.get("/api/fulllog/{name}")
     async def fulllog_read(name: str, tail: int = 262144):

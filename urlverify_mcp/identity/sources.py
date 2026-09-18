@@ -1,7 +1,10 @@
 """Source tiering. Tier 1 is a fixed whitelist that the LLM cannot extend."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+import yaml
 
 from ..checks.urltools import etld1_of, host_of
 
@@ -37,27 +40,36 @@ TIER3_DOMAINS = {
     "substack.com", "blogspot.com", "wordpress.com", "tumblr.com", "pinterest.com", "linktr.ee", "ptt.cc", "dcard.tw",
     "zhihu.com", "bilibili.com", "csdn.net", "juejin.cn",
 }
-# Official package-manager / distribution manifest repositories that live on a generic code host. The host alone
-# (github.com, raw.githubusercontent.com) says nothing, so these are matched as "host/path" prefixes, case-insensitive.
-# One or two lines per package manager; packages themselves are never listed.
-TIER1_PATH_PREFIXES = {
-    "github.com/microsoft/winget-pkgs/", "raw.githubusercontent.com/microsoft/winget-pkgs/",
-    "github.com/homebrew/homebrew-core/", "github.com/homebrew/homebrew-cask/",
-    "raw.githubusercontent.com/homebrew/homebrew-core/", "raw.githubusercontent.com/homebrew/homebrew-cask/",
-    "github.com/scoopinstaller/", "raw.githubusercontent.com/scoopinstaller/",
-    "github.com/chocolatey-community/chocolatey-packages/", "raw.githubusercontent.com/chocolatey-community/chocolatey-packages/",
-    "github.com/nixos/nixpkgs/", "raw.githubusercontent.com/nixos/nixpkgs/",
-    "github.com/flathub/", "raw.githubusercontent.com/flathub/",
-    "github.com/macports/macports-ports/", "raw.githubusercontent.com/macports/macports-ports/",
-    "github.com/conda-forge/", "raw.githubusercontent.com/conda-forge/",
-    "github.com/f-droid/fdroiddata/", "gitlab.com/fdroid/fdroiddata/",
-    "github.com/void-linux/void-packages/", "raw.githubusercontent.com/void-linux/void-packages/",
-    "github.com/freebsd/freebsd-ports/", "raw.githubusercontent.com/freebsd/freebsd-ports/",
-    "github.com/gentoo/gentoo/", "raw.githubusercontent.com/gentoo/gentoo/",
-    "github.com/alpinelinux/aports/", "raw.githubusercontent.com/alpinelinux/aports/",
-    "github.com/msys2/mingw-packages/", "github.com/msys2/msys2-packages/",
-    "raw.githubusercontent.com/msys2/mingw-packages/", "raw.githubusercontent.com/msys2/msys2-packages/",
-}
+# Official package-manager / distribution manifest repositories on generic code hosts are matched by "host/path"
+# prefix; the list lives in data/tier1_paths.yaml (editable, re-read when its mtime changes; see tier1_path_prefixes()).
+TIER1_PATHS_FILE = Path(__file__).resolve().parent.parent / "data" / "tier1_paths.yaml"
+_T1_CACHE: dict = {"mtime": None, "set": set(), "error": None}
+
+
+def tier1_path_prefixes() -> set[str]:
+    """Prefixes from data/tier1_paths.yaml, normalised like config extras. A missing or broken file yields an empty
+    set and records the error (tier1_paths_status); it never raises."""
+    try:
+        mtime = TIER1_PATHS_FILE.stat().st_mtime
+    except OSError as e:
+        _T1_CACHE.update(mtime=None, set=set(), error=f"{type(e).__name__}: {e}")
+        return set()
+    if _T1_CACHE["mtime"] != mtime:
+        try:
+            data = yaml.safe_load(TIER1_PATHS_FILE.read_text(encoding="utf-8")) or {}
+            items = data.get("tier1_paths", []) if isinstance(data, dict) else data
+            _, prefixes = _split_extra(items or [])
+            _T1_CACHE.update(mtime=mtime, set=prefixes, error=None)
+        except Exception as e:  # noqa: BLE001
+            _T1_CACHE.update(mtime=mtime, set=set(), error=f"{type(e).__name__}: {e}")
+    return _T1_CACHE["set"]
+
+
+def tier1_paths_status() -> dict:
+    prefixes = tier1_path_prefixes()
+    return {"path": str(TIER1_PATHS_FILE), "prefixes": sorted(prefixes), "count": len(prefixes), "error": _T1_CACHE["error"]}
+
+
 FORUM_HINTS = ("forum", "community", "discuss", "board", "bbs", "/t/", "/thread", "/topic", "reddit", "comments")
 
 
@@ -74,7 +86,7 @@ def classify(source_url: str, llm_proposed: int | None = None, extra: "IdentityC
     t3 = TIER3_DOMAINS | x3
     hp = _host_path(source_url)
     # path prefixes first: they are more specific than the host (a manifest repo on github.com outranks "github.com")
-    for tier, prefixes, why in ((1, TIER1_PATH_PREFIXES | p1, "official package manifest repository"),
+    for tier, prefixes, why in ((1, tier1_path_prefixes() | p1, "official package manifest repository"),
                                 (3, p3, "forum / social / blog path (config)"), (2, p2, "known tier-2 path (config)")):
         hit = next((pfx for pfx in prefixes if hp.startswith(pfx)), None)
         if hit:

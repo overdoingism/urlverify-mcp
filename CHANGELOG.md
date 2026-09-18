@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Tier-1 manifest repository prefixes moved to `urlverify_mcp/data/tier1_paths.yaml` with an explanatory header; the
+  admin Caches tab lists them, reloads on demand and opens the file in the local editor. Cache row buttons are no
+  longer red and read "forget" instead of "invalidate".
 - Source tiers: official package-manager manifest repositories hosted on generic code hosts (microsoft/winget-pkgs,
   Homebrew, ScoopInstaller, nixpkgs, flathub, conda-forge, MacPorts, F-Droid, ...) are tier 1 by `host/path` prefix
   instead of falling to tier 3 as "unknown domain". `identity.extra_tier1/2/3` accept `host/path` prefixes too.

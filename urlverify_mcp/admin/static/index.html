@@ -27,8 +27,8 @@
   button.primary { background:var(--accent); color:#fff; border:0; padding:8px 14px; border-radius:6px; cursor:pointer; margin-top:10px; }
   button.small { font-size:12px; padding:3px 9px; border:1px solid var(--line); background:var(--tab-bg); color:var(--fg); border-radius:4px; cursor:pointer; }
   button.small:hover { border-color:var(--accent); color:var(--accent); }
-  button.small[data-clear], button.small[data-t], button.small#p-reset { background:var(--danger-bg); border-color:var(--danger-line); color:var(--danger-fg); }
-  button.small[data-clear]:hover, button.small[data-t]:hover, button.small#p-reset:hover { filter:brightness(1.08); color:var(--danger-fg); border-color:var(--danger-line); }
+  button.small#p-reset { background:var(--danger-bg); border-color:var(--danger-line); color:var(--danger-fg); }
+  button.small#p-reset:hover { filter:brightness(1.08); color:var(--danger-fg); border-color:var(--danger-line); }
   table { width:100%; border-collapse:collapse; font-size:13px; } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   .verdict { font-weight:600; } .VERIFIED_TRUE { color:var(--ok);} .VERIFIED_FALSE { color:var(--bad);} .UNVERIFIABLE { color:var(--warn);}
   pre { background:var(--bg); padding:10px; border-radius:6px; overflow:auto; font-size:12px; max-height:480px; }
@@ -173,6 +173,9 @@
     <div class="card"><h3>Identity graph cache <button class="small" data-clear="identity_cache">clear</button></h3><table id="ic-table"><tbody></tbody></table></div>
     <div class="card"><h3>Certificate cache <button class="small" data-clear="cert_cache">clear</button></h3><table id="cc-table"><tbody></tbody></table></div>
     <div class="card"><h3>Platform anchors</h3><table id="ac-table"><tbody></tbody></table></div>
+    <div class="card"><h3>Tier-1 manifest repositories <button class="small" id="t1-refresh">refresh</button> <button class="small" id="t1-open">open in editor</button></h3>
+      <p class="muted">Official package-manager manifest repositories (winget, Homebrew, Scoop, nixpkgs, Flathub, ...) live on generic code hosts, so they are recognised by <code>host/path</code> prefix. A source URL starting with one of these prefixes is tier 1, the same rank as a distro package page. The list names package managers, never packages; the LLM cannot extend it. Edit the file with a local text editor: changes apply on the next verification, no restart. For personal additions that must survive a <code>git pull</code>, use <code>identity.extra_tier1</code> in config.yaml (same host/path form).</p>
+      <div class="muted" id="t1-path"></div><table id="t1-table"><tbody></tbody></table></div>
   </section>
 </main>
 <script>
@@ -239,10 +242,18 @@ async function saveLists(){ const c = {...cfg}; delete c._source_path; await api
 $('#al-add').onclick = () => { if(!$('#al-domain').value) return; cfg.lists.allowlist.push({project: $('#al-project').value || '*', domain: $('#al-domain').value}); $('#al-domain').value=''; saveLists(); };
 $('#dl-add').onclick = () => { if(!$('#dl-domain').value) return; cfg.lists.denylist.push($('#dl-domain').value); $('#dl-domain').value=''; saveLists(); };
 
+async function loadTier1Paths(){
+  const t = await api('/api/tier1paths');
+  $('#t1-path').textContent = `file: ${t.path} · ${t.count} prefixes` + (t.error ? ` · ERROR: ${t.error}` : '');
+  $('#t1-table tbody').innerHTML = t.prefixes.map(p => `<tr><td><code>${esc(p)}</code></td></tr>`).join('') || '<tr><td class="muted">empty</td></tr>';
+}
+$('#t1-refresh').onclick = loadTier1Paths;
+$('#t1-open').onclick = async () => { const r = await api('/api/tier1paths/open', {method:'POST'}); if(!r.ok) alert('Could not open: ' + r.error + '\nFile: ' + r.path); };
 async function loadCaches(){
-  const ic = await api('/api/cache/identity_cache'); $('#ic-table tbody').innerHTML = ic.map(r => `<tr><td><b>${esc(r.project)}</b><br><span class="muted">${esc(r.data.developer||'')}</span></td><td>${(r.data.official_domains||[]).map(d=>`<span class="pill">${esc(d)}</span>`).join('')}${Object.entries(r.data.official_orgs||{}).map(([p,o])=>`<span class="pill">${p}: ${esc(o.join(','))}</span>`).join('')}</td><td class="muted">exp ${new Date(r.expires*1000).toLocaleDateString()}</td><td><button class="small" data-t="identity_cache" data-k="${esc(r.key)}">invalidate</button></td></tr>`).join('') || '<tr><td class="muted">empty</td></tr>';
-  const cc = await api('/api/cache/cert_cache'); $('#cc-table tbody').innerHTML = cc.map(r => `<tr><td>${esc(r.host)}</td><td>${esc(r.data.validation_level||'')} · ${esc(r.data.issuer_org||r.data.issuer||'')}${r.data.subject_org? ' · O='+esc(r.data.subject_org):''}</td><td class="muted">exp ${new Date(r.expires*1000).toLocaleDateString()}</td><td><button class="small" data-t="cert_cache" data-k="${esc(r.host)}">drop</button></td></tr>`).join('') || '<tr><td class="muted">empty</td></tr>';
+  const ic = await api('/api/cache/identity_cache'); $('#ic-table tbody').innerHTML = ic.map(r => `<tr><td><b>${esc(r.project)}</b><br><span class="muted">${esc(r.data.developer||'')}</span></td><td>${(r.data.official_domains||[]).map(d=>`<span class="pill">${esc(d)}</span>`).join('')}${Object.entries(r.data.official_orgs||{}).map(([p,o])=>`<span class="pill">${p}: ${esc(o.join(','))}</span>`).join('')}</td><td class="muted">exp ${new Date(r.expires*1000).toLocaleDateString()}</td><td><button class="small" data-t="identity_cache" data-k="${esc(r.key)}">forget</button></td></tr>`).join('') || '<tr><td class="muted">empty</td></tr>';
+  const cc = await api('/api/cache/cert_cache'); $('#cc-table tbody').innerHTML = cc.map(r => `<tr><td>${esc(r.host)}</td><td>${esc(r.data.validation_level||'')} · ${esc(r.data.issuer_org||r.data.issuer||'')}${r.data.subject_org? ' · O='+esc(r.data.subject_org):''}</td><td class="muted">exp ${new Date(r.expires*1000).toLocaleDateString()}</td><td><button class="small" data-t="cert_cache" data-k="${esc(r.host)}">forget</button></td></tr>`).join('') || '<tr><td class="muted">empty</td></tr>';
   const ac = await api('/api/cache/anchor_cache'); $('#ac-table tbody').innerHTML = ac.map(r => `<tr><td>${esc(r.etld1)}</td><td>${esc(r.data.platform||'')}${r.data.seed?' <span class="pill">seed</span>':''}</td><td class="muted">${esc((r.data.expected_issuers||[]).join(', '))}</td></tr>`).join('');
+  await loadTier1Paths();
   document.querySelectorAll('#tab-cache button[data-k]').forEach(b => b.onclick = async () => { await api(`/api/cache/${b.dataset.t}/${encodeURIComponent(b.dataset.k)}`, {method:'DELETE'}); loadCaches(); });
   document.querySelectorAll('#tab-cache button[data-clear]').forEach(b => b.onclick = async () => { if(confirm('Clear '+b.dataset.clear+'?')){ await api('/api/cache/'+b.dataset.clear, {method:'DELETE'}); loadCaches(); } });
 }

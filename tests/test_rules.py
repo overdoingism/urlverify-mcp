@@ -231,3 +231,10 @@ def test_manifest_repositories_are_tier1_by_path_prefix():
     assert classify("https://github.com/myorg/manifests/apps/foo.yaml", None, ic)[0] == 1
     assert classify("https://github.com/spam-org/anything", None, ic)[0] == 3
     assert classify("https://github.com/other/repo", None, ic)[0] == 2
+
+
+def test_tier1_paths_file_loads():
+    from urlverify_mcp.identity.sources import tier1_paths_status, TIER1_PATHS_FILE
+    st = tier1_paths_status()
+    assert TIER1_PATHS_FILE.exists() and st["error"] is None and st["count"] > 10
+    assert "github.com/microsoft/winget-pkgs/" in st["prefixes"]

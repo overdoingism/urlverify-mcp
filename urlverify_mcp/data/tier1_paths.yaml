@@ -1,0 +1,65 @@
+# Tier-1 manifest repositories, matched by "host/path" prefix.
+#
+# Why this file exists: official package-manager manifest repositories (winget, Homebrew, Scoop, nixpkgs, Flathub, ...)
+# live on generic code hosts such as github.com and raw.githubusercontent.com. The host alone says nothing, so these
+# repositories are recognised by path prefix. A source URL that starts with one of the prefixes below is tier 1, the
+# same rank as a Debian or Arch package page: a human-reviewed manifest that pins the upstream download URL.
+#
+# Rules:
+#   - list package managers / distributions, never individual packages;
+#   - a prefix must end at a path segment ("github.com/microsoft/winget-pkgs/" matches ".../winget-pkgs/manifests/...",
+#     not ".../winget-pkgsx/"); a trailing "/" is added automatically;
+#   - case-insensitive; scheme and "www." are ignored;
+#   - the LLM can never add to this list; only this file and identity.extra_tier1 in config.yaml can.
+#
+# Edits apply on the next verification (the file is re-read when its modification time changes), no restart needed.
+# This file is shipped with the package and updated upstream. For personal additions that must survive a git pull,
+# prefer identity.extra_tier1 in config.yaml, which accepts the same host/path form.
+
+tier1_paths:
+  # winget (Microsoft-moderated community manifests, SHA256-pinned installers)
+  - github.com/microsoft/winget-pkgs/
+  - raw.githubusercontent.com/microsoft/winget-pkgs/
+  # Homebrew
+  - github.com/Homebrew/homebrew-core/
+  - github.com/Homebrew/homebrew-cask/
+  - raw.githubusercontent.com/Homebrew/homebrew-core/
+  - raw.githubusercontent.com/Homebrew/homebrew-cask/
+  # Scoop (official buckets live under the ScoopInstaller org)
+  - github.com/ScoopInstaller/
+  - raw.githubusercontent.com/ScoopInstaller/
+  # Chocolatey community repository (moderated)
+  - github.com/chocolatey-community/chocolatey-packages/
+  - raw.githubusercontent.com/chocolatey-community/chocolatey-packages/
+  # Nix
+  - github.com/NixOS/nixpkgs/
+  - raw.githubusercontent.com/NixOS/nixpkgs/
+  # Flathub (one reviewed repo per app under the flathub org)
+  - github.com/flathub/
+  - raw.githubusercontent.com/flathub/
+  # MacPorts
+  - github.com/macports/macports-ports/
+  - raw.githubusercontent.com/macports/macports-ports/
+  # conda-forge feedstocks
+  - github.com/conda-forge/
+  - raw.githubusercontent.com/conda-forge/
+  # F-Droid
+  - github.com/f-droid/fdroiddata/
+  - gitlab.com/fdroid/fdroiddata/
+  # Void Linux
+  - github.com/void-linux/void-packages/
+  - raw.githubusercontent.com/void-linux/void-packages/
+  # FreeBSD ports (GitHub mirror)
+  - github.com/freebsd/freebsd-ports/
+  - raw.githubusercontent.com/freebsd/freebsd-ports/
+  # Gentoo
+  - github.com/gentoo/gentoo/
+  - raw.githubusercontent.com/gentoo/gentoo/
+  # Alpine aports (GitHub mirror)
+  - github.com/alpinelinux/aports/
+  - raw.githubusercontent.com/alpinelinux/aports/
+  # MSYS2
+  - github.com/msys2/MINGW-packages/
+  - github.com/msys2/MSYS2-packages/
+  - raw.githubusercontent.com/msys2/MINGW-packages/
+  - raw.githubusercontent.com/msys2/MSYS2-packages/
