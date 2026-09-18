@@ -105,7 +105,7 @@
     </div>
   </section>
 
-  <section id="tab-history"><div class="card"><table id="h-table"><thead><tr><th>Time</th><th>Project</th><th>URL</th><th>Verdict</th><th>Conf</th><th></th></tr></thead><tbody></tbody></table></div>
+  <section id="tab-history"><div class="card"><h3>History <button class="small" id="h-refresh">refresh</button> <button class="small" id="h-clear">clear</button></h3><table id="h-table"><thead><tr><th>Time</th><th>Project</th><th>URL</th><th>Verdict</th><th>Conf</th><th></th></tr></thead><tbody></tbody></table></div>
     <div class="card" id="h-detail" style="display:none"><pre id="h-raw"></pre></div></section>
 
   <section id="tab-config">
@@ -216,6 +216,8 @@ function showResult(r){
   $('#r-raw').textContent = JSON.stringify(r, null, 2);
 }
 
+$('#h-refresh').onclick = loadHistory;
+$('#h-clear').onclick = async () => { if(confirm('Delete all verification history (log/history)?')){ await api('/api/history', {method:'DELETE'}); $('#h-detail').style.display='none'; loadHistory(); } };
 async function loadHistory(){ const rows = await api('/api/history'); $('#h-table tbody').innerHTML = rows.map(h => `<tr><td>${new Date(h.ts*1000).toLocaleString()}</td><td>${esc(h.project)}</td><td class="muted">${esc(h.url).slice(0,70)}</td><td class="${h.verdict}">${h.verdict}</td><td>${h.confidence}</td><td><button class="small" data-trace="${h.trace_id}">view</button></td></tr>`).join('');
   $('#h-table').querySelectorAll('button').forEach(b => b.onclick = async () => { const d = await api('/api/history/'+b.dataset.trace); $('#h-detail').style.display='block'; $('#h-raw').textContent = JSON.stringify(d.result, null, 2); }); }
 

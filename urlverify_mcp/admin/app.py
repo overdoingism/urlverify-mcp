@@ -172,6 +172,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
     async def history(limit: int = 100):
         return st.store.list_history(limit)
 
+    @app.delete("/api/history")
+    async def clear_history():
+        return {"ok": True, "removed": st.store.clear_history()}
+
     @app.get("/api/history/{trace_id}")
     async def history_item(trace_id: str):
         h = st.store.get_history(trace_id)

@@ -36,3 +36,12 @@ def test_deleting_a_file_resets_that_part(tmp_path):
     assert st.get_cert("a.example") is None
     st.put_cert("b.example", {"issuer": "y"}, 3600)       # recreated transparently
     assert st.get_cert("b.example")["issuer"] == "y"
+
+
+def test_clear_history(tmp_path):
+    from urlverify_mcp.storage import Storage
+    st = Storage(str(tmp_path / "state"), str(tmp_path / "log"))
+    st.add_history("t1", "p", "https://x", "d", {"verdict": "UNVERIFIABLE"})
+    assert len(st.list_history()) == 1
+    assert st.clear_history() >= 2
+    assert st.list_history() == [] and st.get_history("t1") is None

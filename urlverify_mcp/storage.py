@@ -133,6 +133,21 @@ class Storage:
                     continue
         return sorted(rows.values(), key=lambda r: r["ts"], reverse=True)[:limit]
 
+    def clear_history(self) -> int:
+        """Delete every history record (index + per-trace files). Returns the number of files removed."""
+        d = self.log_dir / "history"
+        n = 0
+        with self._lock:
+            for f in d.glob("*.json"):
+                try:
+                    f.unlink(); n += 1
+                except OSError:
+                    pass
+            idx = d / "index.jsonl"
+            if idx.exists():
+                idx.unlink(); n += 1
+        return n
+
     def get_history(self, trace_id: str) -> dict[str, Any] | None:
         if not trace_id or "/" in trace_id or "\\" in trace_id or trace_id.startswith("."):
             return None

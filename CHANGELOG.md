@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Admin History tab: refresh and clear buttons (clear deletes `log/history`).
 - Tier-1 manifest repository prefixes moved to `urlverify_mcp/data/tier1_paths.yaml` with an explanatory header; the
   admin Caches tab lists them, reloads on demand and opens the file in the local editor. Cache row buttons are no
   longer red and read "forget" instead of "invalidate".
