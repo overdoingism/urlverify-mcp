@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Admin: the full-data-log switch (with folder path / open / copy) moved from the Config tab to the Logs tab; it still writes config.yaml and stays in step with the Config JSON editor.
 - Admin History tab: refresh and clear buttons (clear deletes `log/history`).
 - Tier-1 manifest repository prefixes moved to `urlverify_mcp/data/tier1_paths.yaml` with an explanatory header; the
   admin Caches tab lists them, reloads on demand and opens the file in the local editor. Cache row buttons are no
