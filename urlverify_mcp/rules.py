@@ -217,6 +217,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
                 continue
             if _platform_verified_link(org, platform, established, store):
                 est_orgs.setdefault(platform, []).append(org.lower())
+                org_support.setdefault(f"{platform}:{org.lower()}", set()).add("platform-verified-domain")   # basis beyond platform consistency
                 notes.append(f"{platform} org '{org}' is platform-verified and links to an established official domain")
     # signed build provenance: the registry's own statement of which repository's CI published the package.
     # If that repository's owner is an established (or domain-verified, established-domain-linked) GitHub org, the
@@ -228,6 +229,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
         blog_ok = provenance.get("owner_verified") and etld1_of(host_of(blog)) in established if blog else False
         if powner in gh_est or blog_ok:
             est_orgs.setdefault(l0.platform, []).append(l0.platform_owner.lower())
+            org_support.setdefault(f"{l0.platform}:{l0.platform_owner.lower()}", set()).add("signed-provenance")
             notes.append(f"{l0.platform} package '{l0.platform_owner}' established by signed build provenance from {provenance.get('repo_url')} "
                          f"(owner '{powner}' is an established GitHub org)" + ("; corroborated by deps.dev" if provenance.get("depsdev_verified") else ""))
     # previously established identity (cache) is trusted until it expires
@@ -315,7 +317,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
             conf = min(0.95, 0.75 + 0.05 * len(usable)) - risk_penalty
             notes.append(f"path owner '{owner}' is the established official {anchor.platform} org")
             fams = {family_of(x) for x in org_support.get(f"{anchor.platform}:{owner}", set())}
-            if fams and fams <= PLATFORM_FAMILIES and not established:
+            if fams and fams <= PLATFORM_FAMILIES:   # basis of THIS owner only; other entities' established domains are irrelevant
                 conf = min(conf, SELF_PUBLISHED_MAX_CONFIDENCE)
                 notes.append(f"self-published project: '{owner}' is established only by consistency across hosting platforms "
                              f"({', '.join(sorted(fams))}), with no Wikimedia, registry, media or own-domain evidence; "

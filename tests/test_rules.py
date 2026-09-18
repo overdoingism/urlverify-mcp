@@ -316,3 +316,15 @@ def test_self_published_project_true_is_capped():
                LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "flash-next-strix-halo")
     assert d.verdict == Verdict.TRUE, d.notes
     assert d.confidence <= 0.75 and any("self-published" in n for n in d.notes), (d.confidence, d.notes)
+    # another entity's established domain (the upstream model vendor) does not lift the cap
+    ident2 = IdentityGraph(product="flash-next-strix-halo", developer="drluoto", aliases=[], official_domains=["qwen.ai"],
+                           official_orgs={"github": ["drluoto"], "huggingface": ["drluoto"]})
+    wd = "https://www.wikidata.org/wiki/Q130234299"; qhf = "https://huggingface.co/Qwen/Qwen3.8-Flash-Next"
+    store[wd] = json.dumps({"label": "Qwen", "official_website": ["https://qwen.ai"], "stability": {"stable": True, "recent_change": False}})
+    store[qhf] = json.dumps({"id": "Qwen/Qwen3.8-Flash-Next", "author": "Qwen", "homepage": "https://qwen.ai"})
+    ev2 = ev + [_ev(wd, "Qwen official site is qwen.ai", '"official_website": ["https://qwen.ai"]', kind="wikidata", tier=1),
+                _ev(qhf, "official model is under Qwen at qwen.ai, not drluoto", '"author": "Qwen", "homepage": "https://qwen.ai"', kind="huggingface")]
+    d = decide(Config(), _l0(host="github.com", platform="github", owner="drluoto", repo="flash-next-strix-halo"),
+               LLMSubmission(identity=ident2, evidence=ev2, proposed_verdict="VERIFIED_TRUE"), store, "flash-next-strix-halo")
+    assert "qwen.ai" in d.established_domains and d.verdict == Verdict.TRUE, d.notes
+    assert d.confidence <= 0.75, (d.confidence, d.notes)
