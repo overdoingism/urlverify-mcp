@@ -41,7 +41,7 @@ def test_deleting_a_file_resets_that_part(tmp_path):
 def test_clear_history(tmp_path):
     from urlverify_mcp.storage import Storage
     st = Storage(str(tmp_path / "state"), str(tmp_path / "log"))
-    st.add_history("t1", "p", "https://x", "d", {"verdict": "UNVERIFIABLE"})
+    st.add_history("t1", "p", "https://x", "d", "UNVERIFIABLE", 0.3, {"verdict": "UNVERIFIABLE"})
     assert len(st.list_history()) == 1
     assert st.clear_history() >= 2
     assert st.list_history() == [] and st.get_history("t1") is None
