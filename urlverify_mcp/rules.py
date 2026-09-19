@@ -123,7 +123,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     # ... unless the target IS the platform company's own site (desktop.docker.com, desktop.github.com: no path owner):
     # then that domain is the developer's identity and stays a candidate.
     platform_roots = {d for a in SEED for d in a.etld1s}
-    if not l0.platform_owner:
+    if l0.platform_scope == "company_site":
         platform_roots.discard(l0.etld1)
     official_domains: list[str] = []
     for d in sub.identity.official_domains:
@@ -179,16 +179,15 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     for ev in usable:
         if not ev.supports:
             continue
-        claim = _norm_ws(ev.claim + " " + ev.quote)
         src_e1 = etld1_of(host_of(ev.source))
+        if ev.kind == "wayback" or src_e1 == "archive.org":
+            continue   # an archive snapshot proves age, not identity: no domain or org vote (temporal use is elsewhere)
+        # votes come from the verified QUOTE only: the claim is the LLM's own text and may well say "not <x>"
+        quote_text = _norm_ws(ev.quote)
         for d in official_domains:
             de1 = etld1_of(d)
-            if de1 and (de1 in claim or d.lower() in claim):
+            if de1 and (de1 in quote_text or d.lower() in quote_text):
                 support.setdefault(de1, set()).add(src_e1)
-        if ev.kind == "wayback" or src_e1 == "archive.org":
-            continue   # an archived copy of the owner's own platform page proves age, not identity: no org vote
-        # org votes come from the verified QUOTE only: the claim is the LLM's own text and may well say "not <org>"
-        quote_text = _norm_ws(ev.quote)
         for platform, orgs in sub.identity.official_orgs.items():
             for org in orgs:
                 key = f"{platform}:{org.lower()}"
@@ -304,6 +303,12 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     project_ok, why_project = _project_matches(project, l0, usable)
     if not project_ok:
         notes.append(f"{why_project}; VERIFIED_TRUE withheld")
+
+    # ---- 5b. an asset / CDN host on a platform carries no owner in its URL: it cannot be verified on its own
+    if l0.platform_scope == "user_content" and not l0.platform_owner:
+        notes.append(f"{l0.host} is an asset / CDN host of {l0.platform} whose owner cannot be read from the URL; verify the "
+                     "release or page that links to it instead")
+        return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
 
     # ---- 6. match target against established identity
     target_e1 = l0.etld1

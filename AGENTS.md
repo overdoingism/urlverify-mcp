@@ -82,6 +82,15 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - **來源家族**：獨立來源數以「家族」計，一個平台的所有網域是一家（github.com + githubusercontent.com + github.io；huggingface.co + hf.co），
   Wikipedia + Wikidata 一家。同一平台上兩個帳號互相背書永遠只算一票。
 - **平台根網域不是身分**：LLM 若把 github.com 之類放進 official_domains，規則層剔除並註記；owner 走 official_orgs。
+  例外只有一種：目標本身是平台公司的自有站台（`platform_scope = company_site`，如 desktop.docker.com、desktop.github.com），該網域保留為身分候選。
+- **平台 anchor 的判準**（2026-09-20 定案，`cache/anchors.py`）：每個平台明列「使用者內容主機」與 owner 位置：路徑段（github.com、raw.githubusercontent.com、
+  hub.docker.com 的 /r /u /_）、主機標籤（*.github.io、*.gitlab.io、*.codeberg.page）、或讀不到（release-assets/objects.githubusercontent.com、
+  files.pythonhosted.org、cdn-lfs、dl.flathub.org 等資產主機）。平台網域下其餘主機一律是公司站台，跑完整 L0（含 ct_first_seen）。
+  github.com 的 `features`、`about`、`marketplace` 等保留路徑不是 owner。讀不到 owner 的資產主機本身永遠 UNVERIFIABLE，只能作為官方 repo 的重導終點。
+- **Manifest 前綴的 ref**：tier‑1 manifest 倉庫的檔案只有以分支或標籤定址才算數；commit SHA 與 `refs/pull/…` 一律 Tier3
+  （GitHub 會在上游 repo 網址下提供未合併 PR 的 commit，否則開一個 PR 就能種一份 manifest）。
+- **網域計票同 org**：只認已驗證的 quote；Wayback 對網域也不計票（§4.1 的時間佐證語意保留，但年齡不是官方性）。
+- **LinkedIn、Crunchbase 是自填檔案**：Tier3（LinkedIn 登入牆，永不升級）。
 - **自我宣稱的定義**（平台目標）：owner 自己路徑下的頁面（github.com/<owner>/…、raw.githubusercontent.com/<owner>/…、<owner>.github.io）與候選官方網域的頁面；
   同平台其他人的頁面不是自我宣稱，而是使用者內容（上一條）。結構化 API 記錄不受此限。
 - **自我發佈專案的信心上限**：owner 只靠跨平台自洽成立（GitHub 記錄 + HF 記錄），沒有 Wikimedia / registry / 媒體 / 自有網域證據時，

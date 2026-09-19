@@ -6,10 +6,10 @@ from urlverify_mcp.models import CheckResult, Evidence, IdentityGraph, L0Result,
 from urlverify_mcp.rules import decide, verify_quotes
 
 
-def _l0(host="lmstudio.ai", fatal=False, platform=None, owner=None, repo=None, tls_org=None):
+def _l0(host="lmstudio.ai", fatal=False, platform=None, owner=None, repo=None, tls_org=None, scope=None):
     from urlverify_mcp.checks.urltools import etld1_of
     l0 = L0Result(normalized_url=f"https://{host}/x", host=host, etld1=etld1_of(host), platform=platform,
-                  platform_owner=owner, platform_repo=repo, tls_org=tls_org)
+                  platform_scope=scope or ("user_content" if platform else None), platform_owner=owner, platform_repo=repo, tls_org=tls_org)
     l0.checks.append(CheckResult(name="tls", status="fail" if fatal else "pass", fatal=fatal, message="x"))
     return l0
 
@@ -346,7 +346,7 @@ def test_platform_company_own_site_keeps_its_domain():
                  media: f"Desktop, made by Co, is available from {dom} for Windows and Mac."}
         ev = [_ev(wd, f"official website is {dom}", f'"official_website": ["https://www.{dom}"]', kind="wikidata", tier=1),
               _ev(media, f"Desktop is distributed from {dom}", f"Desktop, made by Co, is available from {dom}")]
-        l0 = _l0(host=host)
+        l0 = _l0(host=host, platform=("dockerhub" if "docker" in host else "github"), scope="company_site")   # what L0 now reports
         d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "Desktop")
         assert d.verdict == Verdict.TRUE, (host, d.notes)
         assert not any("hosting platform, not an identity" in n for n in d.notes), d.notes
@@ -355,3 +355,55 @@ def test_platform_company_own_site_keeps_its_domain():
     d = decide(Config(), _l0(host="github.com", platform="github", owner="someone", repo="x"),
                LLMSubmission(identity=ident, evidence=[], proposed_verdict="VERIFIED_TRUE"), {}, "x")
     assert any("hosting platform, not an identity" in n for n in d.notes), d.notes
+
+
+def test_user_subdomain_platform_pages_cannot_borrow_the_platform_domain():
+    """evil.github.io: the owner lives in the host label. github.io must be stripped as an identity and the verdict must
+    hinge on the owner 'evil' being an established org, never on 'github.io' being an established domain."""
+    import json
+    ident = IdentityGraph(product="Notepad++", developer="x", aliases=[], official_domains=["github.io"], official_orgs={"github": ["evil"]})
+    a = "https://huggingface.co/evil"; b = "https://www.techblog.example/post"
+    store = {a: json.dumps({"name": "evil", "fullname": "E", "website": "https://evil.github.io"}), b: "Get Notepad++ from the official site on github.io."}
+    # both quotes talk about github.io; only the HF record names the owner -> one family for 'evil', none for github.io
+    ev = [_ev(a, "HF profile links evil.github.io", '"website": "https://evil.github.io"', kind="huggingface"),
+          _ev(b, "blog says the official site is on github.io", "Get Notepad++ from the official site on github.io")]
+    l0 = L0Result(normalized_url="https://evil.github.io/notepad/", host="evil.github.io", etld1="github.io", platform="github",
+                  platform_scope="user_content", platform_owner="evil", platform_repo="notepad")
+    l0.checks.append(CheckResult(name="tls", status="pass", message="x"))
+    d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "Notepad++")
+    assert d.verdict != Verdict.TRUE, d.notes
+    assert "github.io" not in d.established_domains and any("hosting platform, not an identity" in n for n in d.notes)
+
+
+def test_opaque_asset_host_is_unverifiable_on_its_own():
+    l0 = L0Result(normalized_url="https://release-assets.githubusercontent.com/x/1/2", host="release-assets.githubusercontent.com",
+                  etld1="githubusercontent.com", platform="github", platform_scope="user_content")
+    l0.checks.append(CheckResult(name="tls", status="pass", message="x"))
+    ident = IdentityGraph(product="x", developer="y", aliases=[], official_domains=["lmstudio.ai"], official_orgs={})
+    d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=[], proposed_verdict="VERIFIED_FALSE"), {}, "x")
+    assert d.verdict == Verdict.UNVERIFIABLE and any("asset / CDN host" in n for n in d.notes), d.notes
+
+
+def test_manifest_prefix_requires_branch_or_tag_ref():
+    from urlverify_mcp.identity.sources import classify
+    assert classify("https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/a/b.yaml")[0] == 1
+    assert classify("https://raw.githubusercontent.com/microsoft/winget-pkgs/v1.2.3/manifests/a/b.yaml")[0] == 1
+    assert classify("https://raw.githubusercontent.com/microsoft/winget-pkgs/0123456789abcdef0123456789abcdef01234567/manifests/a/b.yaml")[0] == 3
+    assert classify("https://raw.githubusercontent.com/microsoft/winget-pkgs/refs/pull/1234/head/manifests/a/b.yaml")[0] == 3
+    assert classify("https://github.com/microsoft/winget-pkgs/blob/master/manifests/a/b.yaml")[0] == 1
+    assert classify("https://github.com/microsoft/winget-pkgs/blob/deadbeefcafe/manifests/a/b.yaml")[0] == 3
+    assert classify("https://gitlab.com/fdroid/fdroiddata/-/raw/master/metadata/x.yml")[0] == 1
+    assert classify("https://gitlab.com/fdroid/fdroiddata/-/raw/0123456789abcdef0123/metadata/x.yml")[0] == 3
+
+
+def test_domain_votes_need_the_domain_in_the_quote_and_wayback_never_votes():
+    from urlverify_mcp.identity.sources import classify
+    assert classify("https://www.linkedin.com/in/someone")[0] == 3
+    ident = IdentityGraph(product="LM Studio", developer="Element Labs", aliases=[], official_domains=["lmstudio.ai"], official_orgs={})
+    wd = "https://www.wikidata.org/wiki/Q123"; wb = "https://web.archive.org/web/2020/https://lmstudio.ai/"
+    store = {wd: STORE[wd], wb: '{"domain": "lmstudio.ai", "first_snapshot": "2020-01-01", "age_days": 2400}'}
+    # claim names the domain, quote does not -> no vote; wayback quote names it -> still no vote (age, not identity)
+    ev = [_ev(wd, "official domain is lmstudio.ai", '"label": "LM Studio"', kind="wikidata", tier=1),
+          _ev(wb, "lmstudio.ai archived since 2020", '"domain": "lmstudio.ai", "first_snapshot": "2020-01-01"', kind="wayback", tier=1)]
+    d = decide(Config(), _l0(), LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "LM Studio")
+    assert d.verdict != Verdict.TRUE and "lmstudio.ai" not in d.established_domains, d.notes

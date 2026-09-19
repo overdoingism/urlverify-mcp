@@ -45,7 +45,8 @@ class L0Result(BaseModel):
     host: str
     etld1: str
     platform: str | None = None            # e.g. github, huggingface, pypi, npm (from anchors)
-    platform_owner: str | None = None      # e.g. "lmstudio-ai" for github.com/lmstudio-ai/...
+    platform_scope: str | None = None      # "user_content" | "company_site" (see cache/anchors.resolve)
+    platform_owner: str | None = None      # e.g. "lmstudio-ai" for github.com/lmstudio-ai/..., "evil" for evil.github.io
     platform_repo: str | None = None
     final_url: str | None = None
     final_etld1: str | None = None

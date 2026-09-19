@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Platform anchors now declare, per platform, which hosts carry user content and where the owner is read from (path
+  segment, host label such as `<owner>.github.io`, or nowhere for asset/CDN hosts); every other host on the platform's
+  domains is the operator's own site with full L0 and its domain as an identity candidate. Reserved GitHub paths
+  (`features`, `marketplace`, ...) are not owners. Asset hosts without a readable owner are `UNVERIFIABLE` on their own.
+  Fixes both the Docker Desktop false negative and a `<owner>.github.io` path that could borrow `github.io` as an
+  "official domain".
+- Hardening: tier-1 manifest files count only when addressed by a branch or tag (commit SHAs and `refs/pull/...` are
+  tier 3: GitHub serves unmerged PR commits under the upstream URL); domain votes come from the verified quote only;
+  Wayback snapshots never vote for a domain or org; LinkedIn and Crunchbase profiles are tier 3.
 - Fix: a hosting platform's own site (desktop.docker.com, desktop.github.com: no path owner) keeps its domain as an
   identity candidate; the platform-root filter only applies when the target has a path owner on that platform.
 - 新增 npm／PyPI／NuGet 版本冷卻期：`release_cooldown.hours` 預設 72 小時，0 停用，可在 Config 修改。依目標版本／檔案的登錄時間計算；結果與提醒獨立呈現，不改來源裁決或信心。NuGet 加入平台身分解析與 L1 結構化 metadata 查詢。

@@ -5,7 +5,7 @@ import asyncio
 import time
 from urllib.parse import urlsplit
 
-from ..cache.anchors import all_anchor_domains, anchor_for, extract_path_identity
+from ..cache.anchors import all_anchor_domains, anchor_for, resolve as resolve_anchor
 from ..config import Config
 from ..models import CheckResult, L0Result
 from ..storage import Storage
@@ -37,19 +37,26 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
 
     # --- platform anchor
     anchor = anchor_for(e1)
+    user_content = False
     if anchor:
-        res.platform = anchor.platform
-        owner, repo = extract_path_identity(anchor, urlsplit(norm).path)
-        if anchor.platform in ("npm", "pypi", "nuget"):
+        scope, owner, repo = resolve_anchor(anchor, host, urlsplit(norm).path)
+        if anchor.platform in ("npm", "pypi", "nuget") and scope == "user_content":
             from ..identity.releases import target_from_url
             target = target_from_url(norm)
-            owner = (target.name or None) if target else None
+            owner = (target.name or None) if target else owner
             repo = None
+        user_content = scope == "user_content"
+        res.platform, res.platform_scope = anchor.platform, scope
         res.platform_owner, res.platform_repo = owner, repo
         cache_hits.append("platform_anchor")
+        if not user_content:
+            msg = f"{host} is on {anchor.platform}'s domain but is not a user-content host: treated as the operator's own site, domain identity applies"
+        elif owner:
+            msg = f"{host} is user content on {anchor.platform}; owner '{owner}' still requires identity verification"
+        else:
+            msg = f"{host} is an asset / CDN host of {anchor.platform}; the owner cannot be read from the URL, verify the page that links here"
         res.checks.append(CheckResult(name="platform_anchor", status="pass",
-                                      detail={"platform": anchor.platform, "owner": owner, "repo": repo},
-                                      message=f"{e1} is a known hosting platform; path owner '{owner}' still requires identity verification"))
+                                      detail={"platform": anchor.platform, "scope": scope, "owner": owner, "repo": repo}, message=msg))
 
     # --- scheme
     if scheme != "https":
@@ -103,7 +110,7 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
     else:
         tls_task = tls_mod.fetch_cert(host, urlsplit(norm).port or 443, cfg.net.timeout_s)
     redir_task = redir_mod.expand(norm, cfg.net.timeout_s, cfg.net.user_agent)
-    ct_task = asyncio.sleep(0, result={"ok": False, "error": "skipped for platform anchor"}) if anchor else ct_mod.first_seen(e1, cfg.net.timeout_s, cfg.net.user_agent)
+    ct_task = asyncio.sleep(0, result={"ok": False, "error": "skipped for platform anchor"}) if user_content else ct_mod.first_seen(e1, cfg.net.timeout_s, cfg.net.user_agent)
     doh_task = doh_mod.resolve_doh(host, cfg.net.doh_resolvers, cfg.net.timeout_s, cfg.net.user_agent) if cfg.net.doh_cross_check else asyncio.sleep(0, result=None)
     dns_r, tls_r, redir_r, ct_r, doh_r = await asyncio.gather(dns_task, tls_task, redir_task, ct_task, doh_task, return_exceptions=True)
 
@@ -211,7 +218,7 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
         res.checks.append(CheckResult(name="ct_first_seen", status="skip", message=(ct_r.get("error") if isinstance(ct_r, dict) else str(ct_r))))
     else:
         age = ct_r.get("age_days")
-        if age is not None and age < cfg.identity.new_domain_days and not anchor:
+        if age is not None and age < cfg.identity.new_domain_days and not user_content:
             res.risk_signals.append(f"new_domain:{age}d")
             res.checks.append(CheckResult(name="ct_first_seen", status="warn", detail=ct_r, message=f"first certificate seen only {age} days ago"))
         else:

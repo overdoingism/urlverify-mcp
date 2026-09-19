@@ -1,6 +1,7 @@
 """Source tiering. Tier 1 is a fixed whitelist that the LLM cannot extend."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -27,7 +28,7 @@ TIER2_DOMAINS = {
     "techcrunch.com", "theverge.com", "arstechnica.com", "wired.com", "zdnet.com", "venturebeat.com", "theregister.com",
     "bleepingcomputer.com", "thehackernews.com", "reuters.com", "bloomberg.com", "bbc.com", "bbc.co.uk", "nytimes.com",
     "ithome.com.tw", "technews.tw", "inside.com.tw", "ithome.com", "36kr.com", "infoq.com", "heise.de", "golem.de",
-    "linkedin.com", "crunchbase.com", "ycombinator.com",
+    "ycombinator.com",
     # platform verification endpoints (org profile pages / API)
     "github.com", "huggingface.co", "gitlab.com",
     # cloud / hosting vendor technical documentation (editorially maintained how-to guides)
@@ -40,6 +41,7 @@ TIER3_DOMAINS = {
     "quora.com", "discord.com", "discord.gg", "t.me", "telegram.org", "x.com", "twitter.com", "facebook.com", "youtube.com",
     "substack.com", "blogspot.com", "wordpress.com", "tumblr.com", "pinterest.com", "linktr.ee", "ptt.cc", "dcard.tw",
     "zhihu.com", "bilibili.com", "csdn.net", "juejin.cn",
+    "linkedin.com", "crunchbase.com",   # self-authored profiles: user content
 }
 # Official package-manager / distribution manifest repositories on generic code hosts are matched by "host/path"
 # prefix; the list lives in data/tier1_paths.yaml (editable, re-read when its mtime changes; see tier1_path_prefixes()).
@@ -122,6 +124,9 @@ def classify(source_url: str, llm_proposed: int | None = None, extra: "IdentityC
                                 (3, p3, "forum / social / blog path (config)"), (2, p2, "known tier-2 path (config)")):
         hit = next((pfx for pfx in prefixes if hp.startswith(pfx)), None)
         if hit:
+            if tier == 1 and not _manifest_ref_ok(hp):
+                return 3, (f"{hit} is a manifest repository but the URL points at a commit / pull-request ref, not a branch or tag: "
+                           "unmerged content is user content")
             return tier, f"{hit} is a tier-{tier} {why}"
     fam = family_of(e1)
     if fam in PLATFORM_FAMILIES and not api_record and not is_platform_endpoint(source_url):
@@ -137,6 +142,27 @@ def classify(source_url: str, llm_proposed: int | None = None, extra: "IdentityC
     if llm_proposed in (2, 3):
         return llm_proposed, f"unknown domain {e1}; LLM proposed tier {llm_proposed}"
     return 3, f"unknown domain {e1}; defaulted to tier 3"
+
+
+_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+
+
+def _manifest_ref_ok(hp: str) -> bool:
+    """A file inside a manifest repository is trusted only when addressed by a branch or tag. GitHub serves commits
+    from unmerged pull requests under the upstream repository's URL, so a commit SHA or refs/pull/... path would let
+    anyone plant a "manifest" by merely opening a PR."""
+    segs = [x for x in hp.split("/") if x]
+    host = segs[0] if segs else ""
+    ref = None
+    if host == "raw.githubusercontent.com" and len(segs) >= 4:
+        ref = segs[3]
+    elif host == "github.com" and len(segs) >= 5 and segs[3] in ("blob", "tree", "raw", "blame"):
+        ref = segs[4]
+    elif host == "gitlab.com" and "-" in segs and len(segs) > segs.index("-") + 2 and segs[segs.index("-") + 1] in ("raw", "blob", "tree"):
+        ref = segs[segs.index("-") + 2]
+    if ref is None:
+        return True
+    return not (_SHA_RE.match(ref) or ref == "refs")
 
 
 def _host_path(url: str) -> str:
