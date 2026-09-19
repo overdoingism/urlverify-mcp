@@ -120,7 +120,11 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     verify_quotes(evidence, store)
     # hosting platforms are not identities: github.com in official_domains would make every GitHub page "self" and
     # would be counted as a domain to establish. Owners on platforms are handled through official_orgs.
+    # ... unless the target IS the platform company's own site (desktop.docker.com, desktop.github.com: no path owner):
+    # then that domain is the developer's identity and stays a candidate.
     platform_roots = {d for a in SEED for d in a.etld1s}
+    if not l0.platform_owner:
+        platform_roots.discard(l0.etld1)
     official_domains: list[str] = []
     for d in sub.identity.official_domains:
         if etld1_of(d) in platform_roots:

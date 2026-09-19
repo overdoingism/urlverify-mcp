@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fix: a hosting platform's own site (desktop.docker.com, desktop.github.com: no path owner) keeps its domain as an
+  identity candidate; the platform-root filter only applies when the target has a path owner on that platform.
 - 新增 npm／PyPI／NuGet 版本冷卻期：`release_cooldown.hours` 預設 72 小時，0 停用，可在 Config 修改。依目標版本／檔案的登錄時間計算；結果與提醒獨立呈現，不改來源裁決或信心。NuGet 加入平台身分解析與 L1 結構化 metadata 查詢。
 
 - Independence counting folds every domain of one hosting platform into one source family (github.com +

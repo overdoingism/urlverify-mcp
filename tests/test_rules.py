@@ -333,3 +333,25 @@ def test_self_published_project_true_is_capped():
     d = decide(Config(), _l0(host="github.com", platform="github", owner="drluoto", repo="flash-next-strix-halo"),
                LLMSubmission(identity=ident2, evidence=ev3, proposed_verdict="VERIFIED_TRUE"), store, "flash-next-strix-halo")
     assert d.verdict == Verdict.TRUE and d.confidence <= 0.75, (d.confidence, d.notes)
+
+
+def test_platform_company_own_site_keeps_its_domain():
+    """Docker Desktop regression: docker.com is also the Docker Hub platform root, but desktop.docker.com (no path
+    owner) is Docker's own site, so docker.com must stay an official-domain candidate. Same for desktop.github.com."""
+    import json
+    for host, dom, org in (("desktop.docker.com", "docker.com", "docker"), ("desktop.github.com", "github.com", "desktop")):
+        ident = IdentityGraph(product="Desktop", developer="Co", aliases=[], official_domains=[dom], official_orgs={"github": [org]})
+        wd = "https://www.wikidata.org/wiki/Q1"; media = "https://techcrunch.com/y"
+        store = {wd: json.dumps({"label": "Co", "official_website": [f"https://www.{dom}"], "stability": {"stable": True, "recent_change": False}}),
+                 media: f"Desktop, made by Co, is available from {dom} for Windows and Mac."}
+        ev = [_ev(wd, f"official website is {dom}", f'"official_website": ["https://www.{dom}"]', kind="wikidata", tier=1),
+              _ev(media, f"Desktop is distributed from {dom}", f"Desktop, made by Co, is available from {dom}")]
+        l0 = _l0(host=host)
+        d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "Desktop")
+        assert d.verdict == Verdict.TRUE, (host, d.notes)
+        assert not any("hosting platform, not an identity" in n for n in d.notes), d.notes
+    # but with a path owner on that platform the root is still stripped
+    ident = IdentityGraph(product="x", developer="someone", aliases=[], official_domains=["github.com"], official_orgs={"github": ["someone"]})
+    d = decide(Config(), _l0(host="github.com", platform="github", owner="someone", repo="x"),
+               LLMSubmission(identity=ident, evidence=[], proposed_verdict="VERIFIED_TRUE"), {}, "x")
+    assert any("hosting platform, not an identity" in n for n in d.notes), d.notes
