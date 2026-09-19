@@ -32,6 +32,20 @@ Environment overrides: `URLVERIFY_LLM_BASE_URL`, `URLVERIFY_LLM_API_KEY`, `URLVE
 | `mcp.fetch_tool` | str · `web_url_read` | Tool name used to fetch a page as text. |
 | `searxng_http.base_url` | str · `http://127.0.0.1:8888` | SearXNG base URL for the HTTP provider. |
 
+## `release_cooldown` — 套件版本冷卻期
+
+| 欄位 | 型別／預設 | 說明 |
+|---|---|---|
+| `hours` | 非負有限數值 · `72` | npm／PyPI／NuGet 的發布後觀察期，單位小時，可用小數。`0` 停用且不發出冷卻期 API 查詢。管理頁 Config 修改後，下次驗證生效。此設定不接受呼叫端 options 覆寫。 |
+
+結果放在 `checks.release_cooldown.detail`：`state` 為 `disabled`、`active`、`elapsed`、`unknown`；可判定時含 `registry`、`package`、`version`、`source`、`published_at`、`checked_at`、`threshold_hours`、`age_hours`、`remaining_hours` 與 `resolution`。期間內與不明狀態會附加 `risk_signals` 及 reason 提醒，不改來源 verdict/confidence，不代表掃描中／掃描通過，也不涵蓋間接依賴。L0 致命失敗時不執行；quick、full 與身分快取命中均適用。
+
+支援 npm 套件頁（含 scoped、`/v/<version>`）、registry metadata 與 tarball URL；PyPI 套件／版本頁、JSON API、可辨識的 wheel／sdist URL；NuGet 套件／版本頁、v2 package 與 v3 flat-container 下載 URL。未指定版本時，npm 解析 latest 標籤、PyPI 解析 API 最新版，NuGet 選版本排序最高的 stable 候選（若 unlisted 則回 unknown，請指定版本）；皆記錄解析後版本。無法辨識的登錄平台 URL 回 unknown；其他網站不套用。
+
+npm 使用 `time[version]`，不用 metadata 的 `modified`。PyPI 下載檔須與 metadata URL 完全相符；版本頁使用該版本所有檔案中最新上傳時間，以涵蓋後補 wheel。NuGet 使用 registration leaf 的 `published`；1900 年占位值、未來／無時區日期、缺失資料與網路失敗均回 unknown。NuGet CDN 檔名不能可靠拆出 ID 時亦回 unknown，請改用帶版本的套件頁。
+
+冷卻期只提供觀察資訊，不替代既有套件首發年齡 `package_registry_fast_path.min_age_days`。NuGet 必走 L1；新增冷卻查詢不會產生獨立身分票數或新增快速通關。
+
 ## `fetch` — how pages are turned into text
 
 | Field | Type / default | Meaning |

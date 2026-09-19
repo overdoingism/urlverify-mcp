@@ -1,0 +1,26 @@
+# 同一規則跨平台的新／舊版本案例；時間皆固定，測試不連網。
+cases:
+  - registry: npm
+    url: https://www.npmjs.com/package/@example/tool/v/1.2.3
+    published: '2026-09-19T00:00:00Z'
+    state: active
+  - registry: npm
+    url: https://registry.npmjs.org/example/1.2.3
+    published: '2026-09-01T00:00:00Z'
+    state: elapsed
+  - registry: pypi
+    url: https://pypi.org/project/example/1.2.3/
+    published: '2026-09-19T00:00:00Z'
+    state: active
+  - registry: pypi
+    url: https://pypi.org/project/example/1.2.3/
+    published: '2026-09-01T00:00:00Z'
+    state: elapsed
+  - registry: nuget
+    url: https://www.nuget.org/packages/Example/1.2.3
+    published: '2026-09-19T00:00:00Z'
+    state: active
+  - registry: nuget
+    url: https://api.nuget.org/v3-flatcontainer/example/1.2.3/example.1.2.3.nupkg
+    published: '2026-09-01T00:00:00Z'
+    state: elapsed

@@ -41,6 +41,7 @@ class Structured:
     async def huggingface(self, *a, **k): return _obs("huggingface", await self._huggingface(*a, **k))
     async def pypi(self, *a, **k): return _obs("pypi", await self._pypi(*a, **k))
     async def npm(self, *a, **k): return _obs("npm", await self._npm(*a, **k))
+    async def nuget(self, *a, **k): return _obs("nuget", await self._nuget(*a, **k))
 
     async def _json(self, url: str, params: dict | None = None, headers: dict | None = None) -> Any:
         r = await self.client.get(url, params=params, headers=headers)
@@ -279,6 +280,22 @@ class Structured:
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}", "owner": owner}
 
     # ---------------- package registries
+    async def _nuget(self, name: str) -> dict[str, Any]:
+        from .releases import ReleaseMetadata, ReleaseTarget
+        try:
+            api = ReleaseMetadata(self.client)
+            meta = await api.resolve(ReleaseTarget("nuget", name))
+            entry = meta.get("catalog_entry")
+            entry = await api.json(entry) if isinstance(entry, str) else entry
+            if not isinstance(entry, dict):
+                raise ValueError("NuGet catalog entry unavailable")
+            return {"ok": True, "found": True, "name": entry.get("id"), "version": meta["version"],
+                    "project_url": entry.get("projectUrl"), "authors": entry.get("authors"),
+                    "description": entry.get("description"), "published": meta.get("published_at"),
+                    "listed": meta.get("listed"), "source": meta["source"]}
+        except Exception as ex:
+            return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+
     async def _pypi(self, name: str) -> dict[str, Any]:
         try:
             j = await self._json(f"https://pypi.org/pypi/{name}/json")

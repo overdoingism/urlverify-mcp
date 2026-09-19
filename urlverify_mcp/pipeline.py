@@ -14,6 +14,7 @@ from .checks import apply_injection_check, run_l0
 from .config import Config
 from .identity.aging import Aging, age_many, domain_first_seen
 from .identity.registry import RegistryFastPath
+from .identity.releases import annotate_result, check_release
 from .identity.sources import classify
 from .identity.structured import Structured
 from .models import IdentityGraph, Verdict, VerifyRequest, VerifyResult
@@ -40,11 +41,13 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
     try:
         try:
             res = await asyncio.wait_for(_verify(req, cfg, store, trace_id, t0), timeout=cfg.budget.max_total_s)
+            annotate_result(res, req)
             res.degraded = health.end_collect(dtoken)
             dtoken = None
             if res.degraded:
                 res.engine_notes.append("degraded dependencies during this run: " + ", ".join(res.degraded))
-                store.add_history(trace_id, req.project, req.url, req.description, res.verdict.value, res.confidence, res.model_dump(mode="json"))
+            store.add_history(trace_id, req.project, req.url, req.description, res.verdict.value, res.confidence, res.model_dump(mode="json"))
+            TRACE.log("verify_end", result=res.model_dump(mode="json"))
             return res
         except asyncio.TimeoutError:
             p = progress.current()
@@ -86,6 +89,12 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
     inv = Investigator(cfg, llm, search, structured, fetcher)
     engine_notes: list[str] = []
     try:
+        if not l0.fatal_failures:
+            await progress.report("checking registry release cooldown", 0.11)
+            cooldown = await check_release(l0.normalized_url, cfg, structured.client)
+            if cooldown is not None:
+                l0.checks.append(cooldown)
+                TRACE.log("release_cooldown", check=cooldown.model_dump())
         # Always fetch the target page ourselves for injection screening (does not consume the LLM's budget).
         page = None
         await progress.report("fetching target page for injection screening", 0.12)
@@ -122,8 +131,6 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                 fast.cache_hits = sorted(set(cache_hits))
                 fast.engine_notes = engine_notes + fast.engine_notes
                 await progress.report("done (registry fast path)", 1.0)
-                store.add_history(trace_id, req.project, req.url, req.description, fast.verdict.value, fast.confidence, fast.model_dump(mode="json"))
-                TRACE.log("verify_end", result=fast.model_dump(mode="json"))
                 return fast
             engine_notes.append("registry fast path inconclusive; running the full investigation")
             if fp.mode == "quick":
@@ -131,8 +138,8 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                                    reason="UNVERIFIABLE: registry fast path was inconclusive and options.mode='quick' forbids the full investigation. "
                                           + "; ".join(engine_notes[-3:]),
                                    checks={c.name: {"status": c.status, "fatal": c.fatal, "message": c.message, "detail": c.detail} for c in l0.checks},
-                                   risk_signals=l0.risk_signals, engine_notes=engine_notes, trace_id=trace_id, duration_s=round(time.time() - t0, 1))
-                store.add_history(trace_id, req.project, req.url, req.description, res.verdict.value, res.confidence, res.model_dump(mode="json"))
+                                   risk_signals=l0.risk_signals, cache_hits=sorted(set(cache_hits)), engine_notes=engine_notes,
+                                   trace_id=trace_id, duration_s=round(time.time() - t0, 1))
                 return res
 
         if l0.fatal_failures:
@@ -220,8 +227,6 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         await fetcher.close()
         await search.close()
         await structured.close()
-    store.add_history(trace_id, req.project, req.url, req.description, result.verdict.value, result.confidence, result.model_dump(mode="json"))
-    TRACE.log("verify_end", result=result.model_dump(mode="json"))
     return result
 
 

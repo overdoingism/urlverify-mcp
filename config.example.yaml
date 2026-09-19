@@ -18,6 +18,9 @@ search:
   searxng_http:
     base_url: "http://127.0.0.1:8888"
 
+release_cooldown:
+  hours: 72                               # 版本冷卻期（小時）；0 停用，僅提醒、不改來源裁決
+
 fetch:
   provider: builtin                       # builtin (httpx + dependency-free HTML->text, default) | mcp (SearXNG MCP fetch tool)
 

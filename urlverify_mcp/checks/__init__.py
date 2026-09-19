@@ -40,6 +40,11 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
     if anchor:
         res.platform = anchor.platform
         owner, repo = extract_path_identity(anchor, urlsplit(norm).path)
+        if anchor.platform in ("npm", "pypi", "nuget"):
+            from ..identity.releases import target_from_url
+            target = target_from_url(norm)
+            owner = (target.name or None) if target else None
+            repo = None
         res.platform_owner, res.platform_repo = owner, repo
         cache_hits.append("platform_anchor")
         res.checks.append(CheckResult(name="platform_anchor", status="pass",

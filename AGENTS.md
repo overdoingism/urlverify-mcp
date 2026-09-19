@@ -115,6 +115,13 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - 結構化 API（Wikipedia、Wikidata、Wayback、GitHub、HF）以 `httpx` 直連，不經搜尋 MCP；只有一般網頁才走 `web_url_read`。
 
 ## 5. 設定（`config.yaml`，管理介面可改）
+### 5.1 套件版本冷卻期（2026-09-19 定案）
+- npm、PyPI、NuGet 支援 `release_cooldown.hours`（預設 72 小時，非負數，可用小數；0 完全停用查詢）。管理頁 Config 可修改，下次驗證生效。
+- 只依登錄 API 的目標版本／檔案發布時間計算，不採專案首發年齡、metadata 修改時間或 LLM 推測。未指定版本時解析當下最新版本並明列版本與查詢時間。
+- 冷卻結果放在 `checks.release_cooldown`，期間內加 `RELEASE_COOLDOWN_PERIOD` 與人類可讀提醒；不改來源 verdict/confidence、不加身分票數、不表示仍在掃描或保證安全，也不涵蓋間接依賴。
+- 時間缺失、未辨識的下載 URL、查詢失敗、未來日期與 NuGet 取消列出時的 1900 年占位日期，均明列 unknown，不猜已過期；來源裁決保持既有定義。
+- quick/full 與身分快取命中皆適用；L0 致命失敗不再查詢。NuGet 平台根網域不是套件身分，仍走 L1，沒有新增 provenance 快速通關。
+
 完整欄位說明維護在 `document_for_config.md`，**新增或改動任何設定欄位時必須同步更新該文件**。以下只列設計要點：
 - `llm.base_url / api_key / model / supports_tools`（任何 OpenAI 相容 API；不假設特定後端）
 - `search.provider`：`searxng_http`（預設，直接打 SearXNG JSON API）、`mcp`（接 SearXNG MCP server，選用）、`none`（不搜尋，只靠結構化 API）

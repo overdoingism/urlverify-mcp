@@ -166,6 +166,10 @@ class PackageRegistryFastPathConfig(BaseModel):
     toplist_url: str = "https://hugovk.github.io/top-pypi-packages/top-pypi-packages.min.json"
 
 
+class ReleaseCooldownConfig(BaseModel):
+    hours: float = Field(default=72, ge=0, allow_inf_nan=False)
+
+
 class Config(BaseModel):
     llm: LLMConfig = LLMConfig()
     search: SearchConfig = SearchConfig()
@@ -185,6 +189,7 @@ class Config(BaseModel):
         r"\bplease (report|respond|answer|mark|classify)[^.\n]{0,60}\b(verified|official|true|legitimate|safe)\b",
     ])
     package_registry_fast_path: PackageRegistryFastPathConfig = PackageRegistryFastPathConfig()
+    release_cooldown: ReleaseCooldownConfig = ReleaseCooldownConfig()
     full_log: FullLogConfig = FullLogConfig()
     prompts: PromptsConfig = PromptsConfig()
     server: ServerConfig = ServerConfig()

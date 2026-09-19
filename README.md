@@ -115,6 +115,14 @@ Tool exposed: `verify_source(project, url, description, options?)` → `{verdict
 
 Defaults ship in `urlverify_mcp/prompt_defaults/`; *Reset to default* deletes the override. Required placeholders (e.g. `{findings}` in the reason prompt) are validated on save.
 
+### 套件版本冷卻期（npm／PyPI／NuGet）
+
+`release_cooldown.hours` 設定發布後觀察期，預設 **72 小時**，支援小數，**0 停用**。可直接改 config.yaml，或在管理頁 Config 編輯；下次驗證生效。
+
+結果放在 `checks.release_cooldown`；版本仍在期間內或無法判定時，reason 與 risk_signals 都會提醒。這是獨立的時間資訊，**不改官方來源 verdict/confidence，也不表示平台仍在掃描或保證套件安全**。quick／full 與身分快取命中均適用，L0 致命失敗則略過。
+
+請優先提供指定版本的套件頁或可辨識下載網址；未指定版本時會列出解析到的最新版本與查詢時間。冷卻只涵蓋該版本／檔案，不包含其依賴。NuGet 仍需 L1 身分佐證，沒有新增快速通關。完整 URL 與時間判定規則見 `document_for_config.md`。
+
 ### Registry fast path (PyPI / npm)
 
 A package URL (`pypi.org/project/<name>`, `npmjs.com/package/<name>`) asks a narrower question than a website: *is this the

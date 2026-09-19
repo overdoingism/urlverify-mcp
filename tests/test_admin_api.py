@@ -80,3 +80,17 @@ def test_admin_responses_are_not_cacheable(tmp_path, monkeypatch):
     c, _ = _client(tmp_path, monkeypatch)
     assert c.get("/").headers.get("cache-control") == "no-store"
     assert c.get("/api/config").headers.get("cache-control") == "no-store"
+
+
+def test_cooldown_hours_config_roundtrip(tmp_path, monkeypatch):
+    c, path = _client(tmp_path, monkeypatch)
+    cfg = c.get('/api/config').json()
+    assert cfg['release_cooldown']['hours'] == 72
+    for hours in (12.5, 0):
+        cfg['release_cooldown']['hours'] = hours
+        assert c.put('/api/config', json=cfg).status_code == 200
+        assert c.get('/api/config').json()['release_cooldown']['hours'] == hours
+        from urlverify_mcp.config import load_config
+        assert load_config(str(path)).release_cooldown.hours == hours
+    cfg['release_cooldown']['hours'] = -1
+    assert c.put('/api/config', json=cfg).status_code == 400

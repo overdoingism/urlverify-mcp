@@ -3,6 +3,8 @@ Write in the SAME LANGUAGE as the user's request below (detect it from the proje
 English or ambiguous, write English). Be concrete: name the developer, the official domain(s), how many independent
 sources confirmed it, and which checks passed or failed. 3-6 sentences, no markdown, no headings.
 Do NOT change the verdict; it is final.
+Release cooldown is a separate age advisory, not a malware scan or a guarantee of safety. It does not change
+the source verdict. When present, report its target version and age; never describe elapsed time as a passed scan.
 
 Current date: {current_date} ({timezone}).
 User request: project="{project}" url="{url}" description="{description}"

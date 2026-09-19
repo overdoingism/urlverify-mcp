@@ -31,8 +31,8 @@ TOOLS: list[dict[str, Any]] = [
         "parameters": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}}, "required": ["owner"]}}},
     {"type": "function", "function": {"name": "huggingface_info", "description": "Hugging Face org/user profile (verified badge) and optional repo info (author, createdAt).",
         "parameters": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}}, "required": ["owner"]}}},
-    {"type": "function", "function": {"name": "package_registry", "description": "PyPI / npm package metadata (homepage, repository).",
-        "parameters": {"type": "object", "properties": {"registry": {"type": "string", "enum": ["pypi", "npm"]}, "name": {"type": "string"}}, "required": ["registry", "name"]}}},
+    {"type": "function", "function": {"name": "package_registry", "description": "PyPI / npm / NuGet package metadata (homepage, repository, authors).",
+        "parameters": {"type": "object", "properties": {"registry": {"type": "string", "enum": ["pypi", "npm", "nuget"]}, "name": {"type": "string"}}, "required": ["registry", "name"]}}},
     {"type": "function", "function": {"name": "submit_verdict", "description": "Submit the final structured findings. See the submission schema in the system prompt.",
         "parameters": {"type": "object", "properties": {
             "identity": {"type": "object"}, "evidence": {"type": "array", "items": {"type": "object"}},
@@ -123,7 +123,8 @@ class Investigator:
                     keys = [r.get("source")] if r.get("source") else []
                 else:
                     reg = str(args.get("registry", "pypi"))
-                    r = await (self.structured.pypi if reg == "pypi" else self.structured.npm)(str(args.get("name", "")))
+                    lookup = {"pypi": self.structured.pypi, "npm": self.structured.npm, "nuget": self.structured.nuget}[reg]
+                    r = await lookup(str(args.get("name", "")))
                     keys = [r.get("source")] if r.get("source") else []
                 text = json.dumps(r, ensure_ascii=False, indent=1)
                 for k in keys:
