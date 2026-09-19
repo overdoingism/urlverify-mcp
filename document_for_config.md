@@ -40,6 +40,10 @@ Environment overrides: `URLVERIFY_LLM_BASE_URL`, `URLVERIFY_LLM_API_KEY`, `URLVE
 
 結果放在 `checks.release_cooldown.detail`：`state` 為 `disabled`、`active`、`elapsed`、`unknown`；可判定時含 `registry`、`package`、`version`、`source`、`published_at`、`checked_at`、`threshold_hours`、`age_hours`、`remaining_hours` 與 `resolution`。期間內與不明狀態會附加 `risk_signals` 及 reason 提醒，不改來源 verdict/confidence，不代表掃描中／掃描通過，也不涵蓋間接依賴。L0 致命失敗時不執行；quick、full 與身分快取命中均適用。
 
+`risk_signals` 的期間內訊號為 `RELEASE_COOLDOWN_PERIOD:<age_hours>`，例如 `RELEASE_COOLDOWN_PERIOD:36` 表示已發布約 36 小時，仍未滿足門檻；數字不是剩餘時間。最多六位小數、移除尾端零（如 `:36.5`），與 `detail.age_hours` 相同精度；精確狀態應讀取 `detail.state`，不可用顯示數字自行推定已過期。呼叫端以 `RELEASE_COOLDOWN_PERIOD:` 前綴識別；此格式取代舊的無數值訊號。
+
+期間內與時間不明的 reason 均明確要求：繼續下載／安裝前必須向使用者說明風險並取得確認，來源驗證通過不代表內容安全。時間不明仍使用 `release_cooldown_unknown`；停用或已過期不產生冷卻期提示。工具不代替呼叫端執行使用者確認。
+
 支援 npm 套件頁（含 scoped、`/v/<version>`）、registry metadata 與 tarball URL；PyPI 套件／版本頁、JSON API、可辨識的 wheel／sdist URL；NuGet 套件／版本頁、v2 package 與 v3 flat-container 下載 URL。未指定版本時，npm 解析 latest 標籤、PyPI 解析 API 最新版，NuGet 選版本排序最高的 stable 候選（若 unlisted 則回 unknown，請指定版本）；皆記錄解析後版本。無法辨識的登錄平台 URL 回 unknown；其他網站不套用。
 
 npm 使用 `time[version]`，不用 metadata 的 `modified`。PyPI 下載檔須與 metadata URL 完全相符；版本頁使用該版本所有檔案中最新上傳時間，以涵蓋後補 wheel。NuGet 使用 registration leaf 的 `published`；1900 年占位值、未來／無時區日期、缺失資料與網路失敗均回 unknown。NuGet CDN 檔名不能可靠拆出 ID 時亦回 unknown，請改用帶版本的套件頁。
@@ -199,3 +203,11 @@ verification    ──────────────▶ budget.max_total_s
   ├─ L0 checks, MCP handshake ─▶ net.timeout_s (15)
   └─ structured APIs, aging ───▶ max(net.timeout_s, 30), Wayback ≤ 5 retries
 ```
+
+## 審視修正後的執行行為（2026-09-19）
+
+- `cache.identity_ttl_hours` 是原始成立時間起算的有效期限；命中不會續期。`identity` 證據政策改變後重新調查；舊格式快取不再採用。
+- 本機網頁／公開 API 抓取檢查所有 DNS 位址並固定連線 IP；這類連線不採用環境變數 HTTP 代理，避免代理繞過位址檢查。設定的 LLM／搜尋服務端點維持原有連線方式。
+- `fetch.provider: mcp` 先在本機檢查 URL 與重導鏈；外部抓取服務仍須自行限制非公開位址及重導。本機預檢無法保證另一台服務的 DNS 視圖。
+- npm／PyPI 指定版本或檔案時，provenance 與版本狀態也使用該目標。PyPI 未指定檔案的版本頁，代表檔案 provenance 不能解讀為該版本所有檔案均已驗證。
+- 冷卻期維持提示、不影響 verdict／confidence；原網址不是登錄網址而重導終點是登錄網址時，也會查詢終點的冷卻期。

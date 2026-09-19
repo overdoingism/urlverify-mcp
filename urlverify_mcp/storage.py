@@ -92,10 +92,11 @@ class Storage:
 
     def get_identity(self, project: str) -> dict[str, Any] | None:
         r = self._map_get("identity_cache", self.identity_key(project))
-        return r["data"] if r else None
+        return r["data"] if r and r["data"].get("cache_schema") == 2 else None
 
     def put_identity(self, project: str, data: dict[str, Any], ttl_s: float) -> None:
         data = dict(data)
+        data["cache_schema"] = 2
         data.setdefault("project", project)
         self._map_put("identity_cache", self.identity_key(project), data, time.time() + ttl_s)
 

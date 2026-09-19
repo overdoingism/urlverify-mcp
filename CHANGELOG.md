@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- 冷卻期訊號改為 `RELEASE_COOLDOWN_PERIOD:<已發布小時數>`（最多六位小數），明確要求呼叫端告知風險並取得使用者確認後才可下載／安裝；時間不明亦須確認。README 呼叫端 system prompt 加入工具鏈，且任何非 TRUE 或附帶條件的結果均須確認。
+
+- 審視修正：引文嚴格綁定來源，API 來源類型由工具標記，Wikidata 多實體分開儲存；阻止借用其他頁面或單一真實錨點替虛構內容背書。
+- 必要 L0 檢查未完成時不再 TRUE；HTTP 抓取逐次檢查公開位址並固定連線 IP，重導迴圈／上限／部分失敗均回報，致命 L0 失敗不再抓頁面。平台重導需驗證不同 owner。
+- npm／PyPI 版本狀態與 provenance 使用指定版本／檔案；API 503／429 等錯誤不再視為不存在，npm scope 比對也適用完整流程。
+- 身分快取命中不續期，舊格式與不同證據政策的快取重新調查；獨立來源家族控制信心加分。未知網域不再單憑未列入官方清單而判 FALSE。
+- 保留時間升級、注入即 FALSE 與下載／冷卻期政策。
+
 - Platform anchors now declare, per platform, which hosts carry user content and where the owner is read from (path
   segment, host label such as `<owner>.github.io`, or nowhere for asset/CDN hosts); every other host on the platform's
   domains is the operator's own site with full L0 and its domain as an identity candidate. Asset hosts without a readable owner are `UNVERIFIABLE` on their own.

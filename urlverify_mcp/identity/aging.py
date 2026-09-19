@@ -16,6 +16,8 @@ from typing import Any
 
 import httpx
 
+from ..providers.public_http import public_client
+
 from ..checks.urltools import etld1_of, host_of
 from ..health import observe
 from .structured import Structured
@@ -74,7 +76,7 @@ def _result(method: str, url: str, **kw) -> dict[str, Any]:
 
 class Aging:
     def __init__(self, timeout: float, user_agent: str, structured: Structured, aging_sources: dict[str, str] | None = None):
-        self.client = httpx.AsyncClient(timeout=timeout, headers={"User-Agent": user_agent, "Accept": "application/json, text/html"}, follow_redirects=True)
+        self.client = public_client(timeout=timeout, headers={"User-Agent": user_agent, "Accept": "application/json, text/html"}, follow_redirects=True)
         self.structured = structured
         self._reddit_lock = asyncio.Lock()   # reddit rate-limits bursts; serialize with a pause
         self.sources = dict(DEFAULT_AGING_SOURCES)

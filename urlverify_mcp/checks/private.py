@@ -12,9 +12,8 @@ def is_public_ip(addr: str) -> bool:
         return False
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         ip = ip.ipv4_mapped
-    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved
-                or ip.is_unspecified or ip.is_site_local if hasattr(ip, "is_site_local") else
-                ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+    return ip.is_global and not (ip.is_multicast or ip.is_reserved)
+
 
 
 def non_public(addresses: list[str]) -> list[str]:

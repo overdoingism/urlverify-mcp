@@ -4,8 +4,10 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlsplit
 
-from .cache.anchors import anchor_for
+from .cache.anchors import anchor_for, resolve as resolve_anchor
+from .evidence import record_kind
 from .checks.urltools import etld1_of, host_of
 from .config import Config
 from .cache.anchors import SEED
@@ -58,51 +60,38 @@ def _anchors(ev: Evidence) -> set[str]:
 
 def _fragments(q: str) -> list[str]:
     """A quote may elide with '...' — each remaining fragment must be found verbatim (whitespace ignored)."""
-    return [f for f in (_squash(x) for x in _ELLIPSIS_RE.split(q)) if len(f) >= 8]
+    return [f for f in (_squash(x) for x in _ELLIPSIS_RE.split(q)) if f]
 
 
 def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
     """Mark evidence.verified_quote. Page/media evidence needs a verbatim quote; structured (API) evidence is
     fact-anchored: the domain / org named in the claim must literally appear in that source's raw output."""
-    store_norm = {k: _squash(v) for k, v in store.items()}
     for ev in evidence:
-        q = _norm_ws(ev.quote)
-        src = ev.source
-        if ev.kind in STRUCTURED_KINDS:
-            h = host_of(src)
-            texts = [store_norm[k] for k in store_norm if k == src or k.rstrip("/") == src.rstrip("/")]
-            if not texts:
-                texts = [store_norm[k] for k in store_norm if h and host_of(k) == h]
-            if not texts:
-                # api results are also stored under "<tool>:<args>" keys; match by kind name
-                texts = [store_norm[k] for k in store_norm if k.startswith(ev.kind) or (ev.kind == "package_registry" and k.startswith("package_registry"))]
-            anchors = {_squash(a) for a in _anchors(ev)}
-            frags = _fragments(ev.quote)
-            quote_ok = bool(frags) and any(all(f in t for f in frags) for t in texts)
-            anchor_ok = bool(anchors) and any(a in t for a in anchors for t in texts)
-            if texts and (quote_ok or anchor_ok):
-                ev.verified_quote = True
-                ev.notes.append("structured source: fact anchors found in raw tool output")
-            else:
-                ev.verified_quote = False
-                ev.notes.append("structured source: claimed facts not found in the tool output for that source; discarded")
-            continue
-        if len(q) < 8:
+        raw = store.get(ev.source)
+        if raw is None:
             ev.verified_quote = False
-            ev.notes.append("quote too short to verify")
+            ev.notes.append("cited URL was not fetched; evidence discarded")
             continue
-        candidates = [store_norm[k] for k in store_norm if k == src or k.rstrip("/") == src.rstrip("/")]
-        if not candidates:
-            # same host fallback (e.g. api url vs page url)
-            h = host_of(src)
-            candidates = [store_norm[k] for k in store_norm if host_of(k) == h and h]
-        if not candidates:
-            candidates = list(store_norm.values())
-            ev.notes.append("source not fetched under that exact URL; matched against all fetched content")
+        text = _squash(raw)
         frags = _fragments(ev.quote)
-        ev.verified_quote = bool(frags) and any(all(f in c for f in frags) for c in candidates)
+        quote_ok = sum(map(len, frags)) >= 8 and all(f in text for f in frags)
+        kind = record_kind(store, ev.source)
+        if kind in STRUCTURED_KINDS:
+            # Every anchor must match THIS record. A single real domain cannot legitimise
+            # a fabricated domain/org elsewhere in the same proposed quote.
+            anchors = {_squash(a) for a in _anchors(ev)}
+            anchor_ok = bool(anchors) and all(a in text for a in anchors)
+            ev.verified_quote = quote_ok or anchor_ok
+            if ev.verified_quote and not quote_ok:
+                # Voting uses only fetched facts, never unverified prose surrounding anchors.
+                ev.quote = " ... ".join(sorted(a for a in _anchors(ev) if _squash(a) in text))
+            ev.kind = kind
+        else:
+            ev.verified_quote = quote_ok
+            if ev.kind in STRUCTURED_KINDS:
+                ev.kind = "page"
         if not ev.verified_quote:
-            ev.notes.append("quote not found in fetched content; evidence discarded")
+            ev.notes.append("claimed quote/facts not found in the cited source; evidence discarded")
 
 
 def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str], project: str,
@@ -136,14 +125,14 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     usable: list[Evidence] = []
     for ev in evidence:
         # a structured tool record (JSON we fetched from an API) is platform data, not a page anyone could have written
-        api_record = ev.kind in STRUCTURED_KINDS and store.get(ev.source, "").lstrip().startswith("{")
+        api_record = record_kind(store, ev.source) in STRUCTURED_KINDS
         tier, why = classify(ev.source, ev.tier, ic, api_record=api_record)
         ev.tier = tier
         ev.notes.append(why)
         src_e1 = etld1_of(host_of(ev.source))
         if not ev.verified_quote:
             continue
-        if not api_record and ev.kind not in ("wayback", "wikidata", "wikipedia", "package_registry", "distro") and _is_self(ev.source, l0, self_domains):
+        if not api_record and _is_self(ev.source, l0, self_domains):
             ev.notes.append("self-attestation (the target's own pages / the candidate official domain); not counted")
             continue
         if tier == 3 and not ic.allow_tier3:
@@ -186,12 +175,12 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
         quote_text = _norm_ws(ev.quote)
         for d in official_domains:
             de1 = etld1_of(d)
-            if de1 and (de1 in quote_text or d.lower() in quote_text):
+            if de1 and (_domain_mentioned(quote_text, de1) or _domain_mentioned(quote_text, d.lower())):
                 support.setdefault(de1, set()).add(src_e1)
         for platform, orgs in sub.identity.official_orgs.items():
             for org in orgs:
                 key = f"{platform}:{org.lower()}"
-                if org.lower() in quote_text:
+                if _mentions(quote_text, org.lower()):
                     org_support.setdefault(key, set()).add(src_e1)
     # a stable Wikimedia "source code repository" record (Wikidata P1324 / infobox repo) names the official org on a
     # hosting platform; read from the raw tool output of evidence the LLM cited, independent of what it quoted
@@ -232,7 +221,11 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
         gh_est = [o.lower() for o in est_orgs.get("github", [])]
         blog = provenance.get("owner_blog") or ""
         blog_ok = provenance.get("owner_verified") and etld1_of(host_of(blog)) in established if blog else False
-        if powner in gh_est or blog_ok:
+        scope = l0.platform_owner.split("/", 1)[0][1:] if l0.platform == "npm" and l0.platform_owner.startswith("@") else None
+        scope_ok = scope is None or scope.lower() == powner
+        if not scope_ok:
+            notes.append("npm scope differs from provenance owner; package identity not inherited")
+        if scope_ok and (powner in gh_est or blog_ok):
             est_orgs.setdefault(l0.platform, []).append(l0.platform_owner.lower())
             org_support.setdefault(f"{l0.platform}:{l0.platform_owner.lower()}", set()).add("signed-provenance")
             notes.append(f"{l0.platform} package '{l0.platform_owner}' established by signed build provenance from {provenance.get('repo_url')} "
@@ -287,6 +280,15 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
         notes.append(f"fatal deterministic failure: {msgs}")
         return Decision(Verdict.FALSE, 0.9, notes, evidence, support, established, est_orgs)
 
+    if registry_state and registry_state.get("state") == "unknown":
+        notes.append("target registry state unavailable; cannot establish the target release")
+        return Decision(Verdict.UNVERIFIABLE, 0.2, notes, evidence, support, established, est_orgs)
+
+    incomplete = l0.incomplete_required_checks
+    if incomplete:
+        notes.append("required deterministic checks incomplete: " + ", ".join(sorted(set(incomplete))))
+        return Decision(Verdict.UNVERIFIABLE, 0.2, notes, evidence, support, established, est_orgs)
+
     # ---- 5. TLS organization vs developer (only when both exist)
     dev = (sub.identity.developer or "").strip()
     if l0.tls_org and dev:
@@ -319,13 +321,26 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
         notes.append(f"redirect leaves the official domain ({target_e1} -> {l0.final_etld1})")
         return Decision(Verdict.FALSE, 0.8, notes, evidence, support, established, est_orgs)
 
+    # A known hosting platform does not authenticate the redirect's path owner.
+    if l0.final_url and l0.final_url != l0.normalized_url:
+        fh = host_of(l0.final_url)
+        fa = anchor_for(etld1_of(fh))
+        if fa:
+            scope, owner, _ = resolve_anchor(fa, fh, urlsplit(l0.final_url).path)
+            same_owner = (fa.platform == l0.platform and owner and l0.platform_owner
+                          and owner.lower() == l0.platform_owner.lower())
+            if scope == "user_content" and owner and not same_owner and owner.lower() not in [o.lower() for o in est_orgs.get(fa.platform, [])]:
+                notes.append(f"redirect owner '{owner}' on {fa.platform} has not been established")
+                return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
+    source_count = len({family_of(etld1_of(host_of(e.source))) for e in usable if e.supports})
     risk_penalty = 0.05 * len(l0.risk_signals)
     if anchor and l0.platform_owner:
         owner = l0.platform_owner.lower()
         platform_orgs = [o.lower() for o in est_orgs.get(anchor.platform, [])]
         claimed_orgs = [o.lower() for o in sub.identity.official_orgs.get(anchor.platform, [])]
         if owner in platform_orgs:
-            conf = min(0.95, 0.75 + 0.05 * len(usable)) - risk_penalty
+            conf = min(0.95, 0.75 + 0.05 * source_count) - risk_penalty
+            conf = min(conf, (cached or {}).get("confidence_cap", 1.0))
             notes.append(f"path owner '{owner}' is the established official {anchor.platform} org")
             fams = {family_of(x) for x in org_support.get(f"{anchor.platform}:{owner}", set())}
             if fams and fams <= PLATFORM_FAMILIES:   # basis of THIS owner only; other entities' established domains are irrelevant
@@ -348,12 +363,13 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
         return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
 
     if in_official:
-        conf = min(0.95, 0.7 + 0.05 * len(usable)) - risk_penalty
+        conf = min(0.95, 0.7 + 0.05 * source_count) - risk_penalty
         if org_match is True:
             conf = min(0.98, conf + 0.05)
         if org_match is False:
             notes.append("OV/EV certificate organisation mismatch overrides domain evidence")
             return Decision(Verdict.FALSE, 0.75, notes, evidence, support, established, est_orgs)
+        conf = min(conf, (cached or {}).get("confidence_cap", 1.0))
         notes.append(f"target domain {target_e1} is an established official domain")
         if not project_ok:
             return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
@@ -362,10 +378,8 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     if established:
         # we know the official domain(s), and the target is not one of them
         notes.append(f"target domain {target_e1} is not among the established official domain(s) {established}")
-        conf = 0.7 + min(0.2, 0.05 * len(l0.risk_signals))
-        if any(s.startswith(("typosquat", "brand_in_label", "new_domain")) for s in l0.risk_signals):
-            conf = min(0.95, conf + 0.1)
-        return Decision(Verdict.FALSE, conf, notes, evidence, support, established, est_orgs)
+        notes.append("the known identity list is not exhaustive; no explicit contradiction establishes a counterfeit")
+        return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
 
     if target_e1 in weak or target_e1 in [etld1_of(d) for d in official_domains]:
         notes.append("insufficient independent evidence to establish the official domain")
@@ -374,6 +388,23 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     if sub.proposed_verdict == Verdict.FALSE.value:
         notes.append(f"investigator proposed FALSE: {sub.proposed_reason[:200]}")
     return Decision(Verdict.UNVERIFIABLE, 0.2, notes, evidence, support, established, est_orgs)
+
+
+def _domain_mentioned(text: str, domain: str) -> bool:
+    return bool(re.search(r"(?<![\w.-])(?:[a-z0-9-]+\.)*" + re.escape(domain) + r"(?![\w.-])", text, re.I))
+
+
+def _mentions(text: str, value: str) -> bool:
+    return bool(re.search(r"(?<![\w.-])" + re.escape(value) + r"(?![\w.-])", text, re.I))
+
+
+def _owner_record(source: str, org: str, platform: str) -> bool:
+    host = host_of(source)
+    anchor = anchor_for(etld1_of(host))
+    if not anchor or anchor.platform != platform:
+        return False
+    scope, owner, _ = resolve_anchor(anchor, host, urlsplit(source).path)
+    return scope == "user_content" and bool(owner) and owner.lower() == org.lower()
 
 
 def _is_self(source: str, l0: L0Result, self_domains: set[str]) -> bool:
@@ -421,7 +452,7 @@ def _age_days(ts: float) -> int:
 
 
 def _norm_name(x: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", (x or "").lower())
+    return "".join(c for c in (x or "").casefold() if c.isalnum())
 
 
 def _name_in(project_norm: str, text: str) -> bool:
@@ -442,7 +473,7 @@ def _project_matches(project: str, l0: L0Result, usable: list[Evidence]) -> tupl
                 return True, f"project name matches the {l0.platform} path ({cand})"
         return False, f"project '{project}' matches neither the {l0.platform} owner '{l0.platform_owner}' nor the repository '{l0.platform_repo}'"
     for ev in usable:
-        if ev.supports and ev.verified_quote and (_name_in(p, ev.quote) or _name_in(p, ev.claim)):
+        if ev.supports and ev.verified_quote and _name_in(p, ev.quote):
             return True, f"project name appears in verified evidence from {host_of(ev.source)}"
     return False, f"no verified evidence mentions the project '{project}'"
 
@@ -463,9 +494,9 @@ def _bidirectional(org: str, platform: str, established: list[str], store: dict[
     """org page mentions an established official domain AND the official domain's content mentions the org."""
     org_l = org.lower()
     for d in established:
-        org_text = " ".join(v.lower() for k, v in store.items() if org_l in k.lower() and platform in k.lower())
+        org_text = " ".join(v.lower() for k, v in store.items() if _owner_record(k, org, platform))
         site_text = " ".join(v.lower() for k, v in store.items() if etld1_of(host_of(k)) == d)
-        if d in org_text and org_l in site_text:
+        if _mentions(org_text, d) and _mentions(site_text, f"{_PLATFORM_HOSTS.get(platform, platform)}/{org_l}"):
             return True
     return False
 
@@ -478,7 +509,7 @@ def _wikimedia_repo_names_org(org: str, platform: str, source: str, store: dict[
     `platform` and that repository value has been stable across the history window."""
     host = _PLATFORM_HOSTS.get(platform)
     raw = store.get(source)
-    if not host or not raw:
+    if not host or not raw or record_kind(store, source) not in ("wikipedia", "wikidata"):
         return False
     try:
         data = json.loads(raw)
@@ -499,10 +530,8 @@ def _wikimedia_repo_names_org(org: str, platform: str, source: str, store: dict[
 
 def _platform_verified_link(org: str, platform: str, established: list[str], store: dict[str, str]) -> bool:
     """GitHub org with is_verified (DNS-verified domain) / HF verified org whose website is an established domain."""
-    org_l = org.lower()
     for k, v in store.items():
-        kl = k.lower()
-        if platform not in kl or org_l not in kl:
+        if record_kind(store, k) != platform or not _owner_record(k, org, platform):
             continue
         if '"is_verified": true' not in v.lower():
             continue
@@ -515,6 +544,6 @@ def _platform_verified_link(org: str, platform: str, established: list[str], sto
 def _fork_of_other(l0: L0Result, store: dict[str, str]) -> bool:
     key = f"https://github.com/{l0.platform_owner}/{l0.platform_repo}"
     for k, v in store.items():
-        if k.lower().startswith(key.lower()) and '"fork": true' in v:
+        if record_kind(store, k) == "github" and k.lower().rstrip("/") == key.lower() and '"fork": true' in v:
             return True
     return False

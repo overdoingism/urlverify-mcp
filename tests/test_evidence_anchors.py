@@ -1,4 +1,5 @@
 from urlverify_mcp.models import Evidence
+from urlverify_mcp.evidence import EvidenceStore
 from urlverify_mcp.rules import _anchors, _fragments, verify_quotes
 from urlverify_mcp.checks.ct import parse_crtsh_cert_page
 
@@ -23,10 +24,12 @@ def test_double_quoted_values_and_ellipsis_quotes_anchor():
                   quote='"developer_fields": ["GitHub", "OpenJS Foundation", ...]')
     assert "openjs foundation" in _anchors(ev) and "developer_fields" not in _anchors(ev)
     assert _fragments('"developer_fields": ["GitHub", "OpenJS Foundation", ...]')[0].startswith('"developer_fields"')
-    verify_quotes([ev], {ev.source: WIKI_RAW})
+    store = EvidenceStore()
+    store.record(ev.source, WIKI_RAW, "wikipedia")
+    verify_quotes([ev], store)
     assert ev.verified_quote is True
     ev2 = Evidence(kind="wikipedia", source=ev.source, tier=1, claim="developer is Acme Corp", quote='"developer_fields": ["Acme Corp"]')
-    verify_quotes([ev2], {ev.source: WIKI_RAW})
+    verify_quotes([ev2], store)
     assert ev2.verified_quote is False
 
 

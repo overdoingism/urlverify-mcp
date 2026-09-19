@@ -148,7 +148,8 @@ def test_advisory_preserves_verdict_confidence_and_language(verdict):
     annotate_result(result, VerifyRequest(project='Example', url='https://example.com', description='安裝套件'))
     assert result.verdict == verdict and result.confidence == 0.75
     assert '冷卻期' in result.reason
-    assert 'RELEASE_COOLDOWN_PERIOD' in result.risk_signals
+    assert 'RELEASE_COOLDOWN_PERIOD:12' in result.risk_signals
+    assert '必須先向使用者說明風險並取得確認' in result.reason
 
 
 async def test_nuget_unlisted_latest_and_hostile_service_endpoint():
@@ -206,7 +207,8 @@ async def test_pipeline_modes_cache_and_history(monkeypatch, tmp_path, mode, reg
     cfg = Config(storage={'dir': str(tmp_path / 'state')}, log={'dir': str(tmp_path / 'log')},
                  prompts={'dir': str(tmp_path / 'prompts')}, package_registry_fast_path={'mode': mode})
     store = Storage(cfg.storage.resolved(), cfg.log.resolved())
-    store.put_identity('Example', {'official_orgs': {registry: ['example']}}, 3600)
+    store.put_identity('Example', {'official_orgs': {registry: ['example']}, 'policy_fingerprint': pipeline.identity_policy(cfg)}, 3600)
+    cached_before = store._map('identity_cache')
     url = {'npm': 'https://www.npmjs.com/package/example/v/1.2.3',
            'pypi': 'https://pypi.org/project/example/1.2.3/',
            'nuget': 'https://www.nuget.org/packages/Example/1.2.3'}[registry]
@@ -244,17 +246,41 @@ async def test_pipeline_modes_cache_and_history(monkeypatch, tmp_path, mode, reg
     monkeypatch.setattr(pipeline, 'Investigator', Investigator)
     monkeypatch.setattr(pipeline, 'RegistryFastPath', Fast)
     monkeypatch.setattr(pipeline, '_write_reason', reason)
-    monkeypatch.setattr(pipeline, 'decide', lambda *args: Decision(Verdict.TRUE, 0.8))
+    monkeypatch.setattr(pipeline, 'decide', lambda *args: Decision(Verdict.TRUE, 0.8, established_orgs={registry: ['example']}))
     request = VerifyRequest(project='Example', url=url, description='安裝套件')
     result = await pipeline.verify(request, cfg, store)
     assert result.checks['release_cooldown']['detail']['state'] == 'active'
-    assert '冷卻期' in result.reason and 'RELEASE_COOLDOWN_PERIOD' in result.risk_signals
+    assert '冷卻期' in result.reason and any(s.startswith('RELEASE_COOLDOWN_PERIOD:') for s in result.risk_signals)
     if mode == 'quick' and not fast_result:
         assert result.verdict == Verdict.UNVERIFIABLE
     else:
         assert result.verdict == Verdict.TRUE and result.confidence == 0.8
     assert 'identity' in result.cache_hits
+    assert store._map('identity_cache') == cached_before  # cache hits must not renew the original expiry
     saved = store.get_history(result.trace_id)['result']
     assert saved['reason'] == result.reason
     assert saved['checks']['release_cooldown'] == result.checks['release_cooldown']
     assert len((tmp_path / 'log/history/index.jsonl').read_text().splitlines()) == 1
+
+
+@pytest.mark.parametrize('age,label', [(0, '0'), (36, '36'), (36.5, '36.5'), (71.999999, '71.999999')])
+@pytest.mark.parametrize('description', ['安裝套件', 'Install package'])
+def test_cooldown_signal_elapsed_hours_and_confirmation(age, label, description):
+    result = VerifyResult(verdict=Verdict.TRUE, confidence=0.8, reason='verified', checks={'release_cooldown': {'detail': {
+        'state': 'active', 'version': '1.0', 'age_hours': age, 'threshold_hours': 72, 'remaining_hours': 72-age}}})
+    annotate_result(result, VerifyRequest(project='Example', url='https://example.com', description=description))
+    assert result.risk_signals == [f'RELEASE_COOLDOWN_PERIOD:{label}']
+    assert result.verdict == Verdict.TRUE and result.confidence == 0.8
+    assert ('取得確認' if description == '安裝套件' else 'obtain confirmation') in result.reason
+
+
+@pytest.mark.parametrize('state', ['unknown', 'elapsed', 'disabled'])
+def test_other_cooldown_states_do_not_emit_elapsed_hours(state):
+    result = VerifyResult(verdict=Verdict.TRUE, confidence=0.8, reason='verified',
+                          checks={'release_cooldown': {'detail': {'state': state}}})
+    annotate_result(result, VerifyRequest(project='Example', url='https://example.com', description='Install package'))
+    if state == 'unknown':
+        assert result.risk_signals == ['release_cooldown_unknown']
+        assert 'obtain confirmation' in result.reason
+    else:
+        assert result.risk_signals == [] and result.reason == 'verified'

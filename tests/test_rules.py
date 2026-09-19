@@ -4,12 +4,14 @@ from urlverify_mcp.checks.injection import find_injection
 from urlverify_mcp.config import Config
 from urlverify_mcp.models import CheckResult, Evidence, IdentityGraph, L0Result, LLMSubmission, Verdict
 from urlverify_mcp.rules import decide, verify_quotes
+from urlverify_mcp.evidence import EvidenceStore
 
 
 def _l0(host="lmstudio.ai", fatal=False, platform=None, owner=None, repo=None, tls_org=None, scope=None):
     from urlverify_mcp.checks.urltools import etld1_of
     l0 = L0Result(normalized_url=f"https://{host}/x", host=host, etld1=etld1_of(host), platform=platform,
                   platform_scope=scope or ("user_content" if platform else None), platform_owner=owner, platform_repo=repo, tls_org=tls_org)
+    l0.checks.extend(CheckResult(name=n, status="pass") for n in ("scheme", "dns", "public_address", "redirects"))
     l0.checks.append(CheckResult(name="tls", status="fail" if fatal else "pass", fatal=fatal, message="x"))
     return l0
 
@@ -18,12 +20,13 @@ def _ev(source, claim, quote, kind="media", tier=2, supports=True):
     return Evidence(kind=kind, source=source, tier=tier, claim=claim, quote=quote, supports=supports)
 
 
-STORE = {
+STORE = EvidenceStore({
     "https://www.wikidata.org/wiki/Q123": '{"label": "LM Studio", "official_website": ["https://lmstudio.ai"], "developer": [{"label": "Element Labs"}], "stability": {"stable": true, "recent_change": false}}',
     "https://techcrunch.com/x": "LM Studio, built by Element Labs, is available at lmstudio.ai for Mac, Windows and Linux.",
     "https://someforum.example/thread/1": "lmstudio.ai is legit trust me",
     "https://github.com/lmstudio-ai": '{"owner_info": {"login": "lmstudio-ai", "blog": "https://lmstudio.ai", "is_verified": true}}',
-}
+})
+STORE.kinds.update({"https://www.wikidata.org/wiki/Q123": "wikidata", "https://github.com/lmstudio-ai": "github"})
 IDENT = IdentityGraph(product="LM Studio", developer="Element Labs", aliases=["Bionic"], official_domains=["lmstudio.ai"],
                       official_orgs={"github": ["lmstudio-ai"]})
 
@@ -70,20 +73,20 @@ def test_llm_cannot_override_fatal_l0():
     assert d.verdict == Verdict.FALSE
 
 
-def test_false_when_official_known_and_target_differs():
+def test_unverifiable_when_known_identity_is_incomplete():
     sub = LLMSubmission(identity=IDENT, evidence=[
         _ev("https://www.wikidata.org/wiki/Q123", "official domain is lmstudio.ai", '"official_website": ["https://lmstudio.ai"]', kind="wikidata", tier=1),
         _ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac"),
     ], proposed_verdict="VERIFIED_TRUE")
     d = decide(Config(), _l0(host="lmstudio-download.com"), sub, STORE, "LM Studio")
-    assert d.verdict == Verdict.FALSE
+    assert d.verdict == Verdict.UNVERIFIABLE
 
 
 def test_platform_owner_must_match_established_org():
     base = [_ev("https://www.wikidata.org/wiki/Q123", "official domain is lmstudio.ai", '"official_website": ["https://lmstudio.ai"]', kind="wikidata", tier=1),
             _ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac"),
             _ev("https://github.com/lmstudio-ai", "github org lmstudio-ai links to lmstudio.ai", '"blog": "https://lmstudio.ai", "is_verified": true', kind="github", tier=2)]
-    store = dict(STORE); store["https://lmstudio.ai/"] = "Download LM Studio. Source on GitHub: github.com/lmstudio-ai"
+    store = EvidenceStore(STORE); store.kinds.update(STORE.kinds); store["https://lmstudio.ai/"] = "Download LM Studio. Source on GitHub: github.com/lmstudio-ai"
     sub = LLMSubmission(identity=IDENT, evidence=base, proposed_verdict="VERIFIED_TRUE")
     d = decide(Config(), _l0(host="github.com", platform="github", owner="lmstudio-ai", repo="lms"), sub, store, "LM Studio")
     assert d.verdict == Verdict.TRUE, d.notes
@@ -159,7 +162,7 @@ def test_project_mismatch_withheld_on_platform_branch():
     base = [_ev("https://www.wikidata.org/wiki/Q123", "official domain is lmstudio.ai", '"official_website": ["https://lmstudio.ai"]', kind="wikidata", tier=1),
             _ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac"),
             _ev("https://github.com/lmstudio-ai", "github org lmstudio-ai links to lmstudio.ai", '"blog": "https://lmstudio.ai", "is_verified": true', kind="github", tier=2)]
-    store = dict(STORE); store["https://lmstudio.ai/"] = "Download LM Studio. Source on GitHub: github.com/lmstudio-ai"
+    store = EvidenceStore(STORE); store.kinds.update(STORE.kinds); store["https://lmstudio.ai/"] = "Download LM Studio. Source on GitHub: github.com/lmstudio-ai"
     sub = LLMSubmission(identity=IDENT, evidence=base, proposed_verdict="VERIFIED_TRUE")
     l0 = _l0(host="github.com", platform="github", owner="lmstudio-ai", repo="lms")
     assert decide(Config(), l0, sub, store, "requests").verdict == Verdict.UNVERIFIABLE     # org is established, but not the project asked for
@@ -194,8 +197,10 @@ def test_wikimedia_repo_record_establishes_platform_org():
         wd = {"ok": True, "found": True, "entities": [
             {"qid": "Q125998452", "label": "llama.cpp", "official_website": [], "official_repos": ["github.com/ggml-org/llama.cpp"],
              "stability": None, "repo_stability": {"ok": True, "stable": stable, "recent_change": not stable}, "source": wd_src}]}
-        return {wd_src: json.dumps(wd),
-                gh_src: '{"owner_info": {"login": "ggml-org", "is_verified": true, "blog": "https://ggml.ai"}, "fork": false}'}
+        records = EvidenceStore({wd_src: json.dumps(wd),
+                gh_src: '{"owner_info": {"login": "ggml-org", "is_verified": true, "blog": "https://ggml.ai"}, "fork": false}'})
+        records.kinds.update({wd_src: "wikidata", gh_src: "github"})
+        return records
 
     # the LLM quoted only the label, not the repository: the vote must come from the raw record
     ev = [_ev(wd_src, "Wikidata entity for llama.cpp exists", '"label": "llama.cpp"', kind="wikidata", tier=1),
@@ -321,7 +326,9 @@ def test_self_published_project_true_is_capped():
                            official_orgs={"github": ["drluoto"], "huggingface": ["drluoto"]})
     wd = "https://www.wikidata.org/wiki/Q130234299"; qhf = "https://huggingface.co/Qwen/Qwen3.8-Flash-Next"
     store[wd] = json.dumps({"label": "Qwen", "official_website": ["https://qwen.ai"], "stability": {"stable": True, "recent_change": False}})
-    store[qhf] = json.dumps({"id": "Qwen/Qwen3.8-Flash-Next", "author": "Qwen", "homepage": "https://qwen.ai"})
+    store = EvidenceStore(store)
+    store.kinds.update({gh: "github", hf: "huggingface", wb: "wayback", wd: "wikidata", qhf: "huggingface"})
+    store.record(qhf, json.dumps({"id": "Qwen/Qwen3.8-Flash-Next", "author": "Qwen", "homepage": "https://qwen.ai"}), "huggingface")
     ev2 = ev + [_ev(wd, "Qwen official site is qwen.ai", '"official_website": ["https://qwen.ai"]', kind="wikidata", tier=1),
                 _ev(qhf, "official model is under Qwen at qwen.ai, not drluoto", '"author": "Qwen", "homepage": "https://qwen.ai"', kind="huggingface")]
     d = decide(Config(), _l0(host="github.com", platform="github", owner="drluoto", repo="flash-next-strix-halo"),
@@ -369,7 +376,7 @@ def test_user_subdomain_platform_pages_cannot_borrow_the_platform_domain():
           _ev(b, "blog says the official site is on github.io", "Get Notepad++ from the official site on github.io")]
     l0 = L0Result(normalized_url="https://evil.github.io/notepad/", host="evil.github.io", etld1="github.io", platform="github",
                   platform_scope="user_content", platform_owner="evil", platform_repo="notepad")
-    l0.checks.append(CheckResult(name="tls", status="pass", message="x"))
+    l0.checks.extend(CheckResult(name=n, status="pass") for n in ("scheme", "dns", "public_address", "redirects", "tls"))
     d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "Notepad++")
     assert d.verdict != Verdict.TRUE, d.notes
     assert "github.io" not in d.established_domains and any("hosting platform, not an identity" in n for n in d.notes)
@@ -378,7 +385,7 @@ def test_user_subdomain_platform_pages_cannot_borrow_the_platform_domain():
 def test_opaque_asset_host_is_unverifiable_on_its_own():
     l0 = L0Result(normalized_url="https://release-assets.githubusercontent.com/x/1/2", host="release-assets.githubusercontent.com",
                   etld1="githubusercontent.com", platform="github", platform_scope="user_content")
-    l0.checks.append(CheckResult(name="tls", status="pass", message="x"))
+    l0.checks.extend(CheckResult(name=n, status="pass") for n in ("scheme", "dns", "public_address", "redirects", "tls"))
     ident = IdentityGraph(product="x", developer="y", aliases=[], official_domains=["lmstudio.ai"], official_orgs={})
     d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=[], proposed_verdict="VERIFIED_FALSE"), {}, "x")
     assert d.verdict == Verdict.UNVERIFIABLE and any("asset / CDN host" in n for n in d.notes), d.notes

@@ -8,6 +8,7 @@ from typing import Any
 from ..checks.injection import wrap_untrusted
 from ..config import Config
 from ..identity.structured import Structured
+from ..evidence import EvidenceStore
 from ..models import L0Result, LLMSubmission
 from ..providers.llm import LLM
 from ..providers.search import SearchProvider
@@ -66,7 +67,7 @@ class Investigator:
         self.fetcher = fetcher or search
         self.structured = structured
         self.budget = Budget(cfg)
-        self.evidence_store: dict[str, str] = {}      # source url/key -> raw text (for quote verification)
+        self.evidence_store = EvidenceStore()      # source url/key -> raw text (for quote verification)
         self.target_page_text: str | None = None
         self.tool_log: list[dict[str, Any]] = []
         self.target_url: str | None = None
@@ -98,10 +99,11 @@ class Investigator:
                 url = str(args.get("url", "")).strip()
                 out = await self.fetcher.fetch(url)
                 out = out[: self.cfg.budget.fetch_max_chars]
-                self._remember(url, out)
+                source = getattr(self.fetcher, "sources", {}).get(url, url)
+                self._remember(source, out)
                 if self.target_etld1 and _etld1(url) == self.target_etld1 and self.target_page_text is None:
                     self.target_page_text = out
-                return wrap_untrusted(url, out)
+                return wrap_untrusted(source, out)
             if name in ("wikidata_lookup", "wikipedia_history", "wayback_first_seen", "github_info", "huggingface_info", "package_registry"):
                 if not self.budget.take("api_calls"):
                     return "BUDGET EXHAUSTED for api_calls. Use what you have or submit_verdict."
@@ -127,8 +129,13 @@ class Investigator:
                     r = await lookup(str(args.get("name", "")))
                     keys = [r.get("source")] if r.get("source") else []
                 text = json.dumps(r, ensure_ascii=False, indent=1)
-                for k in keys:
-                    self._remember(k, text)
+                kind = {"wikidata_lookup": "wikidata", "wikipedia_history": "wikipedia",
+                        "github_info": "github", "huggingface_info": "huggingface",
+                        "wayback_first_seen": "wayback", "package_registry": "package_registry"}[name]
+                for k in keys if r.get("ok") and r.get("found") is not False else []:
+                    # An entity URL must never inherit another entity's facts from a search result batch.
+                    raw = next(e for e in r["entities"] if e["source"] == k) if name == "wikidata_lookup" else r
+                    self.evidence_store.record(k, json.dumps(raw, ensure_ascii=False), kind)
                 self._remember(f"{name}:{json.dumps(args, sort_keys=True)}", text)
                 return text
             return f"Unknown tool {name}"

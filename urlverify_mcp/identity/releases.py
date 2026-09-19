@@ -202,7 +202,8 @@ async def check_release(url: str, cfg: Config, client: httpx.AsyncClient, *, now
     except Exception as exc:
         error = f"{type(exc).__name__}: {exc}"
         detail.update(state="unknown", error=error)
-        observe(target.registry, False, error)
+        if isinstance(exc, (httpx.HTTPError, TimeoutError)):
+            observe(target.registry, False, error)
         return CheckResult(name="release_cooldown", status="error", detail=detail,
                            message=f"release cooldown could not be assessed: {error}")
 
@@ -213,7 +214,9 @@ def annotate_result(result: VerifyResult, req: VerifyRequest) -> None:
     state = detail.get("state")
     if state not in ("active", "unknown"):
         return
-    signal = "RELEASE_COOLDOWN_PERIOD" if state == "active" else "release_cooldown_unknown"
+    # Elapsed hours, not remaining hours or the configured threshold. Match detail precision.
+    age_label = f"{detail['age_hours']:.6f}".rstrip("0").rstrip(".") if state == "active" else None
+    signal = f"RELEASE_COOLDOWN_PERIOD:{age_label}" if state == "active" else "release_cooldown_unknown"
     if signal not in result.risk_signals:
         result.risk_signals.append(signal)
     chinese = bool(re.search(r"[\u3400-\u9fff]", req.project + req.description))
@@ -224,5 +227,7 @@ def annotate_result(result: VerifyResult, req: VerifyRequest) -> None:
     else:
         note = ("無法確認目標版本的發布時間或冷卻狀態，不能視為已通過冷卻期；詳見 checks.release_cooldown。" if chinese else
                 "The target release cooldown could not be assessed; it must not be treated as elapsed. See checks.release_cooldown.")
+    note += (" 若要繼續下載或安裝，必須先向使用者說明風險並取得確認；來源驗證通過不代表內容安全。" if chinese else
+             " Before proceeding with download or installation, you MUST explain the risk to the user and obtain confirmation; verified origin does not imply safe contents.")
     result.reason += "\n" + note
     result.engine_notes.append(note)

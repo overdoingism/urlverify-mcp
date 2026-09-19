@@ -11,18 +11,22 @@ import base64
 import json
 import re
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 import httpx
 
 from ..health import observe
 
-GH_RE = re.compile(r"github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/#?]|$)")
-
-
 def _owner_repo(url: str | None) -> tuple[str, str] | None:
-    m = GH_RE.search(url or "")
-    return (m.group(1), m.group(2)) if m else None
+    value = (url or "").removeprefix("git+")
+    if value.startswith("git@github.com:"):
+        value = "https://github.com/" + value.split(":", 1)[1]
+    parsed = urlsplit(value)
+    if parsed.hostname != "github.com" or parsed.scheme not in ("https", "http", "ssh", "git"):
+        return None
+    match = re.match(r"^/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)(?:/|$)", parsed.path)
+    return (match[1], match[2].removesuffix(".git")) if match else None
+
 
 
 class Provenance:

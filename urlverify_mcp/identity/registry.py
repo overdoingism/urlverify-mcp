@@ -11,6 +11,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -18,8 +19,9 @@ from ..checks.urltools import levenshtein
 from ..config import Config
 from ..models import Evidence, IdentityGraph, L0Result, Verdict, VerifyResult
 from ..tracelog import TRACE
-from .provenance import Provenance
+from .provenance import Provenance, _owner_repo
 from .structured import Structured
+from .releases import target_from_url
 
 
 
@@ -96,6 +98,7 @@ class RegistryFastPath:
         self.cfg = cfg
         self.structured = structured
         self.client = structured.client
+        self._target_cache: dict[str, dict[str, Any]] = {}
 
     # ---------------- popularity data
     async def pypi_top(self) -> dict[str, int] | None:
@@ -148,24 +151,42 @@ class RegistryFastPath:
             return None
 
     # ---------------- signals
-    async def pypi_signals(self, name: str) -> dict[str, Any]:
+    async def pypi_signals(self, name: str, version: str | None = None, artifact: str | None = None) -> dict[str, Any]:
         sig: dict[str, Any] = {"registry": "pypi", "name": name}
         try:
-            j = (await self.client.get(f"https://pypi.org/pypi/{name}/json")).json()
+            r = await self.client.get(f"https://pypi.org/pypi/{quote(name, safe='')}/json")
+            if r.status_code == 404:
+                return {**sig, "exists": False}
+            r.raise_for_status()
+            j = r.json()
+            selected = j
+            if version:
+                r = await self.client.get(f"https://pypi.org/pypi/{quote(name, safe='')}/{quote(version, safe='')}/json")
+                if r.status_code == 404:
+                    return {**sig, "exists": False, "version": version}
+                r.raise_for_status()
+                selected = r.json()
         except Exception as e:  # noqa: BLE001
             return {**sig, "exists": None, "error": f"{type(e).__name__}: {e}"}
-        info = j.get("info") or {}
-        if not info:
-            return {**sig, "exists": False}
+        info = selected.get("info") or {}
+        if not info or not info.get("version"):
+            return {**sig, "exists": None, "error": "invalid PyPI metadata"}
         uploads = [f["upload_time_iso_8601"] for files in (j.get("releases") or {}).values() for f in files if f.get("upload_time_iso_8601")]
         latest = info.get("version")
-        files = (j.get("releases") or {}).get(latest) or []
-        sig["latest_yanked"] = pypi_latest_all_yanked(j)
+        files = selected.get("urls") or (j.get("releases") or {}).get(latest) or []
+        if artifact:
+            files = [f for f in files if f.get("url") == artifact]
+            if len(files) != 1:
+                return {**sig, "exists": None, "error": "artifact does not uniquely match registry metadata"}
+        if not files:
+            return {**sig, "exists": None, "error": "release has no distribution files"}
+        sig["latest_yanked"] = all(f.get("yanked", False) for f in files)
+        selected_uploads = [f["upload_time_iso_8601"] for f in files if f.get("upload_time_iso_8601")]
         sig.update({"exists": True, "canonical": info.get("name"), "releases": len(j.get("releases") or {}), "version": latest,
                     "filename": next((f["filename"] for f in files if f.get("filename", "").endswith(".whl")), files[0]["filename"] if files else None),
-                    "age_days": _age_days(min(uploads)) if uploads else None, "latest_age_days": _age_days(max(uploads)) if uploads else None,
+                    "age_days": _age_days(min(uploads)) if uploads else None, "latest_age_days": _age_days(max(selected_uploads)) if selected_uploads else None,
                     "project_urls": info.get("project_urls") or {}, "home_page": info.get("home_page"), "summary": info.get("summary"),
-                    "source": f"https://pypi.org/project/{info.get('name') or name}/"})
+                    "source": f"https://pypi.org/project/{info.get('name') or name}/{latest}/"})
         if not self.cfg.package_registry_fast_path.typosquat_check:
             sig["typosquat_hits"] = []
             sig["typosquat_check"] = "disabled by config"
@@ -190,22 +211,34 @@ class RegistryFastPath:
         sig["typosquat_hits"] = sorted(hits, key=lambda h: -h["downloads"])[:3]
         return sig
 
-    async def npm_signals(self, name: str) -> dict[str, Any]:
+    async def npm_signals(self, name: str, version: str | None = None, artifact: str | None = None) -> dict[str, Any]:
         sig: dict[str, Any] = {"registry": "npm", "name": name}
         try:
             r = await self.client.get(f"https://registry.npmjs.org/{name}")
             if r.status_code == 404:
                 return {**sig, "exists": False}
+            r.raise_for_status()
             j = r.json()
         except Exception as e:  # noqa: BLE001
             return {**sig, "exists": None, "error": f"{type(e).__name__}: {e}"}
+        if not isinstance(j.get("versions"), dict) or not j.get("name"):
+            return {**sig, "exists": None, "error": "invalid npm metadata"}
+        selected_version = (j.get("dist-tags") or {}).get(version or "latest", version)
+        if artifact:
+            matches = [v for v, record in j["versions"].items() if (record.get("dist") or {}).get("tarball") == artifact]
+            if len(matches) != 1:
+                return {**sig, "exists": None, "error": "artifact does not uniquely match registry metadata"}
+            selected_version = matches[0]
+        selected = j["versions"].get(selected_version)
+        if not selected:
+            return {**sig, "exists": False, "version": selected_version}
         times = j.get("time") or {}
         versions = [v for v in times if v not in ("created", "modified")]
         sig["security_holding"] = is_security_holding(j)
-        repo = j.get("repository")
+        repo = selected.get("repository")
         sig.update({"exists": True, "canonical": j.get("name"), "releases": len(versions), "age_days": _age_days(times.get("created")),
-                    "version": (j.get("dist-tags") or {}).get("latest"),
-                    "latest_age_days": _age_days(times.get("modified")), "homepage": j.get("homepage"),
+                    "version": selected_version, "scope": name.split("/", 1)[0][1:] if name.startswith("@") else None,
+                    "latest_age_days": _age_days(times.get(selected_version)), "homepage": selected.get("homepage"),
                     "repository": repo.get("url") if isinstance(repo, dict) else repo, "maintainers": len(j.get("maintainers") or []),
                     "source": f"https://www.npmjs.com/package/{name}"})
         # No near-name comparison for npm: there is no popularity reference to compare against, and generating
@@ -222,10 +255,10 @@ class RegistryFastPath:
         for u in urls:
             if not u:
                 continue
-            m = re.search(r"github\.com[/:]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/#?]|$)", str(u))
-            if not m:
+            pair = _owner_repo(str(u))
+            if not pair:
                 continue
-            owner, repo = m.group(1), m.group(2)
+            owner, repo = pair
             gh = await self.structured.github(owner, repo)
             if not (gh.get("ok") and gh.get("repo_info")):
                 return {"repo": f"{owner}/{repo}", "ok": False, "error": gh.get("error", "not found")}
@@ -265,7 +298,7 @@ class RegistryFastPath:
         if l0.platform not in ("pypi", "npm") or not l0.platform_owner:
             return None
         name = l0.platform_owner
-        sig = await (self.pypi_signals(name) if l0.platform == "pypi" else self.npm_signals(name))
+        sig = await self.target_signals(l0)
         notes: list[str] = []
         if sig.get("exists") is None:
             notes.append(f"registry API unavailable ({sig.get('error')}); fast path inconclusive")
@@ -283,6 +316,8 @@ class RegistryFastPath:
                                  "security team after a malicious package was removed; nothing legitimate is published under it"], t0, trace_id)
         if sig.get("latest_yanked"):
             l0.risk_signals.append("pypi_latest_release_yanked")
+        if sig.get("latest_yanked") or l0.incomplete_required_checks:
+            return None
         # only now the caller's project name: the facts above are about the target itself
         if fp.require_project_match and project and not _names_match(project, name):
             TRACE.log("registry_fast_path", outcome="inconclusive", note=f"project '{project}' does not match package '{name}'")
@@ -321,7 +356,7 @@ class RegistryFastPath:
         # provenance (the registry's signed statement of which repository's CI published this version) is required:
         # metadata links alone cannot say WHO published, and a new/small package deserves the full investigation
         if not prov.get("found"):
-            notes.append("no build provenance (npm attestation / PyPI PEP 740) for the latest version")
+            notes.append("no build provenance (npm attestation / PyPI PEP 740) for the target version")
         else:
             powner = prov["repo"][0].lower()
             if repo.get("ok") and repo.get("repo") and repo["repo"].lower().split("/")[0] != powner:
@@ -351,12 +386,30 @@ class RegistryFastPath:
         TRACE.log("registry_fast_path", signals=sig, repo=repo, provenance=prov, outcome="verified")
         return self._result(Verdict.TRUE, fp.confidence, l0, sig, repo, why, t0, trace_id, prov)
 
+    async def target_signals(self, l0: L0Result) -> dict[str, Any]:
+        if l0.normalized_url in self._target_cache:
+            return self._target_cache[l0.normalized_url]
+        target = target_from_url(l0.normalized_url)
+        if not target or not target.name or target.registry != l0.platform:
+            return {"exists": None, "error": "URL does not identify this registry package"}
+        # Pin mutable tags/latest to the release already resolved for this verification.
+        for check in l0.checks:
+            meta = check.detail
+            package = meta.get("package") or ""
+            same_name = norm_pypi(package) == norm_pypi(target.name) if target.registry == "pypi" else package == target.name
+            if check.name == "release_cooldown" and meta.get("registry") == target.registry and same_name and meta.get("version"):
+                target.version = meta["version"]
+        getter = self.pypi_signals if l0.platform == "pypi" else self.npm_signals
+        sig = await getter(target.name, version=target.version, artifact=target.artifact) if target.version or target.artifact else await getter(target.name)
+        self._target_cache[l0.normalized_url] = sig
+        return sig
+
     async def registry_state(self, l0: L0Result) -> dict[str, Any] | None:
         """The registry's own statement about the target name, independent of any path or mode:
         {"state": "missing"|"security_holding"|"latest_yanked"|"ok", ...}."""
         if l0.platform not in ("pypi", "npm") or not l0.platform_owner:
             return None
-        sig = await (self.pypi_signals(l0.platform_owner) if l0.platform == "pypi" else self.npm_signals(l0.platform_owner))
+        sig = await self.target_signals(l0)
         if sig.get("exists") is None:
             return {"state": "unknown", "error": sig.get("error")}
         if sig.get("exists") is False:

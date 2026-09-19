@@ -40,7 +40,7 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
     user_content = False
     if anchor:
         scope, owner, repo = resolve_anchor(anchor, host, urlsplit(norm).path)
-        if anchor.platform in ("npm", "pypi", "nuget") and scope == "user_content":
+        if anchor.platform in ("npm", "pypi", "nuget") and scope == "user_content" and owner:
             from ..identity.releases import target_from_url
             target = target_from_url(norm)
             owner = (target.name or None) if target else owner
@@ -87,7 +87,7 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
                                   fatal=fatal_struct, detail=hf, message="; ".join(struct_msgs)))
 
     # --- address class first: never probe loopback / private / link-local targets
-    dns_r = await dns_mod.resolve(host)
+    dns_r = {"resolved": False, "addresses": []} if looks_local_hostname(host) else await dns_mod.resolve(host)
     bad_ips = non_public(dns_r.get("addresses", [])) if dns_r.get("resolved") else []
     if looks_local_hostname(host) or bad_ips or hf["ip_literal"] and non_public([host.strip("[]")]):
         res.checks.append(CheckResult(name="public_address", status="fail", fatal=True,
@@ -97,18 +97,24 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
         for name in ("tls", "redirects", "ct_first_seen"):
             res.checks.append(CheckResult(name=name, status="skip", message="skipped: non-public target"))
         return res
+    if not dns_r.get("resolved") or not dns_r.get("addresses"):
+        res.checks.append(CheckResult(name="dns", status="error", detail=dns_r, message="DNS lookup failed"))
+        for name in ("public_address", "tls", "redirects"):
+            res.checks.append(CheckResult(name=name, status="skip", message="DNS unavailable"))
+        return res
     res.checks.append(CheckResult(name="public_address", status="pass", detail={"addresses": dns_r.get("addresses", [])}))
 
     # --- TLS (cached), redirects, CT in parallel
     dns_task = asyncio.sleep(0, result=dns_r)
-    cert_cached = store.get_cert(host)
+    cert_key = f"{host}:{urlsplit(norm).port or 443}"
+    cert_cached = store.get_cert(cert_key)
     if cert_cached and "has_scts" not in cert_cached:
         cert_cached = None                      # cached before the SCT flag existed: refetch rather than misjudge
     if cert_cached:
         cache_hits.append("cert")
         tls_task = asyncio.sleep(0, result=cert_cached)
     else:
-        tls_task = tls_mod.fetch_cert(host, urlsplit(norm).port or 443, cfg.net.timeout_s)
+        tls_task = tls_mod.fetch_cert(host, urlsplit(norm).port or 443, cfg.net.timeout_s, connect_ip=dns_r["addresses"][0])
     redir_task = redir_mod.expand(norm, cfg.net.timeout_s, cfg.net.user_agent)
     ct_task = asyncio.sleep(0, result={"ok": False, "error": "skipped for platform anchor"}) if user_content else ct_mod.first_seen(e1, cfg.net.timeout_s, cfg.net.user_agent)
     doh_task = doh_mod.resolve_doh(host, cfg.net.doh_resolvers, cfg.net.timeout_s, cfg.net.user_agent) if cfg.net.doh_cross_check else asyncio.sleep(0, result=None)
@@ -127,7 +133,7 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
     else:
         if tls_r.get("trusted"):
             if not cert_cached:
-                store.put_cert(host, tls_r, cfg.cache.cert_ttl_hours * 3600)
+                store.put_cert(cert_key, tls_r, cfg.cache.cert_ttl_hours * 3600)
             res.tls_org = tls_r.get("subject_org")
             detail = {k: tls_r.get(k) for k in ("issuer", "issuer_org", "subject_org", "validation_level", "not_after_ts", "fingerprint_sha256", "trust_store")}
             msg = f"trusted chain ({tls_r.get('validation_level')}, issuer {tls_r.get('issuer_org') or tls_r.get('issuer')})"
@@ -179,7 +185,7 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
             sys_ips = dns_r.get("addresses", []) if isinstance(dns_r, dict) else []
             sys_tls_ok = None if isinstance(tls_r, Exception) else bool(tls_r.get("trusted"))
             doh_tls_ok = None
-            if doh_r["addresses"] and not (set(sys_ips) & set(doh_r["addresses"])):
+            if doh_r["addresses"] and not non_public(doh_r["addresses"]) and not (set(sys_ips) & set(doh_r["addresses"])):
                 alt = await tls_mod.fetch_cert(host, urlsplit(norm).port or 443, cfg.net.timeout_s, connect_ip=doh_r["addresses"][0])
                 doh_tls_ok = bool(alt.get("trusted"))
             status, fatal, msg = doh_mod.assess(sys_ips, doh_r["addresses"], sys_tls_ok, doh_tls_ok)
@@ -196,7 +202,9 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
         res.final_url = redir_r.get("final_url")
         res.final_etld1 = etld1_of(host_of(res.final_url)) if res.final_url else None
         detail = {k: redir_r.get(k) for k in ("chain", "final_url", "final_status", "content_type", "content_length", "hops", "error")}
-        if redir_r.get("error") and not redir_r.get("chain"):
+        if redir_r.get("blocked"):
+            res.checks.append(CheckResult(name="redirects", status="fail", fatal=True, detail=detail, message=redir_r["error"]))
+        elif redir_r.get("error"):
             res.checks.append(CheckResult(name="redirects", status="error", detail=detail, message=redir_r["error"]))
         elif res.final_url and host_of(res.final_url) != host and (looks_local_hostname(host_of(res.final_url)) or
                                                                     non_public((await dns_mod.resolve(host_of(res.final_url))).get("addresses", []))):

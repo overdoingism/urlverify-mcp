@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from ..providers.public_http import public_client
+
 from ..checks.urltools import etld1_of, host_of
 from ..health import observe
 
@@ -26,7 +28,7 @@ def _obs(dep: str, r: dict) -> dict:
 class Structured:
     def __init__(self, timeout: float, user_agent: str, github_token: str = ""):
         headers = {"User-Agent": user_agent, "Accept": "application/json"}
-        self.client = httpx.AsyncClient(timeout=timeout, headers=headers, follow_redirects=True)
+        self.client = public_client(timeout=timeout, headers=headers, follow_redirects=True)
         self._wayback_down = 0
         self.gh_headers = {"Authorization": f"Bearer {github_token}"} if github_token else {}
 

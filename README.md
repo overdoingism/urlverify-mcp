@@ -98,8 +98,8 @@ MCP host configuration:
 **Recommended system prompt for the calling agent.** The tool description explains *what* `verify_source` does; *when* an
 agent must use it is policy, which belongs in the host's system prompt. Suggested wording:
 
-> Regardless of the source, before downloading any executable, source code, library, or script, you MUST verify its URL using
-> URLVerify_MCP. If the verification does not pass and no other usable source is available, you MUST report the issue to the
+> Regardless of the source, before downloading any toolchain, executable, source code, library, or script, you MUST verify its URL using
+> URLVerify_MCP. If the verdict is not VERIFIED_TRUE, or the result carries any additional conditions, you MUST report the issue to the
 > user and ask for permission before proceeding. If URLVerify_MCP is unavailable, you MUST report this to the user and obtain
 > permission before downloading or installing anything.
 
@@ -120,6 +120,10 @@ Defaults ship in `urlverify_mcp/prompt_defaults/`; *Reset to default* deletes th
 `release_cooldown.hours` 設定發布後觀察期，預設 **72 小時**，支援小數，**0 停用**。可直接改 config.yaml，或在管理頁 Config 編輯；下次驗證生效。
 
 結果放在 `checks.release_cooldown`；版本仍在期間內或無法判定時，reason 與 risk_signals 都會提醒。這是獨立的時間資訊，**不改官方來源 verdict/confidence，也不表示平台仍在掃描或保證套件安全**。quick／full 與身分快取命中均適用，L0 致命失敗則略過。
+
+期間內的訊號格式為 `RELEASE_COOLDOWN_PERIOD:<已發布小時數>`：例如 `RELEASE_COOLDOWN_PERIOD:36` 表示目前已發布約 36 小時、仍未滿足冷卻期，**不是剩餘 36 小時**。數值最多保留六位小數並省略尾端零，例如 `:36.5`；呼叫端應以 `RELEASE_COOLDOWN_PERIOD:` 前綴識別，不再比對舊的無數值字串。門檻與剩餘時間見 `checks.release_cooldown.detail`。
+
+收到此訊號時，即使 verdict 是 `VERIFIED_TRUE`，呼叫端也必須向使用者說明風險並取得確認，才可繼續下載或安裝。時間不明時仍使用 `release_cooldown_unknown`，不能當成已過冷卻期，也須先告知並取得確認。工具提供提示，實際確認由呼叫端執行。
 
 請優先提供指定版本的套件頁或可辨識下載網址；未指定版本時會列出解析到的最新版本與查詢時間。冷卻只涵蓋該版本／檔案，不包含其依賴。NuGet 仍需 L1 身分佐證，沒有新增快速通關。完整 URL 與時間判定規則見 `document_for_config.md`。
 

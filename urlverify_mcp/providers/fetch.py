@@ -10,6 +10,8 @@ from urllib.parse import urljoin
 
 import httpx
 
+from ..providers.public_http import public_client
+
 from ..config import Config
 from ..health import observe
 from ..tracelog import TRACE
@@ -57,7 +59,8 @@ def html_to_text(doc: str, base_url: str = "") -> str:
 class BuiltinFetcher:
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        self.client = httpx.AsyncClient(timeout=cfg.search.call_timeout_s, follow_redirects=True,
+        self.sources: dict[str, str] = {}
+        self.client = public_client(timeout=cfg.search.call_timeout_s, follow_redirects=True,
                                         headers={"User-Agent": cfg.net.user_agent, "Accept": ACCEPT, "Accept-Language": "en,*;q=0.5"})
 
     async def fetch(self, url: str) -> str:
@@ -70,6 +73,7 @@ class BuiltinFetcher:
 
     async def _fetch(self, url: str) -> str:
         async with self.client.stream("GET", url) as r:
+            self.sources[url] = str(r.url)
             ct = r.headers.get("content-type", "")
             if not any(t in ct for t in ("text", "json", "xml", "javascript")):
                 text = f"(binary content-type {ct}, {r.headers.get('content-length')} bytes; body not downloaded)"
@@ -98,20 +102,33 @@ class BuiltinFetcher:
 class MCPFetcher:
     """Delegates to the SearXNG MCP server's fetch tool (HTML -> markdown, PDF text)."""
 
-    def __init__(self, mcp_provider):
+    def __init__(self, mcp_provider, cfg: Config, owns_session: bool = False):
         self.mcp = mcp_provider
+        self.cfg = cfg
+        self.sources: dict[str, str] = {}
+        self.owns_session = owns_session
 
     async def fetch(self, url: str) -> str:
+        from ..checks.redirects import expand
+        from .public_http import UnsafeURL
+        result = await expand(url, self.cfg.net.timeout_s, self.cfg.net.user_agent)
+        if result.get("blocked"):
+            raise UnsafeURL(result["error"])
+        if result.get("error"):
+            raise httpx.RequestError(result["error"])
+        self.sources[url] = result.get("final_url") or url
+        # The remote fetch service must enforce its own network egress restrictions too.
         return await self.mcp.fetch(url)
 
     async def close(self) -> None:
-        pass   # the MCP session is owned by the search provider
+        if self.owns_session:
+            await self.mcp.close()
 
 
 def make_fetcher(cfg: Config, search_provider) -> Fetcher:
     if cfg.fetch.provider == "mcp":
         from .search import MCPSearchProvider
         if isinstance(search_provider, MCPSearchProvider):
-            return MCPFetcher(search_provider)
-        return MCPFetcher(MCPSearchProvider(cfg))   # separate session when search is not the MCP provider
+            return MCPFetcher(search_provider, cfg)
+        return MCPFetcher(MCPSearchProvider(cfg), cfg, owns_session=True)   # separate session when search is not the MCP provider
     return BuiltinFetcher(cfg)

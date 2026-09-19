@@ -1,0 +1,10 @@
+# 公開位址檢查的正反案例；全部以離線方式驗證。
+addresses:
+  - {host: '8.8.8.8', public: true}
+  - {host: '2606:4700::1111', public: true}
+  - {host: '127.0.0.1', public: false}
+  - {host: '::1', public: false}
+  - {host: '100.64.0.1', public: false}
+  - {host: 'localhost', public: false}
+  - {host: 'printer.local', public: false}
+  - {host: '::ffff:127.0.0.1', public: false}

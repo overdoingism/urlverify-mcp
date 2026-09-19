@@ -56,6 +56,13 @@ class L0Result(BaseModel):
     fetched_target_text: str | None = None
 
     @property
+    def incomplete_required_checks(self) -> list[str]:
+        required = ("scheme", "public_address", "dns", "tls", "redirects")
+        return [name for name in required
+                if not any(c.name == name and c.status in ("pass", "warn") for c in self.checks)
+                or any(c.name == name and c.status not in ("pass", "warn") for c in self.checks)]
+
+    @property
     def fatal_failures(self) -> list[CheckResult]:
         return [c for c in self.checks if c.status == "fail" and c.fatal]
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import hashlib
 import time
 import uuid
 
@@ -15,7 +16,7 @@ from .config import Config
 from .identity.aging import Aging, age_many, domain_first_seen
 from .identity.registry import RegistryFastPath
 from .identity.releases import annotate_result, check_release
-from .identity.sources import classify
+from .identity.sources import classify, tier1_path_prefixes
 from .identity.structured import Structured
 from .models import IdentityGraph, Verdict, VerifyRequest, VerifyResult
 from .providers.llm import LLM
@@ -68,11 +69,21 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
         reset_trace_id(token)
 
 
+def identity_policy(cfg: Config) -> str:
+    """Changing the evidence policy invalidates identities established under a different policy."""
+    policy = {"identity": cfg.identity.model_dump(exclude={"github_token"}), "lists": cfg.lists.model_dump(),
+              "tier1_paths": sorted(tier1_path_prefixes())}
+    return hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()
+
+
 async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str, t0: float) -> VerifyResult:
     TRACE.log("verify_start", request=req.model_dump(), effective_config={"identity": cfg.identity.model_dump(), "budget": cfg.budget.model_dump(),
                                                                           "search_provider": cfg.search.provider, "llm_model": cfg.llm.model})
     cache_hits: list[str] = []
+    policy = identity_policy(cfg)
     cached_identity = store.get_identity(req.project)
+    if cached_identity and cached_identity.get("policy_fingerprint") != policy:
+        cached_identity = None
     if cached_identity:
         cache_hits.append("identity")
     known_official = (cached_identity or {}).get("official_domains", [])
@@ -87,26 +98,34 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
     fetcher = make_fetcher(cfg, search)
     structured = Structured(max(cfg.net.timeout_s, 30), cfg.net.user_agent, cfg.identity.github_token)  # archive.org / wikimedia can be slow
     inv = Investigator(cfg, llm, search, structured, fetcher)
+    registry = RegistryFastPath(cfg, structured)
     engine_notes: list[str] = []
     try:
         if not l0.fatal_failures:
             await progress.report("checking registry release cooldown", 0.11)
             cooldown = await check_release(l0.normalized_url, cfg, structured.client)
+            if cooldown is None and l0.final_url:
+                cooldown = await check_release(l0.final_url, cfg, structured.client)
             if cooldown is not None:
                 l0.checks.append(cooldown)
                 TRACE.log("release_cooldown", check=cooldown.model_dump())
         # Always fetch the target page ourselves for injection screening (does not consume the LLM's budget).
         page = None
+        page_source = l0.final_url or l0.normalized_url
         await progress.report("fetching target page for injection screening", 0.12)
         try:
-            page = await fetcher.fetch(l0.final_url or l0.normalized_url)
+            if l0.fatal_failures:
+                raise ValueError("target fetch skipped: fatal L0 failure")
+            page = await fetcher.fetch(page_source)
+            page_source = getattr(fetcher, "sources", {}).get(page_source, page_source)
         except Exception as e:  # noqa: BLE001
             engine_notes.append(f"target page fetch ({cfg.fetch.provider}) failed: {type(e).__name__}: {e}")
-            if cfg.fetch.provider != "builtin":
+            if cfg.fetch.provider != "builtin" and not l0.fatal_failures:
                 from .providers.fetch import BuiltinFetcher
                 bf = BuiltinFetcher(cfg)
                 try:
-                    page = await bf.fetch(l0.final_url or l0.normalized_url)
+                    page = await bf.fetch(page_source)
+                    page_source = bf.sources.get(page_source, page_source)
                     engine_notes.append("target page fetched with the built-in fetcher instead")
                 except Exception as e2:  # noqa: BLE001
                     engine_notes.append(f"built-in target page fetch failed: {type(e2).__name__}: {e2}")
@@ -114,7 +133,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                     await bf.close()
         if page is not None:
             inv.target_page_text = page[: cfg.budget.fetch_max_chars]
-            inv.evidence_store[l0.normalized_url] = inv.target_page_text
+            inv.evidence_store[page_source] = inv.target_page_text
         apply_injection_check(l0, inv.target_page_text, cfg.injection_patterns)
         TRACE.log("target_page", url=l0.final_url or l0.normalized_url, chars=len(inv.target_page_text or ""), text=inv.target_page_text,
                   injection=next((c.model_dump() for c in l0.checks if c.name == "injection"), None))
@@ -123,7 +142,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         if not l0.fatal_failures and fp.enabled and fp.mode != "full" and l0.platform in ("pypi", "npm"):
             await progress.report(f"registry fast path ({l0.platform})", 0.12)
             try:
-                fast = await RegistryFastPath(cfg, structured).run(l0, t0, trace_id, req.project)
+                fast = await registry.run(l0, t0, trace_id, req.project)
             except Exception as e:  # noqa: BLE001
                 fast = None
                 engine_notes.append(f"registry fast path error: {type(e).__name__}: {e}")
@@ -178,13 +197,12 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         TRACE.log("aging_result", ages=ages, target_domain_age=target_age)
         prov = None
         registry_state = None
-        if l0.platform in ("pypi", "npm") and l0.platform_owner:
+        if not l0.fatal_failures and l0.platform in ("pypi", "npm") and l0.platform_owner:
             try:
-                rfp = RegistryFastPath(cfg, structured)
-                registry_state = await rfp.registry_state(l0)
+                registry_state = await registry.registry_state(l0)
                 sig = (registry_state or {}).get("signals")
                 if sig and sig.get("exists"):
-                    prov = await rfp.provenance_signal(sig)
+                    prov = await registry.provenance_signal(sig)
                     if prov.get("found"):
                         gh = await structured.github(prov["repo"][0])
                         oi = (gh.get("owner_info") or {}) if gh.get("ok") else {}
@@ -192,6 +210,8 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                         prov["owner_blog"] = oi.get("blog")
                         inv.evidence_store[prov.get("source") or "provenance"] = json.dumps(prov, default=str)
             except Exception as e:  # noqa: BLE001
+                if registry_state is None:
+                    registry_state = {"state": "unknown", "error": str(e)}
                 engine_notes.append(f"provenance lookup failed: {type(e).__name__}: {e}")
             TRACE.log("provenance", provenance=prov, registry_state={k: v for k, v in (registry_state or {}).items() if k != "signals"})
         await progress.report("rules engine: verifying evidence and deciding", 0.88)
@@ -205,12 +225,12 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             engine_notes.append("injection screening could not run (target page not fetched); confidence reduced by 0.1")
 
         # identity cache: only persist when independently established
-        if dec.established_domains or dec.established_orgs:
+        if not cached_identity and dec.verdict == Verdict.TRUE and (dec.established_domains or dec.established_orgs):
             store.put_identity(req.project, {
                 "developer": sub.identity.developer, "aliases": sub.identity.aliases,
                 "official_domains": sorted(set(dec.established_domains)), "official_orgs": dec.established_orgs,
                 "evidence": [e.model_dump() for e in dec.evidence if e.verified_quote],
-                "established_at": time.time(),
+                "established_at": time.time(), "policy_fingerprint": policy, "confidence_cap": dec.confidence,
             }, cfg.cache.identity_ttl_hours * 3600)
 
         await progress.report(f"decision {dec.verdict.value}; writing reason", 0.92)

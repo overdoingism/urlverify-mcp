@@ -70,7 +70,7 @@ def fetch_cert_sync(host: str, port: int = 443, timeout: float = 10.0, connect_i
             result["hostname_match"] = not ("hostname" in msg or "doesn't match" in msg or "does not match" in msg)
             # gather cert details without verification for reporting
             try:
-                result.update(_unverified_details(host, port, timeout))
+                result.update(_unverified_details(host, port, timeout, connect_ip))
             except Exception:
                 pass
             continue  # try the other store
@@ -107,12 +107,12 @@ def _describe(cert: dict, der: bytes) -> dict[str, Any]:
     }
 
 
-def _unverified_details(host: str, port: int, timeout: float) -> dict[str, Any]:
+def _unverified_details(host: str, port: int, timeout: float, connect_ip: str | None = None) -> dict[str, Any]:
     """Fetch the leaf certificate without verification, purely for reporting. Requires cryptography if present."""
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    with socket.create_connection((host, port), timeout=timeout) as sock:
+    with socket.create_connection((connect_ip or host, port), timeout=timeout) as sock:
         with ctx.wrap_socket(sock, server_hostname=host) as ssock:
             der = ssock.getpeercert(binary_form=True)
     out: dict[str, Any] = {"fingerprint_sha256": hashlib.sha256(der).hexdigest()}
