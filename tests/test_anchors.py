@@ -25,7 +25,7 @@ def test_company_sites_are_not_user_content():
     assert _r("https://www.docker.com/products/docker-desktop/") == ("company_site", None, None)
     assert _r("https://desktop.github.com/") == ("company_site", None, None)
     assert _r("https://docs.github.com/en/actions") == ("company_site", None, None)
-    assert _r("https://github.com/features/copilot") == ("company_site", None, None)       # reserved path, not an owner
+    assert _r("https://github.com/features/copilot") == ("user_content", "features", "copilot")   # no reserved-name list: an "owner" that will simply never be established
     assert _r("https://github.com/") == ("company_site", None, None)
-    assert _r("https://huggingface.co/docs/hub/index") == ("company_site", None, None)
+    assert _r("https://huggingface.co/docs/hub/index") == ("user_content", "docs", "hub")
     assert _r("https://huggingface.co/Qwen/Qwen3.8-Flash-Next") == ("user_content", "Qwen", "Qwen3.8-Flash-Next")

@@ -4,8 +4,7 @@
 
 - Platform anchors now declare, per platform, which hosts carry user content and where the owner is read from (path
   segment, host label such as `<owner>.github.io`, or nowhere for asset/CDN hosts); every other host on the platform's
-  domains is the operator's own site with full L0 and its domain as an identity candidate. Reserved GitHub paths
-  (`features`, `marketplace`, ...) are not owners. Asset hosts without a readable owner are `UNVERIFIABLE` on their own.
+  domains is the operator's own site with full L0 and its domain as an identity candidate. Asset hosts without a readable owner are `UNVERIFIABLE` on their own.
   Fixes both the Docker Desktop false negative and a `<owner>.github.io` path that could borrow `github.io` as an
   "official domain".
 - Hardening: tier-1 manifest files count only when addressed by a branch or tag (commit SHAs and `refs/pull/...` are

@@ -86,7 +86,7 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - **平台 anchor 的判準**（2026-09-20 定案，`cache/anchors.py`）：每個平台明列「使用者內容主機」與 owner 位置：路徑段（github.com、raw.githubusercontent.com、
   hub.docker.com 的 /r /u /_）、主機標籤（*.github.io、*.gitlab.io、*.codeberg.page）、或讀不到（release-assets/objects.githubusercontent.com、
   files.pythonhosted.org、cdn-lfs、dl.flathub.org 等資產主機）。平台網域下其餘主機一律是公司站台，跑完整 L0（含 ct_first_seen）。
-  github.com 的 `features`、`about`、`marketplace` 等保留路徑不是 owner。讀不到 owner 的資產主機本身永遠 UNVERIFIABLE，只能作為官方 repo 的重導終點。
+  不設保留字表：github.com/features 之類就是 owner 叫 features，那裡本來不放下載檔，驗不過即 UNVERIFIABLE；避免因人設事。讀不到 owner 的資產主機本身永遠 UNVERIFIABLE，只能作為官方 repo 的重導終點。
 - **Manifest 前綴的 ref**：tier‑1 manifest 倉庫的檔案只有以分支或標籤定址才算數；commit SHA 與 `refs/pull/…` 一律 Tier3
   （GitHub 會在上游 repo 網址下提供未合併 PR 的 commit，否則開一個 PR 就能種一份 manifest）。
 - **網域計票同 org**：只認已驗證的 quote；Wayback 對網域也不計票（§4.1 的時間佐證語意保留，但年齡不是官方性）。
