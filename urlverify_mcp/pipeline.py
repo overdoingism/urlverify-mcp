@@ -216,6 +216,8 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             TRACE.log("provenance", provenance=prov, registry_state={k: v for k, v in (registry_state or {}).items() if k != "signals"})
         await progress.report("rules engine: verifying evidence and deciding", 0.88)
         dec = decide(cfg, l0, sub, inv.evidence_store, req.project, cached_identity, ages, target_age, prov, registry_state)
+        from .devtools.capture import capture
+        capture(trace_id, req.project, req.url, cfg, l0, sub, inv.evidence_store, cached_identity, ages, target_age, prov, registry_state, dec)
         engine_notes.extend(dec.notes)
         TRACE.log("rules_decision", verdict=dec.verdict.value, confidence=dec.confidence, notes=dec.notes,
                   established_domains=dec.established_domains, established_orgs=dec.established_orgs,
