@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- New verified ecosystems: Homebrew (`brew install [--cask|--formula]`, official taps; cask download URL or the
+  formula's upstream source, with the formulae.brew.sh record as evidence), Scoop (official ScoopInstaller buckets;
+  no bucket = main, otherwise `SCOOP_BUCKET_AMBIGUOUS`), Go (`go install` / `go get`; hosting-platform paths map to the
+  repository, custom domains are verified as the module's own domain via go-import).
+
 - Each tier-1 manifest repository (winget-pkgs, Homebrew, Scoop, ...) is its own independence family instead of being
   folded into "github" because it is hosted there.
 - WinGet: the default-locale manifest's PackageName / Publisher / PublisherUrl / PackageUrl lines become evidence too

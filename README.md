@@ -144,9 +144,12 @@ change what gets installed; a bare name is rejected because it does not say whic
 | git | `git clone https://…`, `git@github.com:o/r`, `ssh://…` on known hosts, `gh repo clone o/r` |
 | Hugging Face | `hf download`, `huggingface-cli download` |
 | Containers | `docker/podman/nerdctl pull|run` for Docker Hub and ghcr.io |
+| Homebrew | `brew install [--cask|--formula] <name>` (official taps only): the cask's download URL, or the upstream source a formula is built from, taken from formulae.brew.sh |
+| Scoop | `scoop install [bucket/]<app>` for the official ScoopInstaller buckets (main, extras, versions, java, nonportable); no bucket = main |
+| Go | `go install` / `go get <module>@<version>`: github.com / gitlab.com / codeberg.org / bitbucket.org paths map to the repository; other domains are verified as the module's own domain (its go-import tag is recorded) |
 | Scripts | `curl … \| sh`, `sh -c "$(curl …)"`, `irm … \| iex`, `iex ((New-Object Net.WebClient).DownloadString(…))`: the script URL is verified; what the script downloads next is not (reported) |
 
-Understood but not verified yet (reported as `ECOSYSTEM_NOT_YET_VERIFIED`): cargo, go, gem, composer, brew, scoop, choco,
+Understood but not verified yet (reported as `ECOSYSTEM_NOT_YET_VERIFIED`): cargo, gem, composer, choco,
 conda/mamba, apt/dnf/yum/pacman/zypper/apk, snap, flatpak, ollama, Install-Module, other container registries.
 Always rejected: requirement / lock files, local paths, several indexes at once (`--extra-index-url`, `--find-links`),
 chained commands (`&&`, `;`). Registry: a flag in the command wins, then `source.registries` in config, then the public

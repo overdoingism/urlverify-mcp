@@ -331,7 +331,13 @@ config.example.yaml
   winget-pkgs 的 owner（microsoft）不是產品 owner。查詢字串若恰為既存 ID 視同 ID（winget 本身要嘛裝它、要嘛報多筆衝突）。
 - 腳本管線（curl | sh、irm | iex…）：全句恰有一個遠端位址才受理，驗該腳本網址；腳本之後下載的東西不在範圍內（SCRIPT_MAY_DOWNLOAD_MORE）。
   混入套件管理器或多個網址即拒絕。
-- 支援但尚未驗證的生態系（cargo、go、gem、composer、brew、scoop、choco、conda、apt 家族、snap、flatpak、ollama、Install-Module、其他容器 registry）
+- Homebrew（v0.3.x）：formulae.brew.sh API；同名 formula 優先於 cask（與 brew 本身相同），`--cask`／`--formula` 可指定；只接受官方 tap。
+  cask 驗下載網址（依 artifact 內的架構篩 arm64／Intel），formula 驗 Homebrew 據以建置的上游原始碼網址。API 記錄那幾行作為種子證據（brew.sh 家族）。
+- Scoop：只接受 ScoopInstaller 官方 bucket（main、extras、versions、java、nonportable）；未指明 bucket 視為 main，main 沒有就回
+  `SCOOP_BUCKET_AMBIGUOUS` 請呼叫方指明，不去其他 bucket 猜。`app@version` 不受理（Scoop 會臨時產生 manifest，沒有審核過的內容可查）。
+- Go：已知託管平台的模組路徑直接對應 repo；自訂網域依 `go-import` meta，**驗證模組網域本身**（Go 的信任模型是網域擁有者決定程式碼位置），
+  repo 位置只記錄。
+- 支援但尚未驗證的生態系（cargo、gem、composer、choco、conda、apt 家族、snap、flatpak、ollama、Install-Module、其他容器 registry）
   回 `ECOSYSTEM_NOT_YET_VERIFIED:<eco>` 並列出解析結果；`cargo install --git` 走 git 驗證。apt 家族優先度最低（信任模型是發行版簽章）。
 - next_action：FALSE → DO_NOT_PROCEED；呼叫方可修正的代碼 → FIX_INPUT_AND_RETRY；其餘非 TRUE → INFORM_USER_AND_CONFIRM；
   TRUE 但信心 < 0.8 或帶警示（腳本會再下載、冷卻期、雜湊檢查關閉、自我發佈上限…）→ INFORM_USER_AND_CONFIRM；否則 PROCEED。

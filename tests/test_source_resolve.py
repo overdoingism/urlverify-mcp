@@ -134,3 +134,45 @@ async def test_winget_rate_limit_page_is_a_lookup_failure():
               "4.91.0/Docker.DockerDesktop.installer.yaml": (200, "Rate limited.\nFor more on scraping GitHub see https://x: terms")}
     [s] = await _resolve("winget install --id Docker.DockerDesktop -e", routes)
     assert s.codes == ["RESOLUTION_FAILED:winget"]
+
+
+CASK = ('{"token":"docker-desktop","name":["Docker Desktop"],"homepage":"https://www.docker.com/products/docker-desktop",'
+        '"url":"https://desktop.docker.com/mac/main/arm64/1/Docker.dmg","version":"4.92.0,1",'
+        '"variations":{"sequoia":{"url":"https://desktop.docker.com/mac/main/amd64/1/Docker.dmg"},"x86_64_linux":{"url":"https://x/linux"}}}')
+FORMULA = '{"name":"wget","homepage":"https://www.gnu.org/software/wget/","urls":{"stable":{"url":"https://ftpmirror.gnu.org/wget/wget-1.25.0.tar.gz"}},"versions":{"stable":"1.25.0"}}'
+SCOOP = """{
+    "version": "26.03",
+    "homepage": "https://www.7-zip.org",
+    "architecture": {
+        "64bit": {"url": "https://www.7-zip.org/a/7z2603-x64.msi"},
+        "arm64": {"url": "https://www.7-zip.org/a/7z2603-arm64.exe#/dl.7z"}
+    }
+}"""
+
+
+async def test_homebrew_and_scoop_resolution():
+    from urlverify_mcp.models import Evidence
+    from urlverify_mcp.rules import verify_quotes
+    both = await _resolve("brew install --cask docker-desktop", {"api/cask/docker-desktop.json": (200, CASK)})
+    assert [x.url.split("/")[5] for x in both] == ["arm64", "amd64"]                 # linux variation ignored
+    [x] = await _resolve("brew install --cask docker-desktop", {"api/cask/docker-desktop.json": (200, CASK)}, hint="Intel x86_64 Mac")
+    assert "/amd64/" in x.url and '"homepage":"https://www.docker.com/products/docker-desktop"' in x.seeds[0].quote
+    [f] = await _resolve("brew install wget", {"api/formula/wget.json": (200, FORMULA)})
+    assert f.url.endswith("wget-1.25.0.tar.gz") and f.version == "1.25.0" and "HOMEBREW_BUILDS_FROM_SOURCE" in f.notes
+    [c] = await _resolve("brew install nosuch", {})
+    assert c.codes == ["HOMEBREW_NOT_FOUND"]
+    [sc] = await _resolve("scoop install 7zip", {"ScoopInstaller/Main/master/bucket/7zip.json": (200, SCOOP)}, hint="x64")
+    assert sc.url == "https://www.7-zip.org/a/7z2603-x64.msi" and sc.version == "26.03"
+    ev = Evidence(kind="distro", source=sc.seeds[0].source, claim="c", quote=sc.seeds[0].quote)
+    verify_quotes([ev], {sc.seeds[0].source: sc.seeds[0].text})
+    assert ev.verified_quote
+    [amb] = await _resolve("scoop install firefox", {})
+    assert amb.codes == ["SCOOP_BUCKET_AMBIGUOUS"]
+
+
+async def test_go_vanity_import():
+    page = '<html><head><meta name="go-import" content="go.uber.org/zap git https://github.com/uber-go/zap"></head></html>'
+    [g] = await _resolve("go install go.uber.org/zap@v1.27.0", {"go.uber.org/zap?go-get=1": (200, page)})
+    assert g.url == "https://go.uber.org/zap" and "GO_IMPORT:go.uber.org/zap->https://github.com/uber-go/zap" in g.notes
+    [n] = await _resolve("go install example.invalid/x@v1", {})
+    assert n.codes == ["GO_IMPORT_NOT_FOUND"]

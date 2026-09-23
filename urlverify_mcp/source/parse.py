@@ -242,13 +242,12 @@ def _apply_registry_defaults(parsed: ParsedSource, regs: dict[str, str]) -> None
 
 
 # ------------------------------------------------------------------------------------------------------ dispatch
-PARSE_ONLY = {"cargo": "crates", "go": "go", "gem": "rubygems", "composer": "packagist", "brew": "homebrew",
-              "scoop": "scoop", "choco": "chocolatey", "conda": "conda", "mamba": "conda", "micromamba": "conda",
+PARSE_ONLY = {"cargo": "crates", "gem": "rubygems", "composer": "packagist", "choco": "chocolatey", "conda": "conda", "mamba": "conda", "micromamba": "conda",
               "apt": "apt", "apt-get": "apt", "dnf": "rpm", "yum": "rpm", "pacman": "pacman", "zypper": "rpm",
               "apk": "apk", "snap": "snap", "flatpak": "flatpak", "ollama": "ollama", "install-module": "psgallery"}
 KNOWN_COMMANDS = {"pip", "pip3", "python", "python3", "py", "uv", "uvx", "pipx", "poetry", "pdm", "rye", "pipenv",
                   "npm", "pnpm", "yarn", "bun", "npx", "pnpx", "bunx", "dotnet", "nuget", "install-package", "winget",
-                  "git", "gh", "hf", "huggingface-cli", "docker", "podman", "nerdctl"} | set(PARSE_ONLY)
+                  "git", "gh", "hf", "huggingface-cli", "docker", "podman", "nerdctl", "brew", "scoop", "go"} | set(PARSE_ONLY)
 
 
 def _dispatch(cmd: str, args: list[str]) -> Callable[[], ParsedSource] | None:
@@ -286,6 +285,12 @@ def _dispatch(cmd: str, args: list[str]) -> Callable[[], ParsedSource] | None:
         return lambda: _hf(cmd, args)
     if cmd in ("docker", "podman", "nerdctl"):
         return lambda: _docker(cmd, args)
+    if cmd == "brew":
+        return lambda: _brew(args)
+    if cmd == "scoop":
+        return lambda: _scoop(args)
+    if cmd == "go":
+        return lambda: _go(args)
     if cmd in PARSE_ONLY:
         return lambda: _parse_only(cmd, args)
     return None
@@ -913,13 +918,138 @@ def docker_subject(inp: str, ref: str) -> Subject:
     return s
 
 
+# -------------------------------------------------------------------------------------------------------- Homebrew
+BREW_FLAGS = Flags(boolean=["--cask", "--casks", "--formula", "--formulae", "-f", "--force", "-v", "--verbose", "-q", "--quiet", "-d",
+                            "--debug", "--no-quarantine", "--quarantine", "--adopt", "--overwrite", "--require-sha", "-s",
+                            "--build-from-source", "--HEAD", "--fetch-HEAD", "--ignore-dependencies", "--only-dependencies",
+                            "--keep-tmp", "--skip-cask-deps", "--display-times", "--no-binaries", "--binaries", "--force-bottle",
+                            "-n", "--dry-run", "--include-test", "--skip-post-install", "--skip-link", "--as-dependency"],
+                   value=["--appdir", "--fontdir", "--language", "--cc", "--bottle-arch"])
+OFFICIAL_TAPS = {"homebrew/core": "formula", "homebrew/cask": "cask"}
+
+
+def _brew(args: list[str]) -> ParsedSource:
+    out = ParsedSource(tool="brew")
+    if not args or args[0] not in ("install", "reinstall"):
+        out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
+        out.message = "brew is understood as `brew install [--cask|--formula] <name>`"
+        return out
+    pos, seen, codes, rest = walk(args[1:], BREW_FLAGS)
+    pos += rest
+    out.codes += codes
+    if out.codes:
+        return out
+    kind = "cask" if _has(seen, "--cask", "--casks") else "formula" if _has(seen, "--formula", "--formulae") else None
+    for p in pos:
+        if _is_local_path(p) or re.match(r"^https?://", p):
+            out.subjects.append(_subject(p, "homebrew", codes=["LOCAL_PATH_UNSUPPORTED" if _is_local_path(p) else "SOURCE_COMMAND_UNSUPPORTED"]))
+            continue
+        parts = p.split("/")
+        s = _subject(p, "homebrew", name=parts[-1], options={"kind": kind})
+        if len(parts) == 3:
+            tap = "/".join(parts[:2]).lower()
+            if tap not in OFFICIAL_TAPS:
+                s.codes.append(f"REGISTRY_UNSUPPORTED:tap:{tap}")
+            else:
+                s.options["kind"] = s.options["kind"] or OFFICIAL_TAPS[tap]
+        elif len(parts) != 1 or not re.fullmatch(r"[\w.+@-]+", parts[-1]):
+            s.codes.append("INVALID_PACKAGE_SPEC")
+        if _has(seen, "--no-quarantine"):
+            s.notes.append("QUARANTINE_DISABLED")
+        if _has(seen, "--HEAD", "-s", "--build-from-source"):
+            s.notes.append("BUILT_FROM_SOURCE_HEAD" if _has(seen, "--HEAD") else "BUILT_FROM_SOURCE")
+        s.registry, s.registry_basis = "https://formulae.brew.sh", "public default"
+        out.subjects.append(s)
+    return out
+
+
+# ----------------------------------------------------------------------------------------------------------- Scoop
+SCOOP_FLAGS = Flags(boolean=["-g", "--global", "-i", "--independent", "-k", "--no-cache", "-s", "--skip-hash-check",
+                             "-u", "--no-update-scoop"], value=["-a", "--arch"])
+# official buckets maintained under the ScoopInstaller organisation (manifests there are tier 1)
+SCOOP_BUCKETS = {"main": "Main", "extras": "Extras", "versions": "Versions", "java": "Java", "nonportable": "Nonportable"}
+
+
+def _scoop(args: list[str]) -> ParsedSource:
+    out = ParsedSource(tool="scoop")
+    if not args or args[0] != "install":
+        out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
+        out.message = "scoop is understood as `scoop install [bucket/]<app>`"
+        return out
+    pos, seen, codes, rest = walk(args[1:], SCOOP_FLAGS)
+    pos += rest
+    out.codes += codes
+    if out.codes:
+        return out
+    arch = {"64bit": "x64", "32bit": "x86", "arm64": "arm64"}.get((_val(seen, "-a", "--arch") or "").lower())
+    for p in pos:
+        if re.match(r"^https?://", p) or _is_local_path(p):
+            out.subjects.append(_subject(p, "scoop", codes=["SOURCE_COMMAND_UNSUPPORTED" if "://" in p else "LOCAL_PATH_UNSUPPORTED"]))
+            continue
+        bucket, _, app = p.rpartition("/")
+        app, _, ver = app.partition("@")
+        s = _subject(p, "scoop", name=app, options={"bucket": (bucket or "").lower(), **({"architecture": arch} if arch else {})})
+        if bucket and bucket.lower() not in SCOOP_BUCKETS:
+            s.codes.append(f"REGISTRY_UNSUPPORTED:scoop-bucket:{bucket.lower()}")
+        if ver:
+            s.codes.append("SCOOP_VERSION_PIN_UNSUPPORTED")       # scoop generates a manifest for other versions: nothing curated to check
+        if not re.fullmatch(r"[\w.+-]+", app):
+            s.codes.append("INVALID_PACKAGE_SPEC")
+        if _has(seen, "-s", "--skip-hash-check"):
+            s.notes.append("HASH_CHECK_DISABLED")
+        out.subjects.append(s)
+    return out
+
+
+# -------------------------------------------------------------------------------------------------------------- Go
+GO_FLAGS = Flags(boolean=["-u", "-v", "-x", "-n", "-a", "-race", "-trimpath", "-t", "-d", "-insecure", "-msan", "-asan", "-cover"],
+                 value=["-mod", "-tags", "-ldflags", "-gcflags", "-buildvcs", "-p", "-modfile", "-overlay", "-pgo", "-o"])
+GO_KNOWN_HOSTS = ("github.com", "gitlab.com", "codeberg.org", "bitbucket.org")
+
+
+def _go(args: list[str]) -> ParsedSource:
+    out = ParsedSource(tool="go")
+    if not args or args[0] not in ("install", "get"):
+        out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
+        out.message = "go is understood as `go install <module/path>@<version>` or `go get <module>`"
+        return out
+    pos, seen, codes, rest = walk(args[1:], GO_FLAGS)
+    pos += rest
+    out.codes += codes
+    if "-modfile" in seen or "-overlay" in seen:
+        out.codes.append("UNSUPPORTED_FLAG:-modfile" if "-modfile" in seen else "UNSUPPORTED_FLAG:-overlay")
+    if "-insecure" in seen:
+        out.codes.append("UNSUPPORTED_FLAG:-insecure")
+    if out.codes:
+        return out
+    for p in pos:
+        path, _, ver = p.partition("@")
+        if _is_local_path(path) or path.endswith("..."):
+            out.subjects.append(_subject(p, "go", codes=["LOCAL_PATH_UNSUPPORTED"]))
+            continue
+        segs = path.split("/")
+        s = _subject(p, "go", name=path, version_spec=ver or None)
+        if "." not in segs[0] or not re.fullmatch(r"[\w.~/-]+", path):
+            s.codes.append("INVALID_PACKAGE_SPEC")          # standard-library / relative paths are not remote modules
+        elif segs[0].lower() in GO_KNOWN_HOSTS:
+            if len(segs) < 3:
+                s.codes.append("INVALID_PACKAGE_SPEC")
+            else:
+                s.url = f"https://{segs[0].lower()}/{segs[1]}/{segs[2]}"
+                s.notes.append("GIT_REF_NOT_VERIFIED" if ver and ver != "latest" else "GO_MODULE_REPOSITORY")
+        else:
+            s.options["vanity"] = True                     # resolved through the go-import meta tag
+        out.subjects.append(s)
+    return out
+
+
 # ------------------------------------------------------------------------------------------------------ parse-only
 _PO_VALUE = {"cargo": {"--version", "--vers", "--git", "--branch", "--tag", "--rev", "--path", "--registry", "--index",
                        "--features", "-F", "--bin", "--root", "--target", "--profile", "-j", "--jobs", "--example"},
              "gem": {"-v", "--version", "-s", "--source", "-i", "--install-dir", "-n", "--bindir", "--platform"},
              "choco": {"--version", "-s", "--source", "--params", "--package-parameters", "--ia", "--install-arguments"},
              "conda": {"-c", "--channel", "-n", "--name", "-p", "--prefix"},
-             "brew": set(), "scoop": set(), "composer": set(), "go": set(), "apt": {"-t", "--target-release", "-o"},
+             "composer": set(), "apt": {"-t", "--target-release", "-o"},
              "flatpak": {"--arch", "--branch"}, "snap": {"--channel", "--revision"}}
 
 
@@ -927,8 +1057,8 @@ def _parse_only(cmd: str, args: list[str]) -> ParsedSource:
     eco = PARSE_ONLY[cmd]
     out = ParsedSource(tool=cmd)
     a = list(args)
-    subs = {"crates": ("install", "add"), "go": ("install", "get"), "rubygems": ("install",), "packagist": ("require",),
-            "homebrew": ("install",), "scoop": ("install",), "chocolatey": ("install",), "conda": ("install", "create"),
+    subs = {"crates": ("install", "add"), "rubygems": ("install",), "packagist": ("require",),
+            "chocolatey": ("install",), "conda": ("install", "create"),
             "apt": ("install",), "rpm": ("install", "in"), "pacman": ("-S", "-Sy", "-Syu"), "apk": ("add",),
             "snap": ("install",), "flatpak": ("install",), "ollama": ("pull", "run"), "psgallery": ()}[eco]
     if subs:

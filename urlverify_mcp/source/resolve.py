@@ -53,6 +53,12 @@ class Resolver:
                 await self._nuget(s)
             elif s.ecosystem == "winget":
                 return await self._winget(s, hint_text)
+            elif s.ecosystem == "homebrew":
+                return await self._homebrew(s, hint_text)
+            elif s.ecosystem == "scoop":
+                return await self._scoop(s, hint_text)
+            elif s.ecosystem == "go" and s.options.get("vanity"):
+                await self._go_vanity(s)
         except httpx.HTTPError as e:
             s.codes.append(f"RESOLUTION_FAILED:{s.ecosystem}")
             s.notes.append(f"{type(e).__name__}: {e}"[:200])
@@ -153,6 +159,146 @@ class Resolver:
             s.codes.append("VERSION_NOT_FOUND" if spec else "PACKAGE_HAS_NO_RELEASE")
             return
         s.url = f"https://www.nuget.org/packages/{name}/{s.version}"
+
+    # -------------------------------------------------------------------------------------------- Homebrew
+    async def _homebrew(self, s: Subject, hint_text: str) -> list[Subject]:
+        """Formula (source tarball Homebrew builds from) or cask (the app download), from formulae.brew.sh. Like brew
+        itself: a formula of that name wins unless --cask is given."""
+        name, kind = s.name or "", s.options.get("kind")
+        doc, text, api = None, None, None
+        for k in ([kind] if kind else ["formula", "cask"]):
+            api = f"https://formulae.brew.sh/api/{k}/{quote(name)}.json"
+            r = await self._get(api, "homebrew")
+            if r.status_code == 200:
+                doc, text, kind = r.json(), r.text, k
+                break
+            if r.status_code != 404:
+                r.raise_for_status()
+        if doc is None:
+            s.notes.append("PACKAGE_NOT_FOUND")
+            s.codes.append("HOMEBREW_NOT_FOUND")
+            return [s]
+        s.options["kind"] = kind
+        if kind == "formula":
+            url = ((doc.get("urls") or {}).get("stable") or {}).get("url")
+            ver = (doc.get("versions") or {}).get("stable")
+            if not url:
+                s.codes.append("HOMEBREW_NO_STABLE_SOURCE")
+                return [s]
+            quote_parts = _json_snippets(text, [("name", doc.get("name")), ("homepage", doc.get("homepage")), ("url", url)])
+            seeds = [Seed(kind="distro", source=api, text=text, quote=" ... ".join(quote_parts),
+                          claim=f"Homebrew formula {name} {ver}: homepage and the upstream source Homebrew builds from")]
+            s.notes.append("HOMEBREW_BUILDS_FROM_SOURCE")
+            return _fanout(s, [url], ver, seeds, "https://formulae.brew.sh")
+        ver = doc.get("version")
+        urls = [doc.get("url")] if doc.get("url") else []
+        arm = [doc.get("url")] if doc.get("url") else []
+        intel = []
+        for key, var in (doc.get("variations") or {}).items():
+            u = (var or {}).get("url")
+            if not u or "linux" in key:
+                continue
+            (arm if key.startswith("arm64_") else intel).append(u)
+        want = _arch_from_text(hint_text)
+        if want == "arm64":
+            urls = arm
+        elif want == "x64":
+            urls = intel or urls
+        else:
+            urls = arm + intel
+        urls = list(dict.fromkeys(u for u in urls if u))
+        if not urls:
+            s.codes.append("WINGET_INSTALLER_NOT_FOUND")
+            return [s]
+        if len(urls) > MAX_WINGET_INSTALLERS:
+            s.codes.append("WINGET_TOO_MANY_INSTALLERS")
+            return [s]
+        seeds = []
+        names = doc.get("name") or []
+        for u in urls:
+            parts = _json_snippets(text, [("token", doc.get("token")), ("homepage", doc.get("homepage")), ("url", u)])
+            if names:
+                m = re.search(r'"name"\s*:\s*\[[^\]]*\]', text)
+                if m:
+                    parts.insert(1, m.group(0))
+            seeds.append(Seed(kind="distro", source=api, text=text, quote=" ... ".join(parts),
+                              claim=f"Homebrew cask {doc.get('token')} {ver}: homepage and download URL"))
+        return _fanout(s, urls, ver, seeds, "https://formulae.brew.sh")
+
+    # ----------------------------------------------------------------------------------------------- Scoop
+    async def _scoop(self, s: Subject, hint_text: str) -> list[Subject]:
+        from .parse import SCOOP_BUCKETS
+        bucket = s.options.get("bucket") or "main"
+        repo = f"ScoopInstaller/{SCOOP_BUCKETS[bucket]}"
+        murl = f"https://raw.githubusercontent.com/{repo}/master/bucket/{quote(s.name or '')}.json"
+        r = await self._get(murl, "github")
+        if r.status_code == 404:
+            s.codes.append("SCOOP_BUCKET_AMBIGUOUS" if not s.options.get("bucket") else "SCOOP_MANIFEST_NOT_FOUND")
+            if not s.options.get("bucket"):
+                s.notes.append("not in the main bucket: name the bucket (e.g. `scoop install extras/<app>`)")
+            return [s]
+        r.raise_for_status()
+        text = r.text
+        try:
+            doc = __import__("json").loads(text)
+        except ValueError:
+            s.codes.append("RESOLUTION_FAILED:scoop")
+            return [s]
+        ver = doc.get("version")
+        by_arch: dict[str, list[str]] = {}
+        base = doc.get("url")
+        if base:
+            by_arch["any"] = base if isinstance(base, list) else [base]
+        for a, spec in (doc.get("architecture") or {}).items():
+            u = (spec or {}).get("url")
+            if u:
+                by_arch[{"64bit": "x64", "32bit": "x86", "arm64": "arm64"}.get(a, a)] = u if isinstance(u, list) else [u]
+        want = s.options.get("architecture") or _arch_from_text(hint_text)
+        if want and want in by_arch:
+            urls = by_arch[want]
+        elif want and "any" in by_arch:
+            urls = by_arch["any"]
+        else:
+            urls = [u for lst in by_arch.values() for u in lst]
+        urls = list(dict.fromkeys(u.split("#", 1)[0] for u in urls))       # scoop's "#/rename" suffix is not part of the URL
+        if not urls:
+            s.codes.append("WINGET_INSTALLER_NOT_FOUND")
+            return [s]
+        if len(urls) > MAX_WINGET_INSTALLERS:
+            s.codes.append("WINGET_TOO_MANY_INSTALLERS")
+            return [s]
+        seeds = []
+        for u in urls:
+            parts = _json_snippets(text, [("homepage", doc.get("homepage"))])
+            m = re.search(r'"url"\s*:\s*"' + re.escape(u), text)
+            if m:
+                parts.append(m.group(0))
+            seeds.append(Seed(kind="distro", source=murl, text=text, quote=" ... ".join(parts),
+                              claim=f"Scoop {bucket} bucket manifest for {s.name} {ver}: homepage and download URL"))
+        return _fanout(s, urls, ver, seeds, f"https://github.com/{repo}")
+
+    # -------------------------------------------------------------------------------------------------- Go
+    async def _go_vanity(self, s: Subject) -> None:
+        """A module path on a custom domain declares its repository in a go-import meta tag (what `go` itself reads)."""
+        path = s.name or ""
+        for cut in range(len(path.split("/")), 0, -1):
+            prefix = "/".join(path.split("/")[:cut])
+            r = await self._get(f"https://{prefix}?go-get=1", "go")
+            if r.status_code != 200:
+                continue
+            for m in re.finditer(r'<meta\s+name="go-import"\s+content="([^"]+)"', r.text, re.I):
+                parts = m.group(1).split()
+                if len(parts) == 3 and (path == parts[0] or path.startswith(parts[0] + "/")) and parts[1] in ("git", "mod"):
+                    repo = parts[2]
+                    s.notes.append(f"GO_IMPORT:{parts[0]}->{repo}")
+                    # Go's trust model: whoever controls the module path's domain decides where the code lives, so the
+                    # identity to verify is that domain (the repository it points to is recorded, not verified)
+                    s.url = f"https://{parts[0]}"
+                    if s.version_spec and s.version_spec != "latest":
+                        s.notes.append("GIT_REF_NOT_VERIFIED")
+                    return
+            break
+        s.codes.append("GO_IMPORT_NOT_FOUND")
 
     # ---------------------------------------------------------------------------------------------- WinGet
     async def _winget_locale_seed(self, ident: str, ver: str, base: str, installer_doc: dict, installer_text: str,
@@ -273,6 +419,34 @@ def _manifest_lines(text: str, keys: tuple[str, ...]) -> list[str]:
         st = ln.strip()
         if any(st.startswith(k + ":") for k in keys) and st.split(":", 1)[1].strip():
             out.append(st)
+    return out
+
+
+def _json_snippets(text: str, pairs: list[tuple[str, str]]) -> list[str]:
+    """Verbatim `"key": "value"` snippets of a JSON document for the given (key, value) pairs, as they appear in the
+    raw text (spacing preserved), so they verify as a quote."""
+    out = []
+    for k, v in pairs:
+        if not v:
+            continue
+        m = re.search(r'"' + re.escape(k) + r'"\s*:\s*"' + re.escape(v.replace("/", "/")) + '"', text)
+        if not m:
+            m = re.search(r'"' + re.escape(k) + r'"\s*:\s*"' + re.escape(v).replace("/", "\\\\?/") + '"', text)
+        if m:
+            out.append(m.group(0))
+    return out
+
+
+def _fanout(s: Subject, urls: list[str], ver: str | None, seeds: list[Seed], registry: str) -> list[Subject]:
+    out = []
+    for u in urls:
+        sub = s.model_copy(deep=True)
+        sub.version, sub.url = ver, u
+        sub.registry, sub.registry_basis = registry, "public default"
+        sub.seeds = [x for x in seeds if u in x.quote or "url" not in x.quote.lower()] or seeds
+        if len(urls) > 1:
+            sub.notes.append(f"ONE_OF_{len(urls)}_INSTALLERS")
+        out.append(sub)
     return out
 
 

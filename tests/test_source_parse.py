@@ -194,7 +194,7 @@ def test_download_only_and_script_limits():
 
 # ---------------------------------------------------------------- parse-only ecosystems
 def test_parse_only():
-    for src, eco, name in [("cargo install ripgrep", "crates", "ripgrep"), ("brew install --cask firefox", "homebrew", "firefox"),
+    for src, eco, name in [("cargo install ripgrep", "crates", "ripgrep"),
                            ("gem install rails -v 7.1", "rubygems", "rails"), ("choco install git -y", "chocolatey", "git"),
                            ("conda install -c conda-forge numpy", "conda", "numpy"), ("sudo apt install -y curl", "apt", "curl"),
                            ("flatpak install flathub org.mozilla.firefox", "flatpak", "org.mozilla.firefox"),
@@ -208,3 +208,24 @@ def test_parse_only():
 
 def test_too_many_subjects():
     assert parse_source("pip install " + " ".join(f"p{i}" for i in range(9))).codes == ["TOO_MANY_SUBJECTS"]
+
+
+def test_brew_scoop_go():
+    s = one("brew install --cask docker-desktop")
+    assert (s.ecosystem, s.name, s.options["kind"]) == ("homebrew", "docker-desktop", "cask")
+    assert one("brew install wget").options["kind"] is None                       # formula first, then cask (like brew)
+    assert codes("brew install someone/tap/x") == ["REGISTRY_UNSUPPORTED:tap:someone/tap"]
+    assert one("brew install homebrew/cask/firefox").options["kind"] == "cask"
+    assert "QUARANTINE_DISABLED" in one("brew install --cask --no-quarantine x").notes
+    s = one("scoop install extras/firefox")
+    assert (s.ecosystem, s.name, s.options["bucket"]) == ("scoop", "firefox", "extras")
+    assert one("scoop install git -a 64bit").options["architecture"] == "x64"
+    assert codes("scoop install foo/bar") == ["REGISTRY_UNSUPPORTED:scoop-bucket:foo"]
+    assert codes("scoop install git@2.40") == ["SCOOP_VERSION_PIN_UNSUPPORTED"]
+    assert "HASH_CHECK_DISABLED" in one("scoop install -s git").notes
+    s = one("go install github.com/junegunn/fzf@v0.55.0")
+    assert (s.url, s.version_spec) == ("https://github.com/junegunn/fzf", "v0.55.0")
+    assert one("go install golang.org/x/tools/gopls@latest").options == {"vanity": True}
+    assert codes("go get ./...") == ["LOCAL_PATH_UNSUPPORTED"]
+    assert codes("go install fmt") == ["INVALID_PACKAGE_SPEC"]
+    assert codes("go install -modfile x.mod github.com/a/b@v1") == ["UNSUPPORTED_FLAG:-modfile"]

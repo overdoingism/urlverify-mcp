@@ -108,6 +108,16 @@ CODE_TEXT = {
     "PACKAGE_SECURITY_HOLDING": ("The registry replaced this name with a security placeholder: the original package was malicious.",
                                  "registry 已把此名稱換成安全佔位套件：原本的套件是惡意的。"),
     "PACKAGE_NAME_LOOKALIKE": ("The name looks like a popular package's name (possible typosquat).", "名稱與熱門套件相近（可能是仿冒）。"),
+    "HOMEBREW_NOT_FOUND": ("Homebrew has no formula or cask of that name.", "Homebrew 沒有這個名稱的 formula 或 cask。"),
+    "SCOOP_BUCKET_AMBIGUOUS": ("The app is not in Scoop's main bucket; name the bucket (e.g. `scoop install extras/<app>`).",
+                               "Scoop 的 main bucket 沒有這個 app，請指明 bucket（例如 `scoop install extras/<app>`）。"),
+    "SCOOP_MANIFEST_NOT_FOUND": ("The named Scoop bucket has no manifest for this app.", "指定的 Scoop bucket 沒有這個 app 的 manifest。"),
+    "SCOOP_VERSION_PIN_UNSUPPORTED": ("Scoop generates manifests for pinned versions; nothing curated to check. Install the current version.",
+                                      "Scoop 對指定版本會臨時產生 manifest，沒有經過審核的內容可查；請安裝目前版本。"),
+    "GO_IMPORT_NOT_FOUND": ("The Go module path does not declare its repository (no go-import meta tag).", "Go 模組路徑沒有宣告原始碼位置（找不到 go-import meta）。"),
+    "HOMEBREW_BUILDS_FROM_SOURCE": ("Homebrew builds this formula from the upstream source that was verified; the binary is Homebrew's.",
+                                    "Homebrew 以驗證過的上游原始碼建置此 formula，安裝的二進位檔由 Homebrew 產生。"),
+    "QUARANTINE_DISABLED": ("The command disables macOS quarantine (Gatekeeper checks).", "指令關閉了 macOS 隔離（Gatekeeper 檢查）。"),
     "LOW_CONFIDENCE": ("The official channel is established, but only just (few independent sources or a cached identity); confidence is below 0.8.",
                        "已確立為官方管道，但依據偏少（獨立來源少或沿用快取身分），信心低於 0.8。"),
     "OWNER_NOT_OFFICIAL": ("The owner in the URL is not the project's established official account (the official one is named in details).",
@@ -138,6 +148,8 @@ _PREFIX_TEXT = {
     "NPM_ALIAS": ("npm alias {x} installs a different package.", "npm 別名 {x} 實際安裝的是另一個套件。"),
     "EXTRAS_IGNORED": ("Extras {x} are not verified separately.", "extras {x} 未另行驗證。"),
     "WINGET_ONE_OF": ("One of several installers in the manifest; all were verified.", "manifest 中多個安裝檔之一，全部都驗證了。"),
+    "ONE_OF": ("One of several downloads in the manifest; all were verified.", "manifest 中多個下載檔之一，全部都驗證了。"),
+    "GO_IMPORT": ("Go module path and the repository it declares: {x}.", "Go 模組路徑與其宣告的原始碼位置：{x}。"),
 }
 
 
