@@ -188,6 +188,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             TRACE.log("provenance", provenance=prov, registry_state={k: v for k, v in (registry_state or {}).items() if k != "signals"})
 
         from .models import LLMSubmission
+        fixed_codes: list[str] = []
         if l0.fatal_failures:
             # No need to spend LLM budget: deterministic failure is final.
             sub = LLMSubmission(identity=IdentityGraph(product=req.project))
@@ -203,6 +204,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                 det_sub = LLMSubmission(identity=IdentityGraph(product=req.project))
                 engine_notes.append(f"fixed lookups failed: {type(e).__name__}: {e}")
             engine_notes.extend(pre.notes)
+            fixed_codes = list(pre.codes)
             det_dec = decide(cfg, l0, det_sub.model_copy(deep=True), inv.evidence_store, req.project, cached_identity,
                              {}, None, prov, registry_state)
             TRACE.log("fixed_lookups", notes=pre.notes, codes=pre.codes, verdict=det_dec.verdict.value,
@@ -282,7 +284,8 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             identity=sub.identity, risk_signals=l0.risk_signals + sub.risk_notes, cache_hits=sorted(set(cache_hits)),
             engine_notes=engine_notes, trace_id=trace_id, duration_s=round(time.time() - t0, 1),
             path="l0_fatal" if l0.fatal_failures else "full",
-            established_edges=dec.established_edges, missing_edges=dec.missing_edges, rule_codes=dec.codes,
+            established_edges=dec.established_edges, missing_edges=dec.missing_edges,
+            rule_codes=dec.codes + ([c for c in fixed_codes if c not in dec.codes] if dec.verdict != Verdict.TRUE else []),
         )
     finally:
         await fetcher.close()

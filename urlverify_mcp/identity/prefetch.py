@@ -18,7 +18,7 @@ from ..models import Evidence, IdentityGraph, L0Result, LLMSubmission
 
 MAX_WIKIMEDIA_QUERIES = 3
 MAX_EXTRA_OWNER_RECORDS = 2
-_PLATFORM_FACT = re.compile(r"\.(owner|login|name|full_name|id|author|blog|homepage|is_verified)$")
+_PLATFORM_FACT = re.compile(r"\.(owner|login|name|full_name|id|author|blog|homepage|website|is_verified|verification_method)$")
 _PLATFORM_HOST = {"github": "github.com", "huggingface": "huggingface.co", "gitlab": "gitlab.com"}
 
 
@@ -131,9 +131,18 @@ class Prefetch:
             r = await self.structured.github(owner, repo)
         elif platform == "huggingface":
             r = await self.structured.huggingface(owner, repo)
+        elif platform == "flathub":
+            r = await self.structured.flathub(owner)
+            if r.get("found") is False:
+                self.codes.append("FLATHUB_APP_NOT_FOUND")
+                self.notes.append(f"fixed lookup: Flathub has no app {owner}")
+                return
+            if r.get("ok") and not (r.get("owner_info") or {}).get("is_verified"):
+                self.codes.append("FLATHUB_UNVERIFIED")
+                self.notes.append(f"fixed lookup: Flathub app {owner} is not verified by its developer (community packaging)")
         else:
             return
-        tool = f"{platform}_info" if platform == "github" else "huggingface_info"
+        tool = {"github": "github_info", "huggingface": "huggingface_info", "flathub": "flathub_info"}[platform]
         if r.get("ok") and r.get("source"):
             self._record(tool, {"owner": owner, "repo": repo}, r, platform, r["source"])
             self._cite(r["source"], platform, f"{platform} record of {owner}{'/' + repo if repo else ''}")
@@ -192,7 +201,7 @@ class Prefetch:
             await self.wikimedia(dev, l0)
         if not hit:
             self.codes.append("WIKIMEDIA_NO_MATCH")
-        if l0.platform in ("github", "huggingface") and l0.platform_scope == "user_content" and l0.platform_owner:
+        if l0.platform in ("github", "huggingface", "flathub") and l0.platform_scope == "user_content" and l0.platform_owner:
             self._add_org(l0.platform, l0.platform_owner)
             await self.platform_record(l0.platform, l0.platform_owner, l0.platform_repo)
             extra = [o for o in self.orgs.get(l0.platform, []) if o.lower() != l0.platform_owner.lower()][:MAX_EXTRA_OWNER_RECORDS]

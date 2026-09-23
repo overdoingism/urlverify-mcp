@@ -197,7 +197,6 @@ def test_parse_only():
     for src, eco, name in [("cargo install ripgrep", "crates", "ripgrep"),
                            ("gem install rails -v 7.1", "rubygems", "rails"), ("choco install git -y", "chocolatey", "git"),
                            ("conda install -c conda-forge numpy", "conda", "numpy"), ("sudo apt install -y curl", "apt", "curl"),
-                           ("flatpak install flathub org.mozilla.firefox", "flatpak", "org.mozilla.firefox"),
                            ("ollama pull qwen3:8b", "ollama", "qwen3:8b")]:
         p = parse_source(src)
         assert [(x.ecosystem, x.name) for x in p.subjects] == [(eco, name)], src
@@ -229,3 +228,14 @@ def test_brew_scoop_go():
     assert codes("go get ./...") == ["LOCAL_PATH_UNSUPPORTED"]
     assert codes("go install fmt") == ["INVALID_PACKAGE_SPEC"]
     assert codes("go install -modfile x.mod github.com/a/b@v1") == ["UNSUPPORTED_FLAG:-modfile"]
+
+
+def test_flatpak():
+    s = one("flatpak install flathub org.mozilla.firefox")
+    assert (s.ecosystem, s.name, s.url) == ("flatpak", "org.mozilla.firefox", "https://flathub.org/apps/org.mozilla.firefox")
+    assert "FLATPAK_REMOTE_ASSUMED_FLATHUB" in one("flatpak install org.videolan.VLC").notes
+    assert one("flatpak install flathub app/org.mozilla.firefox/x86_64/stable").name == "org.mozilla.firefox"
+    assert one("flatpak install https://dl.flathub.org/repo/appstream/org.gimp.GIMP.flatpakref").name == "org.gimp.GIMP"
+    assert codes("flatpak install fedora org.gnome.Calculator") == ["REGISTRY_UNSUPPORTED:flatpak-remote:fedora"]
+    assert codes("flatpak install --bundle app.flatpak") == ["LOCAL_PATH_UNSUPPORTED"]
+    assert codes("flatpak install flathub notanid") == ["INVALID_PACKAGE_SPEC"]

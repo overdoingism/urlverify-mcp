@@ -69,6 +69,8 @@ def _record_aliases(tool: str, args: dict[str, Any], raw: dict[str, Any]) -> lis
             out += [f"https://github.com/{owner}/{repo}", f"https://api.github.com/repos/{owner}/{repo}"]
     elif tool == "huggingface_info" and owner:
         out += [f"https://huggingface.co/{owner}"] + ([f"https://huggingface.co/{owner}/{repo}"] if repo else [])
+    elif tool == "flathub_info" and owner:
+        out += [f"https://flathub.org/apps/{owner}", f"https://flathub.org/api/v2/appstream/{owner}"]
     elif tool == "package_registry":
         name = str(args.get("name") or "")
         out += {"pypi": [f"https://pypi.org/project/{name}/", f"https://pypi.org/pypi/{name}/json"],

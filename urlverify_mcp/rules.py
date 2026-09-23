@@ -39,7 +39,7 @@ def _squash(s: str) -> str:
 
 
 SELF_PUBLISHED_MAX_CONFIDENCE = 0.75   # TRUE for an owner established only by cross-platform consistency
-STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro"}
+STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub"}
 _DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b")
 
 
@@ -555,6 +555,13 @@ def _project_matches(project: str, l0: L0Result, usable: list[Evidence]) -> tupl
         for cand in (l0.platform_owner, l0.platform_repo or ""):
             if _name_in(p, cand):
                 return True, f"project name matches the {l0.platform} path ({cand})"
+        # the target's OWN platform record may carry its display name (Flathub: com.obsproject.Studio = "OBS Studio");
+        # only that record counts, never another page or record that merely mentions the name
+        for ev in usable:
+            if ev.supports and ev.verified_quote and ev.kind == l0.platform and _owner_record(ev.source, l0.platform_owner, l0.platform):
+                names = re.findall(r"\.(?:owner_info\.name|repo_info\.name|name) = ([^;]+)", ev.quote)
+                if any(_norm_name(n) == p for n in names):
+                    return True, f"project name is the display name in the target's own {l0.platform} record"
         return False, f"project '{project}' matches neither the {l0.platform} owner '{l0.platform_owner}' nor the repository '{l0.platform_repo}'"
     for ev in usable:
         if ev.supports and ev.verified_quote and _name_in(p, ev.quote):

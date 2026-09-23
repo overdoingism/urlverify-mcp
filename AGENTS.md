@@ -337,7 +337,11 @@ config.example.yaml
   `SCOOP_BUCKET_AMBIGUOUS` 請呼叫方指明，不去其他 bucket 猜。`app@version` 不受理（Scoop 會臨時產生 manifest，沒有審核過的內容可查）。
 - Go：已知託管平台的模組路徑直接對應 repo；自訂網域依 `go-import` meta，**驗證模組網域本身**（Go 的信任模型是網域擁有者決定程式碼位置），
   repo 位置只記錄。
-- 支援但尚未驗證的生態系（cargo、gem、composer、choco、conda、apt 家族、snap、flatpak、ollama、Install-Module、其他容器 registry）
+- Flatpak：只接受 Flathub（未寫 remote 視為 Flathub 並提示）。固定預查取 Flathub appstream 與開發者驗證狀態存成 `flathub` 紀錄：
+  已驗證的 app 記錄驗證網域（website 方式）或 appstream 官網（manual／帳號方式），套用「平台已驗證連結」規則（該網域須已獨立確立為專案官網）；
+  **未驗證的 app 不記官網**（社群打包者自填的網址不得替任何網域投票），結果 UNVERIFIABLE 並附 `FLATHUB_UNVERIFIED`。
+  平台目標的專案名稱比對可採用「目標自己那筆平台紀錄」的顯示名稱（Flathub app ID 常不含名稱），他人紀錄不算。
+- 支援但尚未驗證的生態系（cargo、gem、composer、choco、conda、apt 家族、snap、ollama、Install-Module、msstore、其他容器 registry、非 Flathub 的 flatpak remote）
   回 `ECOSYSTEM_NOT_YET_VERIFIED:<eco>` 並列出解析結果；`cargo install --git` 走 git 驗證。apt 家族優先度最低（信任模型是發行版簽章）。
 - next_action：FALSE → DO_NOT_PROCEED；呼叫方可修正的代碼 → FIX_INPUT_AND_RETRY；其餘非 TRUE → INFORM_USER_AND_CONFIRM；
   TRUE 但信心 < 0.8 或帶警示（腳本會再下載、冷卻期、雜湊檢查關閉、自我發佈上限…）→ INFORM_USER_AND_CONFIRM；否則 PROCEED。

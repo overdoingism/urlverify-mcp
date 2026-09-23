@@ -247,7 +247,7 @@ PARSE_ONLY = {"cargo": "crates", "gem": "rubygems", "composer": "packagist", "ch
               "apk": "apk", "snap": "snap", "flatpak": "flatpak", "ollama": "ollama", "install-module": "psgallery"}
 KNOWN_COMMANDS = {"pip", "pip3", "python", "python3", "py", "uv", "uvx", "pipx", "poetry", "pdm", "rye", "pipenv",
                   "npm", "pnpm", "yarn", "bun", "npx", "pnpx", "bunx", "dotnet", "nuget", "install-package", "winget",
-                  "git", "gh", "hf", "huggingface-cli", "docker", "podman", "nerdctl", "brew", "scoop", "go"} | set(PARSE_ONLY)
+                  "git", "gh", "hf", "huggingface-cli", "docker", "podman", "nerdctl", "brew", "scoop", "go", "flatpak"} | set(PARSE_ONLY)
 
 
 def _dispatch(cmd: str, args: list[str]) -> Callable[[], ParsedSource] | None:
@@ -291,6 +291,8 @@ def _dispatch(cmd: str, args: list[str]) -> Callable[[], ParsedSource] | None:
         return lambda: _scoop(args)
     if cmd == "go":
         return lambda: _go(args)
+    if cmd == "flatpak":
+        return lambda: _flatpak(args)
     if cmd in PARSE_ONLY:
         return lambda: _parse_only(cmd, args)
     return None
@@ -1040,6 +1042,49 @@ def _go(args: list[str]) -> ParsedSource:
         else:
             s.options["vanity"] = True                     # resolved through the go-import meta tag
         out.subjects.append(s)
+    return out
+
+
+# --------------------------------------------------------------------------------------------------------- Flatpak
+FLATPAK_FLAGS = Flags(boolean=["-y", "--assumeyes", "--user", "--system", "--noninteractive", "-v", "--verbose", "--or-update",
+                               "--no-deploy", "--no-pull", "--no-related", "--no-deps", "--app", "--runtime", "--reinstall",
+                               "--no-static-deltas", "-u", "--no-auto-pin", "--include-sdk", "--include-debug"],
+                      value=["--arch", "--installation", "--subpath", "--from", "--bundle", "--sideload-repo", "--default-branch"])
+FLATPAK_REF_RE = re.compile(r"^(?:app/)?([A-Za-z][\w-]*(?:\.[\w-]+){2,})(?:/[^/]*/[^/]*)?$")
+
+
+def _flatpak(args: list[str]) -> ParsedSource:
+    out = ParsedSource(tool="flatpak")
+    if not args or args[0] not in ("install", "in", "ins", "inst"):
+        out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
+        out.message = "flatpak is understood as `flatpak install [flathub] <app-id>`"
+        return out
+    pos, seen, codes, rest = walk(args[1:], FLATPAK_FLAGS)
+    pos += rest
+    out.codes += codes
+    if _has(seen, "--from", "--bundle", "--sideload-repo"):
+        out.codes.append("LOCAL_PATH_UNSUPPORTED" if _has(seen, "--bundle") else "SOURCE_COMMAND_UNSUPPORTED")
+    if out.codes:
+        return out
+    remote = None
+    if pos and not FLATPAK_REF_RE.match(pos[0]) and not re.match(r"^https?://", pos[0]):
+        remote, pos = pos[0].lower(), pos[1:]
+    for p in pos:
+        m = re.match(r"^https://dl\.flathub\.org/repo/appstream/([\w.-]+)\.flatpakref$", p)
+        ref = FLATPAK_REF_RE.match(m.group(1) if m else p)
+        s = _subject(p, "flatpak", name=ref.group(1) if ref else p)
+        if not ref or (re.match(r"^https?://", p) and not m):
+            s.codes.append("INVALID_PACKAGE_SPEC" if not re.match(r"^https?://", p) else "SOURCE_COMMAND_UNSUPPORTED")
+        elif remote and remote != "flathub":
+            s.codes.append(f"REGISTRY_UNSUPPORTED:flatpak-remote:{remote}")
+        else:
+            s.url = f"https://flathub.org/apps/{s.name}"
+            s.registry, s.registry_basis = "https://flathub.org", "command flag" if remote else "public default"
+            if not remote and not m:
+                s.notes.append("FLATPAK_REMOTE_ASSUMED_FLATHUB")
+        out.subjects.append(s)
+    if not pos and not out.codes:
+        out.codes.append("SOURCE_NO_PACKAGE")
     return out
 
 

@@ -146,11 +146,13 @@ change what gets installed; a bare name is rejected because it does not say whic
 | Containers | `docker/podman/nerdctl pull|run` for Docker Hub and ghcr.io |
 | Homebrew | `brew install [--cask|--formula] <name>` (official taps only): the cask's download URL, or the upstream source a formula is built from, taken from formulae.brew.sh |
 | Scoop | `scoop install [bucket/]<app>` for the official ScoopInstaller buckets (main, extras, versions, java, nonportable); no bucket = main |
+| Flatpak | `flatpak install [flathub] <app-id>` (and dl.flathub.org `.flatpakref`): a developer-verified Flathub app is established through its verified domain (or its homepage when verified manually / by account) once that domain is the project's; unverified apps are community packaging and stay `UNVERIFIABLE` (`FLATHUB_UNVERIFIED`) |
 | Go | `go install` / `go get <module>@<version>`: github.com / gitlab.com / codeberg.org / bitbucket.org paths map to the repository; other domains are verified as the module's own domain (its go-import tag is recorded) |
 | Scripts | `curl … \| sh`, `sh -c "$(curl …)"`, `irm … \| iex`, `iex ((New-Object Net.WebClient).DownloadString(…))`: the script URL is verified; what the script downloads next is not (reported) |
 
 Understood but not verified yet (reported as `ECOSYSTEM_NOT_YET_VERIFIED`): cargo, gem, composer, choco,
-conda/mamba, apt/dnf/yum/pacman/zypper/apk, snap, flatpak, ollama, Install-Module, other container registries.
+conda/mamba, apt/dnf/yum/pacman/zypper/apk, snap, ollama, Install-Module, winget's msstore source, other container
+registries, Flatpak remotes other than Flathub.
 Always rejected: requirement / lock files, local paths, several indexes at once (`--extra-index-url`, `--find-links`),
 chained commands (`&&`, `;`). Registry: a flag in the command wins, then `source.registries` in config, then the public
 registry; a non-public registry is reported (`REGISTRY_UNSUPPORTED`), never silently replaced by the public one.

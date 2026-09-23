@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Flatpak verified (Flathub only): the Flathub developer-verification record is a platform-verified link to the
+  verified domain (or the appstream homepage when verified manually / by account); unverified apps are community
+  packaging and stay `UNVERIFIABLE` with `FLATHUB_UNVERIFIED`, and their declared homepage never votes. Platform targets
+  may match the project name against the display name in the target's own platform record.
+
 - Fixed lookup for websites: Homebrew casks that download from the target domain (reverse lookup in the cask
   catalogue, cached in `state/brew_cask_index.json`, refreshed weekly with ETag) become evidence when their token /
   name equals the project or their homepage is on the same domain (`identity.homebrew_reverse_lookup`).

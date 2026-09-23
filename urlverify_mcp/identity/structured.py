@@ -292,6 +292,34 @@ class Structured:
         except Exception as ex:  # noqa: BLE001
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}", "owner": owner}
 
+    # ---------------- Flathub
+    async def flathub(self, *a, **k): return _obs("flathub", await self._flathub(*a, **k))
+
+    async def _flathub(self, app_id: str) -> dict[str, Any]:
+        """Flathub appstream + developer verification. The homepage is kept only for a VERIFIED app: an unverified
+        app is packaged by the community and its declared homepage is nobody's statement about the project."""
+        try:
+            a = await self._json(f"https://flathub.org/api/v2/appstream/{app_id}")
+        except Exception as ex:  # noqa: BLE001
+            if "HTTP 404" in str(ex):
+                return {"ok": True, "found": False, "source": f"https://flathub.org/apps/{app_id}"}
+            return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+        try:
+            v = await self._json(f"https://flathub.org/api/v2/verification/{app_id}/status")
+        except Exception as ex:  # noqa: BLE001
+            v = {"verified": False, "method": "unknown", "detail": f"{type(ex).__name__}: {ex}"}
+        verified = bool(v.get("verified"))
+        homepage = (a.get("urls") or {}).get("homepage")
+        website = v.get("website") if v.get("method") == "website" else (homepage if verified else None)
+        info = {"name": a.get("name"), "developer_name": a.get("developer_name"), "is_verified": verified,
+                "verification_method": v.get("method")}
+        if website:
+            info["website"] = website if "://" in website else f"https://{website}"
+        if v.get("login_provider") and v.get("login_name"):
+            info["login"] = f"{v['login_provider']}:{v['login_name']}"
+        return {"ok": True, "found": True, "owner": app_id, "owner_info": info, "repo_info": {"id": app_id},
+                "source": f"https://flathub.org/apps/{app_id}"}
+
     # ---------------- package registries
     async def _nuget(self, name: str) -> dict[str, Any]:
         from .releases import ReleaseMetadata, ReleaseTarget

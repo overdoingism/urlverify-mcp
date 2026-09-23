@@ -168,3 +168,72 @@ async def test_brew_reverse_lookup_in_prefetch(tmp_path, monkeypatch):
     from urlverify_mcp.rules import verify_quotes
     verify_quotes(ev, store)
     assert ev[0].verified_quote
+
+
+class FakeFlathub(FakeStructured):
+    def __init__(self, apps, **kw):
+        super().__init__(**kw)
+        self.apps = apps
+
+    async def flathub(self, app_id):
+        return self.apps.get(app_id, {"ok": True, "found": False, "source": f"https://flathub.org/apps/{app_id}"})
+
+
+def _fh(app_id, verified, website=None, name=None):
+    info = {"name": name or app_id.split(".")[-1], "is_verified": verified, "verification_method": "website" if website else "none"}
+    if website:
+        info["website"] = website
+    return {"ok": True, "found": True, "owner": app_id, "owner_info": info, "repo_info": {"id": app_id},
+            "source": f"https://flathub.org/apps/{app_id}"}
+
+
+async def test_flathub_verified_app_is_established_by_its_verified_domain():
+    obs_wd = {"qid": "Q1", "label": "OBS Studio", "official_website": ["https://obsproject.com"],
+              "stability": STABLE, "source": "https://www.wikidata.org/wiki/Q1"}
+    fs = FakeFlathub({"com.obsproject.Studio": _fh("com.obsproject.Studio", True, "https://obsproject.com", name="OBS Studio")},
+                     wikidata={"OBS Studio": [obs_wd]})
+    store = EvidenceStore()
+    l0 = l0_for("flathub.org", "flathub", "com.obsproject.Studio")
+    pre = Prefetch(Config(), fs, store)
+    sub = await pre.run(l0, "OBS Studio")
+    d = decide(Config(), l0, sub, store, "OBS Studio")
+    assert d.verdict == Verdict.TRUE and "PROJECT_TO_ORG:flathub:com.obsproject.studio" in d.established_edges, d.notes
+
+
+async def test_flathub_unverified_app_is_not_true_and_says_why():
+    vlc_wd = {"qid": "Q2", "label": "VLC media player", "aliases": ["VLC"], "official_website": ["https://www.videolan.org/vlc/"],
+              "stability": STABLE, "source": "https://www.wikidata.org/wiki/Q2"}
+    fs = FakeFlathub({"org.videolan.VLC": _fh("org.videolan.VLC", False)}, wikidata={"VLC": [vlc_wd]})
+    store = EvidenceStore()
+    l0 = l0_for("flathub.org", "flathub", "org.videolan.VLC")
+    pre = Prefetch(Config(), fs, store)
+    sub = await pre.run(l0, "VLC")
+    assert "FLATHUB_UNVERIFIED" in pre.codes
+    assert not any('"website"' in (store.get(e.source) or "") for e in sub.evidence if e.kind == "flathub")
+    d = decide(Config(), l0, sub, store, "VLC")
+    assert d.verdict == Verdict.UNVERIFIABLE, d.notes
+
+
+async def test_flathub_missing_app():
+    fs = FakeFlathub({})
+    pre = Prefetch(Config(), fs, EvidenceStore())
+    await pre.run(l0_for("flathub.org", "flathub", "org.nope.Nothing"), "Nothing")
+    assert "FLATHUB_APP_NOT_FOUND" in pre.codes
+
+
+
+def test_display_name_only_from_the_targets_own_record():
+    """A different app's record naming "OBS Studio" does not satisfy the name match for com.evil.Studio."""
+    import json as _json
+    store = EvidenceStore()
+    rec = _fh("com.evil.Studio", True, "https://evil.example", name="Evil Studio")
+    other = _fh("com.obsproject.Studio", True, "https://obsproject.com", name="OBS Studio")
+    store.record(rec["source"], _json.dumps(rec), "flathub")
+    store.record(other["source"], _json.dumps(other), "flathub")
+    ev = [Evidence(kind="flathub", source=src, claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == src])
+          for src in (rec["source"], other["source"])]
+    from urlverify_mcp.rules import _project_matches, verify_quotes
+    verify_quotes(ev, store)
+    l0 = l0_for("flathub.org", "flathub", "com.evil.Studio")
+    assert _project_matches("OBS Studio", l0, ev)[0] is False
+    assert _project_matches("Evil Studio", l0, ev)[0] is True
