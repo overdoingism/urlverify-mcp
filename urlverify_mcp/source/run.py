@@ -33,7 +33,7 @@ _FIXABLE = ("INPUT_", "SOURCE_", "UNSUPPORTED_FLAG", "UNSUPPORTED_ENV", "FLAG_MI
 # notices that turn a TRUE into "tell the user first"
 _CAUTION = ("SCRIPT_MAY_DOWNLOAD_MORE", "HASH_CHECK_DISABLED", "MALWARE_SCAN_DISABLED", "TLS_VERIFICATION_DISABLED",
             "PRIVILEGED_CONTAINER", "SUBMODULES_NOT_VERIFIED", "RELEASE_COOLDOWN_ACTIVE", "RELEASE_COOLDOWN_UNKNOWN",
-            "SELF_PUBLISHED_CAP", "CONTENT_TRUST_DISABLED", "INSTALLER_ARGUMENTS_OVERRIDDEN")
+            "SELF_PUBLISHED_CAP", "CONTENT_TRUST_DISABLED", "INSTALLER_ARGUMENTS_OVERRIDDEN", "LOW_CONFIDENCE")
 CONFIDENCE_FOR_PROCEED = 0.8
 
 
@@ -248,6 +248,8 @@ async def verify_source(req: SourceRequest, cfg: Config, store: Storage) -> Sour
         res = await verify(vr, cfg, store, record=False)
         codes, notices = result_codes(res)
         notices = list(dict.fromkeys(s.notes + notices))
+        if res.verdict == Verdict.TRUE and res.confidence < CONFIDENCE_FOR_PROCEED:
+            notices.append("LOW_CONFIDENCE")
         results.append(SubjectResult(index=i, subject=s, verdict=res.verdict, confidence=res.confidence, codes=codes,
                                      notices=notices, result=res,
                                      next_action=_next_action(res.verdict, res.confidence, codes, notices)))

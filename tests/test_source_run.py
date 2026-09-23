@@ -113,3 +113,15 @@ async def test_mcp_tool_returns_yaml_text(env, tmp_path, monkeypatch):
     tools = {t.name: t for t in await mcp.list_tools()}
     assert set(tools["verify_source"].inputSchema["properties"]) >= {"project", "source", "artifact", "description", "version"}
     assert "url" not in tools["verify_source"].inputSchema["properties"]
+
+
+async def test_low_confidence_true_is_explained(env, monkeypatch):
+    calls, store = env
+    import urlverify_mcp.pipeline as pipeline
+
+    async def weak(req, cfg, store, record=True):
+        return VerifyResult(verdict=Verdict.TRUE, confidence=0.75, reason="r", trace_id="s", path="full")
+    monkeypatch.setattr(pipeline, "verify", weak)
+    r = await verify_source(req(), Config(), store)
+    assert r.next_action == "INFORM_USER_AND_CONFIRM" and "LOW_CONFIDENCE" in r.notices
+    assert "confidence is below 0.8" in to_yaml(r)

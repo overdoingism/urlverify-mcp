@@ -108,6 +108,8 @@ CODE_TEXT = {
     "PACKAGE_SECURITY_HOLDING": ("The registry replaced this name with a security placeholder: the original package was malicious.",
                                  "registry 已把此名稱換成安全佔位套件：原本的套件是惡意的。"),
     "PACKAGE_NAME_LOOKALIKE": ("The name looks like a popular package's name (possible typosquat).", "名稱與熱門套件相近（可能是仿冒）。"),
+    "LOW_CONFIDENCE": ("The official channel is established, but only just (few independent sources or a cached identity); confidence is below 0.8.",
+                       "已確立為官方管道，但依據偏少（獨立來源少或沿用快取身分），信心低於 0.8。"),
     "OWNER_NOT_OFFICIAL": ("The owner in the URL is not the project's established official account (the official one is named in details).",
                            "網址中的擁有者不是專案已確立的官方帳號（官方帳號見 details）。"),
     "REPOSITORY_IS_FORK": ("The repository is a fork of another repository, not the original.", "此倉庫是別人倉庫的 fork，不是原始倉庫。"),
