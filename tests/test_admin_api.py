@@ -94,3 +94,23 @@ def test_cooldown_hours_config_roundtrip(tmp_path, monkeypatch):
         assert load_config(str(path)).release_cooldown.hours == hours
     cfg['release_cooldown']['hours'] = -1
     assert c.put('/api/config', json=cfg).status_code == 400
+
+
+def test_github_token_masked_and_kept(tmp_path, monkeypatch):
+    import yaml
+    from fastapi.testclient import TestClient
+    from urlverify_mcp.admin.app import create_app
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(yaml.safe_dump({"storage": {"dir": str(tmp_path / "s")}, "log": {"dir": str(tmp_path / "l")},
+                                        "admin": {"auth_file": str(tmp_path / "admin.auth")}}))
+    app = create_app(str(cfg_path))
+    c = TestClient(app)
+    c.post("/api/login", json={"password": "admin"})
+    assert c.put("/api/github_token", json={"token": "github_pat_abcdefgh1234"}).json()["set"]
+    assert c.get("/api/github_token").json() == {"set": True, "hint": "…1234"}
+    conf = c.get("/api/config").json()
+    assert conf["identity"]["github_token"] == "********"
+    assert c.put("/api/config", json=conf).json()["ok"]                       # saving the masked JSON keeps the token
+    assert yaml.safe_load(cfg_path.read_text())["identity"]["github_token"] == "github_pat_abcdefgh1234"
+    c.put("/api/github_token", json={"token": ""})
+    assert c.get("/api/github_token").json()["set"] is False

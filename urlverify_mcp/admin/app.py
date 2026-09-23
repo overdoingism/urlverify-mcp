@@ -30,6 +30,13 @@ class VerifyBody(BaseModel):
     options: dict[str, Any] | None = None
 
 
+TOKEN_MASK = "********"
+
+
+class TokenBody(BaseModel):
+    token: str = ""
+
+
 class FullLogBody(BaseModel):
     enabled: bool
 
@@ -133,12 +140,17 @@ def create_app(config_path: str | None = None) -> FastAPI:
     @app.get("/api/config")
     async def get_config():
         d = st.cfg.model_dump(mode="json")
+        if d.get("identity", {}).get("github_token"):
+            d["identity"]["github_token"] = TOKEN_MASK          # never shown in the JSON editor
         d["_source_path"] = str(st.cfg.source_path) if st.cfg.source_path else None
         return d
 
     @app.put("/api/config")
     async def put_config(body: dict[str, Any]):
         body.pop("_source_path", None)
+        ident = body.get("identity") if isinstance(body.get("identity"), dict) else None
+        if ident is not None and ident.get("github_token") == TOKEN_MASK:
+            ident["github_token"] = st.cfg.identity.github_token   # mask round-trip keeps the stored token
         try:
             cfg = Config.model_validate(body)
         except Exception as e:  # noqa: BLE001
@@ -147,6 +159,39 @@ def create_app(config_path: str | None = None) -> FastAPI:
         path = save_config(cfg)
         st.reload()
         return {"ok": True, "path": str(path)}
+
+    # ---- optional GitHub token (raises the GitHub API limit from 60 to 5000 requests per hour)
+    @app.get("/api/github_token")
+    async def github_token_status():
+        t = st.cfg.identity.github_token
+        return {"set": bool(t), "hint": ("…" + t[-4:]) if len(t) >= 8 else ("set" if t else "")}
+
+    @app.put("/api/github_token")
+    async def github_token_set(body: TokenBody):
+        cfg = st.cfg.model_copy(deep=True)
+        cfg.identity.github_token = body.token.strip()
+        cfg.source_path = st.cfg.source_path
+        path = save_config(cfg)
+        st.reload()
+        return {"ok": True, "set": bool(cfg.identity.github_token), "path": str(path)}
+
+    @app.post("/api/github_token/check")
+    async def github_token_check():
+        """Manual only: asks GitHub for the current rate limit with (or without) the stored token."""
+        import httpx
+        t = st.cfg.identity.github_token
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": st.cfg.net.user_agent}
+        if t:
+            headers["Authorization"] = f"Bearer {t}"
+        try:
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get("https://api.github.com/rate_limit", headers=headers)
+            if r.status_code == 401:
+                return {"ok": False, "error": "GitHub rejected the token (401): expired, revoked or mistyped"}
+            core = r.json()["resources"]["core"]
+            return {"ok": True, "authenticated": bool(t), "limit": core["limit"], "remaining": core["remaining"], "reset": core["reset"]}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     @app.get("/api/cache/{table}")
     async def get_cache(table: str):

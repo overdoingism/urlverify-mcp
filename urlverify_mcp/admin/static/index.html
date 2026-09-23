@@ -112,6 +112,17 @@
     <div class="card" id="h-detail" style="display:none"><pre id="h-raw"></pre></div></section>
 
   <section id="tab-config">
+    <div class="card"><h3>GitHub token (optional)</h3>
+      <p class="muted">Without a token GitHub allows 60 API requests per hour from this machine; a few verifications of GitHub-hosted projects use that up and later checks come back UNVERIFIABLE. A token with <b>no permissions</b> raises the limit to 5000/hour. Create one at
+        <a href="https://github.com/settings/personal-access-tokens/new" target="_blank">github.com/settings/personal-access-tokens/new</a>
+        (fine-grained: Repository access = <i>Public repositories</i>, no permissions, pick an expiry) or a classic token with no scopes at
+        <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a>. It is stored in config.yaml and only sent to api.github.com.</p>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="gt-input" type="password" autocomplete="off" placeholder="github_pat_… or ghp_…" style="flex:1">
+        <button class="small" id="gt-save">Save</button> <button class="small" id="gt-clear">Remove</button> <button class="small" id="gt-check">Check limit</button>
+      </div>
+      <div class="muted" id="gt-status" style="margin-top:6px"></div>
+    </div>
     <div class="card">
     <p class="muted">Loaded from: <span id="c-path"></span>. Edit YAML-equivalent JSON below; saving writes the config file and reloads.
       Field reference: <a href="https://github.com/overdoingism/urlverify-mcp/blob/main/document_for_config.md" target="_blank">document_for_config.md</a></p>
@@ -232,7 +243,12 @@ $('#fl-enabled').onchange = async () => { const r = await api('/api/fulllog', {m
 $('#fl-open').onclick = async () => { try { const r = await api('/api/fulllog/open', {method:'POST'}); $('#fl-status').textContent = r.ok ? `opened ${r.dir}` : `could not open: ${r.error}`; } catch(e){ $('#fl-status').textContent = 'error: ' + e.message; } };
 $('#fl-copy').onclick = async () => { try { await navigator.clipboard.writeText($('#fl-dir').value); $('#fl-status').textContent = 'path copied'; } catch(e){ $('#fl-dir').select(); } };
 
-async function loadConfig(){ await loadFullLog(); cfg = await api('/api/config'); $('#c-path').textContent = cfg._source_path || '(defaults; save will create ~/.urlverify_mcp/config.yaml)'; const c = {...cfg}; delete c._source_path; $('#c-json').value = JSON.stringify(c, null, 2); }
+async function loadGithubToken(){ const t = await api('/api/github_token'); $('#gt-status').textContent = t.set ? `token stored (${t.hint})` : 'no token stored (60 requests/hour)'; }
+$('#gt-save').onclick = async () => { const v = $('#gt-input').value.trim(); if(!v) return; await api('/api/github_token', {method:'PUT', body: JSON.stringify({token: v})}); $('#gt-input').value=''; await loadConfig(); };
+$('#gt-clear').onclick = async () => { if(confirm('Remove the stored GitHub token?')){ await api('/api/github_token', {method:'PUT', body: JSON.stringify({token: ''})}); await loadConfig(); } };
+$('#gt-check').onclick = async () => { $('#gt-status').textContent = 'asking GitHub…'; const r = await api('/api/github_token/check', {method:'POST'});
+  $('#gt-status').textContent = r.ok ? `${r.authenticated ? 'token works' : 'no token'}: ${r.remaining}/${r.limit} requests left this hour` : 'error: ' + r.error; };
+async function loadConfig(){ await loadGithubToken(); await loadFullLog(); cfg = await api('/api/config'); $('#c-path').textContent = cfg._source_path || '(defaults; save will create ~/.urlverify_mcp/config.yaml)'; const c = {...cfg}; delete c._source_path; $('#c-json').value = JSON.stringify(c, null, 2); }
 $('#c-save').onclick = async () => { try {
     const body = JSON.parse($('#c-json').value);
     // full_log.enabled is edited on the Logs tab; the JSON here is the same file, so a Save writes whatever the JSON says

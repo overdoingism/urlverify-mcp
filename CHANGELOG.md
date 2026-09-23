@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- TLS check tries the resolved addresses in turn (address families interleaved, at most 4): a machine without an IPv6
+  route no longer fails dual-stack hosts. Only a failed connection moves on; any TLS answer is final.
+- Admin Config tab: optional GitHub token field (masked, check-limit button, links to create a no-permission token).
+  The JSON editor shows the token masked and keeps it on save.
+- A "not found" answer (404 for a guessed repository, an invalid Wikipedia title) is no longer counted as a dependency
+  failure; Wikipedia replies without results are reported as not found; infobox developer fields drop citation text.
+
 ## v0.2.0 — 2026-09-24
 
 Breaking: the MCP interface changed; restart the MCP host after updating.

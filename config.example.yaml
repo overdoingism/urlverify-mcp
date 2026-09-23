@@ -36,6 +36,7 @@ identity:
   allow_tier3: false        # forums / blogs / reddit
   history_days: 90          # Wikipedia / Wikidata stability window
   min_stable_revisions: 3
+  github_token: ""          # optional, no permissions needed: 60 -> 5000 GitHub API requests/hour (see document_for_config.md)
   new_domain_days: 180      # CT first-seen / org creation younger than this = risk signal
   github_token: ""          # optional, raises API rate limit
   # Source tiers are additive to the built-in lists (identity/sources.py). eTLD+1 or full host.
