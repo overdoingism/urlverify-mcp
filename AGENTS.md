@@ -167,7 +167,33 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - 網頁（fetch_url）仍要逐字 quote。同一 URL 的 API 紀錄與網頁分開存，永不互相覆蓋；頁面引文只比對頁面，紀錄只比對紀錄。
 - 紀錄可用任何一個網址引用（api.github.com/repos/o/r ≡ github.com/o/r、registry.npmjs.org/x ≡ npmjs.com/package/x…，見 `evidence.norm_url`）。
 - 仍接受舊式「source + quote」的結構化證據（以事實錨定比對），但新提示要求用 fact ID。
-- 下一步（提案三其餘部分）：由 facts 建初始身分圖、算 missing_edges、依缺口固定補查，LLM 只處理語意邊。
+- 其餘部分見 §6.3。
+
+## 6.3 身分邊與缺口驅動的固定補查（提案三後半段，2026-09-24 定案）
+目標：LLM 只做機器判斷不了的語意工作；能機械完成的查詢由程式按缺口固定執行，減少 LLM 自由發揮。
+
+**邊（edges）**：規則引擎每次裁決後，同時輸出已成立與缺少的邊（`established_edges`／`missing_edges`），缺口附「已有幾家／需要幾家」。
+| 邊 | 適用目標 | 成立條件（沿用既有規則，不新增門檻） |
+|---|---|---|
+| `TARGET_CHECKS` | 全部 | L0 必要檢查完成且無致命失敗 |
+| `PROJECT_TO_DOMAIN:<domain>` | 一般網站 | 目標網域由 ≥ min_sources 個獨立家族成立 |
+| `PROJECT_TO_ORG:<platform>:<owner>` | 託管平台、套件 | 路徑 owner 成立為官方 org／套件 |
+| `PACKAGE_TO_REPOSITORY` | PyPI、npm | 簽章 provenance 指出建置 repo |
+| `PROJECT_NAME_MATCH` | 全部 | 證據提到呼叫方給的專案名稱 |
+
+**流程**：
+1. L0（不變）。
+2. **固定預查**（不經 LLM）：依目標類型決定缺哪些邊，程式直接執行對應查詢：
+   - 缺 `PROJECT_TO_DOMAIN`／`PROJECT_TO_ORG` → Wikimedia 固定查詢，候選名稱依序最多 3 個：呼叫方 project → 套件／repo 名稱 →
+     第一個被接受的 Wikidata 條目所記的開發者（P178）。條目接受條件是確定性的：標籤或別名與候選名稱正規化後相同，或其官網／原始碼庫
+     指向目標。Wikipedia 只經該條目的 enwiki 連結取得，不猜標題。查不到記 `WIKIMEDIA_NO_MATCH`，不重試換標題。
+   - 平台目標缺 `PROJECT_TO_ORG` → 取 owner（與 repo）的平台紀錄。
+   - 套件目標缺 `PACKAGE_TO_REPOSITORY` → registry metadata 與 provenance（既有）。
+   預查得到的紀錄轉為以 fact 引用的確定性證據；候選網域／org 由紀錄推出（官網、原始碼庫 owner、目標本身）。
+3. 以預查證據跑規則引擎。**已能裁決（TRUE／FALSE）就不啟動 LLM**；票數規則與 LLM 引用時完全相同，所以不增加長尾風險。
+4. 仍有缺口才啟動 LLM，並告知：已有哪些紀錄與 facts（不必重查）、缺哪些邊、各缺幾家。LLM 負責別名、改名、收購、產品與公司關係、
+   以及網頁是否真的支持某條邊；它的證據與預查證據合併後再裁決。
+5. 輸出：`machine_readable.subjects[]` 帶 `established_edges`、`missing_edges`；原因代碼由缺口直接產生（取代 v0.2 由備註字串推導的做法）。
 
 ## 6.1 規則寫死 vs. LLM 自主：責任分工
 原則：**密碼學與結構性事實、安全不變量歸規則；語意推理歸 LLM。LLM 提議，規則驗證。**
