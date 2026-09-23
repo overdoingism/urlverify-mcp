@@ -341,6 +341,8 @@ config.example.yaml
   已驗證的 app 記錄驗證網域（website 方式）或 appstream 官網（manual／帳號方式），套用「平台已驗證連結」規則（該網域須已獨立確立為專案官網）；
   **未驗證的 app 不記官網**（社群打包者自填的網址不得替任何網域投票），結果 UNVERIFIABLE 並附 `FLATHUB_UNVERIFIED`。
   平台目標的專案名稱比對可採用「目標自己那筆平台紀錄」的顯示名稱（Flathub app ID 常不含名稱），他人紀錄不算。
+  發行管道的 manifest 倉庫（github.com/flathub、Homebrew、ScoopInstaller…）與該發行管道同一家族，不另計一家；
+  未驗證的 Flathub app 不接受任何 Flathub 家族的支持（Flathub 對此類 app 明示「非開發者所屬」）。（VLC 實測發現，2026-09-24）
 - 支援但尚未驗證的生態系（cargo、gem、composer、choco、conda、apt 家族、snap、ollama、Install-Module、msstore、其他容器 registry、非 Flathub 的 flatpak remote）
   回 `ECOSYSTEM_NOT_YET_VERIFIED:<eco>` 並列出解析結果；`cargo install --git` 走 git 驗證。apt 家族優先度最低（信任模型是發行版簽章）。
 - next_action：FALSE → DO_NOT_PROCEED；呼叫方可修正的代碼 → FIX_INPUT_AND_RETRY；其餘非 TRUE → INFORM_USER_AND_CONFIRM；

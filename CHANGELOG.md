@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fix (found live with VLC): a distribution's manifest repository (Flathub, Homebrew, Scoop, F-Droid, nixpkgs, ...)
+  is the same independence family as the distribution itself; and an unverified Flathub app gets no support from the
+  Flathub family at all (Flathub states such apps are not affiliated with the developer). An unverified app plus
+  Flathub's own build manifest no longer adds up to "official".
+
 - Flatpak verified (Flathub only): the Flathub developer-verification record is a platform-verified link to the
   verified domain (or the appstream homepage when verified manually / by account); unverified apps are community
   packaging and stay `UNVERIFIABLE` with `FLATHUB_UNVERIFIED`, and their declared homepage never votes. Platform targets

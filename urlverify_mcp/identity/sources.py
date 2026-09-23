@@ -82,6 +82,15 @@ FORUM_HINTS = ("forum", "community", "discuss", "board", "bbs", "/t/", "/thread"
 PLATFORM_FAMILIES = {"github", "gitlab", "codeberg", "huggingface"}
 
 
+DISTRIBUTION_FAMILY = {
+    "manifest:github.com/flathub": "flathub", "manifest:github.com/homebrew": "brew.sh",
+    "manifest:github.com/scoopinstaller": "scoop.sh", "manifest:github.com/f-droid": "f-droid.org",
+    "manifest:gitlab.com/fdroid": "f-droid.org", "manifest:github.com/nixos": "nixos.org",
+    "manifest:github.com/conda-forge": "conda-forge.org", "manifest:github.com/macports": "macports.org",
+    "manifest:github.com/chocolatey-community": "chocolatey.org",
+}
+
+
 def source_key(url: str) -> str:
     """The independence key of an evidence source: `manifest:<host>/<owner>/<repo>` for a tier-1 manifest repository
     (a curated, separately maintained publisher even though it is hosted on github.com), else the eTLD+1."""
@@ -98,7 +107,9 @@ def family_of(etld1: str) -> str:
     (github.com + githubusercontent.com + github.io, huggingface.co + hf.co, ...) is one, each tier-1 manifest
     repository (source_key "manifest:...") is its own family, anything else is itself."""
     if etld1.startswith("manifest:"):
-        return etld1
+        # a distribution's manifest repository speaks for that distribution: same family as its own site / API
+        k = etld1.lower()
+        return next((fam for pfx, fam in DISTRIBUTION_FAMILY.items() if k == pfx or k.startswith(pfx + "/")), etld1)
     if etld1 in ("wikipedia.org", "wikidata.org"):
         return "wikimedia"
     a = anchor_for(etld1)

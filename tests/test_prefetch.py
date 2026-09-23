@@ -237,3 +237,29 @@ def test_display_name_only_from_the_targets_own_record():
     l0 = l0_for("flathub.org", "flathub", "com.evil.Studio")
     assert _project_matches("OBS Studio", l0, ev)[0] is False
     assert _project_matches("Evil Studio", l0, ev)[0] is True
+
+
+def test_unverified_flathub_app_not_established_by_flathub_family_votes():
+    """VLC regression: Flathub record + Flathub's own GitHub build manifest + one aged blog must NOT make an unverified
+    app official. The manifest repo is the Flathub family; unverified apps get no Flathub-family support at all."""
+    import json as _json
+    from urlverify_mcp.identity.sources import family_of, source_key
+    assert family_of(source_key("https://github.com/flathub/org.videolan.VLC")) == "flathub"
+    assert family_of(source_key("https://raw.githubusercontent.com/Homebrew/homebrew-cask/master/Casks/d/docker.rb")) == "brew.sh"
+    store = EvidenceStore()
+    fh = _fh("org.videolan.VLC", False, name="VLC")
+    store.record(fh["source"], _json.dumps(fh), "flathub")
+    gh = {"ok": True, "owner": "flathub", "owner_info": {"login": "flathub"}, "repo_info": {"full_name": "flathub/org.videolan.VLC"},
+          "source": "https://github.com/flathub/org.videolan.VLC"}
+    store.record(gh["source"], _json.dumps(gh), "github")
+    blog = "https://www.fosslinux.com/1/top-apps"
+    store[blog] = "fosslinux@tuts:~$ flatpak install flathub org.videolan.VLC"
+    ev = [Evidence(kind="flathub", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == fh["source"]]),
+          Evidence(kind="github", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == gh["source"]]),
+          Evidence(kind="media", source=blog, tier=2, claim="c", quote="flatpak install flathub org.videolan.VLC")]
+    ident = IdentityGraph(product="VLC", official_orgs={"flathub": ["org.videolan.VLC"]})
+    l0 = l0_for("flathub.org", "flathub", "org.videolan.VLC")
+    ages = {blog: {"ok": True, "method": "wayback", "strength": "strong", "created_ts": 1.0, "age_days": 700}}
+    d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev), store, "VLC", ages=ages)
+    assert d.verdict == Verdict.UNVERIFIABLE, d.notes
+    assert any("community packaging" in n for n in d.notes)

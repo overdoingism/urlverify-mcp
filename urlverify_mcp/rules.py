@@ -274,6 +274,15 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
                 if _wikimedia_repo_names_org(org, platform, ev.source, store):
                     org_support.setdefault(f"{platform}:{org.lower()}", set()).add(etld1_of(host_of(ev.source)))
                     notes.append(f"{ev.kind} records a stable official repository under {platform} org '{org}' ({ev.source})")
+    # Flathub states that an unverified app is "not verified by, affiliated with, or supported by" the developer: for
+    # such an app, nothing from the Flathub family (its records, pages, build manifests) counts as support
+    for key in list(org_support):
+        platform, org = key.split(":", 1)
+        if platform == "flathub" and not _flathub_verified(org, store):
+            kept = {x for x in org_support[key] if family_of(x) != "flathub"}
+            if kept != org_support[key]:
+                notes.append(f"Flathub does not verify '{org}' (community packaging): Flathub's own records and manifests are not counted for it")
+            org_support[key] = kept
     # a Wikipedia/Wikidata pair counts as one family
     def _distinct(srcs: set[str]) -> int:
         return len({family_of(s) for s in srcs})
@@ -629,6 +638,18 @@ def _platform_verified_link(org: str, platform: str, established: list[str], sto
         m = re.search(r'"blog":\s*"([^"]+)"', v) or re.search(r'"website":\s*"([^"]+)"', v)
         if m and etld1_of(host_of(m.group(1))) in established:
             return True
+    return False
+
+
+def _flathub_verified(app_id: str, store: dict[str, str]) -> bool:
+    """True only when a Flathub record for the app says it is developer-verified."""
+    for k, v in store.items():
+        if record_kind(store, k) != "flathub" or not _owner_record(k, app_id, "flathub"):
+            continue
+        try:
+            return bool((json.loads(v).get("owner_info") or {}).get("is_verified"))
+        except (ValueError, AttributeError):
+            return False
     return False
 
 
