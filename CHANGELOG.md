@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Each tier-1 manifest repository (winget-pkgs, Homebrew, Scoop, ...) is its own independence family instead of being
+  folded into "github" because it is hosted there.
+- WinGet: the default-locale manifest's PackageName / Publisher / PublisherUrl / PackageUrl lines become evidence too
+  (the curated statement of the publisher's and package's official site).
+
 - Third-party "try again later" answers (429/502/503/504) are retried with backoff (`net.retries`, `net.retry_backoff_s`,
   Retry-After honoured up to 10 s). CT first-seen dates are cached (`net.ct_first_seen_cache_days`, default 90): the
   date never changes and crt.sh often answers 502 for popular domains.

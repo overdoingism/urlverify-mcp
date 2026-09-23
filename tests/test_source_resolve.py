@@ -91,10 +91,25 @@ ManifestType: installer
 """
 
 
+WINGET_LOCALE = """PackageIdentifier: Docker.DockerDesktop
+PackageVersion: 4.91.0
+Publisher: Docker Inc.
+PublisherUrl: https://www.docker.com/
+PackageName: Docker Desktop
+PackageUrl: https://www.docker.com/products/docker-desktop
+License: Proprietary
+"""
+
+
 async def test_winget_manifest_selection():
     routes = {"contents/manifests/d/Docker/DockerDesktop": (200, WINGET_LIST),
-              "4.91.0/Docker.DockerDesktop.installer.yaml": (200, WINGET_YAML)}
+              "4.91.0/Docker.DockerDesktop.installer.yaml": (200, WINGET_YAML),
+              "4.91.0/Docker.DockerDesktop.locale.en-US.yaml": (200, WINGET_LOCALE),
+              "4.91.0/Docker.DockerDesktop.yaml": (200, "PackageIdentifier: Docker.DockerDesktop\nDefaultLocale: en-US\nManifestType: version\n")}
     [s] = await _resolve("winget install --id Docker.DockerDesktop -e", routes, hint="Windows x64 installer")
+    loc = s.seeds[1]
+    assert loc.source.endswith("Docker.DockerDesktop.locale.en-US.yaml")
+    assert "PublisherUrl: https://www.docker.com/" in loc.quote and "PackageName: Docker Desktop" in loc.quote
     assert s.version == "4.91.0" and "/amd64/" in s.url
     seed = s.seeds[0]
     assert seed.kind == "distro" and "microsoft/winget-pkgs/master/" in seed.source

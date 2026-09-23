@@ -11,7 +11,7 @@ from .evidence import EvidenceStore, record_kind
 from .checks.urltools import etld1_of, host_of
 from .config import Config
 from .cache.anchors import SEED
-from .identity.sources import PLATFORM_FAMILIES, classify, family_of
+from .identity.sources import PLATFORM_FAMILIES, classify, family_of, source_key
 from .models import Evidence, L0Result, LLMSubmission, Verdict
 
 
@@ -250,7 +250,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
     for ev in usable:
         if not ev.supports:
             continue
-        src_e1 = etld1_of(host_of(ev.source))
+        src_e1 = source_key(ev.source)
         if ev.kind == "wayback" or src_e1 == "archive.org":
             continue   # an archive snapshot proves age, not identity: no domain or org vote (temporal use is elsewhere)
         # votes come from the verified QUOTE only: the claim is the LLM's own text and may well say "not <x>"
@@ -416,7 +416,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
             if scope == "user_content" and owner and not same_owner and owner.lower() not in [o.lower() for o in est_orgs.get(fa.platform, [])]:
                 notes.append(f"redirect owner '{owner}' on {fa.platform} has not been established")
                 return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
-    source_count = len({family_of(etld1_of(host_of(e.source))) for e in usable if e.supports})
+    source_count = len({family_of(source_key(e.source)) for e in usable if e.supports})
     risk_penalty = 0.05 * len(l0.risk_signals)
     if anchor and l0.platform_owner:
         owner = l0.platform_owner.lower()

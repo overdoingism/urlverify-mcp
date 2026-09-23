@@ -155,6 +155,34 @@ class Resolver:
         s.url = f"https://www.nuget.org/packages/{name}/{s.version}"
 
     # ---------------------------------------------------------------------------------------------- WinGet
+    async def _winget_locale_seed(self, ident: str, ver: str, base: str, installer_doc: dict, installer_text: str,
+                                  installer_url: str) -> Seed | None:
+        """The default-locale manifest names the publisher and the package homepage (PublisherUrl / PackageUrl): a
+        curated statement of the official site, used as evidence like any other manifest line."""
+        text, url = None, None
+        if installer_doc.get("ManifestType") == "singleton":
+            text, url = installer_text, installer_url
+        else:
+            vr = await self._get(f"{base}/{quote(ident + '.yaml')}", "github")
+            loc = None
+            if vr.status_code == 200:
+                try:
+                    vdoc = yaml.safe_load(vr.text) or {}
+                    loc = vdoc.get("DefaultLocale") if isinstance(vdoc, dict) else None
+                except yaml.YAMLError:
+                    loc = None
+            if loc:
+                lr = await self._get(f"{base}/{quote(f'{ident}.locale.{loc}.yaml')}", "github")
+                if lr.status_code == 200:
+                    text, url = lr.text, f"{base}/{quote(f'{ident}.locale.{loc}.yaml')}"
+        if not text:
+            return None
+        lines = _manifest_lines(text, _LOCALE_KEYS)
+        if not any(ln.startswith(("PublisherUrl:", "PackageUrl:")) for ln in lines):
+            return None
+        return Seed(kind="distro", source=url, text=text, quote=" ... ".join(lines),
+                    claim=f"Microsoft's winget manifest for {ident} {ver} names the publisher and package homepage")
+
     async def _winget(self, s: Subject, hint_text: str) -> list[Subject]:
         ident = s.name or ""
         path = f"manifests/{ident[0].lower()}/{'/'.join(ident.split('.'))}"
@@ -197,6 +225,7 @@ class Resolver:
             s.codes.append("RESOLUTION_FAILED:winget")
             s.notes.append("the manifest request did not return this package's manifest (GitHub rate limit?); retry later")
             return [s]
+        locale_seed = await self._winget_locale_seed(ident, ver, base, doc, text, murl)
         installers = _winget_installers(doc)
         want_arch = _ARCH.get((s.options.get("architecture") or "").lower()) or _arch_from_text(hint_text)
         sel = [i for i in installers
@@ -226,10 +255,25 @@ class Resolver:
             sub.version, sub.url = ver, u
             sub.registry, sub.registry_basis = f"https://github.com/{WINGET_REPO}", "public default"
             sub.seeds.append(seed)
+            if locale_seed:
+                sub.seeds.append(locale_seed)
             if len(urls) > 1:
                 sub.notes.append(f"WINGET_ONE_OF_{len(urls)}_INSTALLERS")
             out.append(sub)
         return out
+
+
+_LOCALE_KEYS = ("PackageIdentifier", "PackageName", "Publisher", "PublisherUrl", "PackageUrl")
+
+
+def _manifest_lines(text: str, keys: tuple[str, ...]) -> list[str]:
+    """Verbatim `Key: value` lines of a YAML manifest, in file order (used as quote fragments)."""
+    out = []
+    for ln in text.splitlines():
+        st = ln.strip()
+        if any(st.startswith(k + ":") for k in keys) and st.split(":", 1)[1].strip():
+            out.append(st)
+    return out
 
 
 def _same_pep440(a: str, b: str) -> bool:

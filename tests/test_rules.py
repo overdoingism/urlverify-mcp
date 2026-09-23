@@ -414,3 +414,13 @@ def test_domain_votes_need_the_domain_in_the_quote_and_wayback_never_votes():
           _ev(wb, "lmstudio.ai archived since 2020", '"domain": "lmstudio.ai", "first_snapshot": "2020-01-01"', kind="wayback", tier=1)]
     d = decide(Config(), _l0(), LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "LM Studio")
     assert d.verdict != Verdict.TRUE and "lmstudio.ai" not in d.established_domains, d.notes
+
+
+def test_manifest_repositories_are_their_own_family():
+    from urlverify_mcp.identity.sources import family_of, source_key
+    w = source_key("https://raw.githubusercontent.com/microsoft/winget-pkgs/master/manifests/d/Docker/DockerDesktop/4.91.0/x.yaml")
+    assert w == "manifest:github.com/microsoft/winget-pkgs" and family_of(w) == w
+    assert family_of(source_key("https://github.com/microsoft/winget-pkgs/blob/master/m/x.yaml")) == w      # html and raw: same family
+    assert family_of(source_key("https://raw.githubusercontent.com/someone/repo/main/README.md")) == "github"
+    # a commit-SHA reference is user content (tier 3), not the manifest family
+    assert family_of(source_key("https://raw.githubusercontent.com/microsoft/winget-pkgs/0123456789abcdef0123/m/x.yaml")) == "github"

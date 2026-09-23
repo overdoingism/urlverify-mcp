@@ -82,9 +82,23 @@ FORUM_HINTS = ("forum", "community", "discuss", "board", "bbs", "/t/", "/thread"
 PLATFORM_FAMILIES = {"github", "gitlab", "codeberg", "huggingface"}
 
 
+def source_key(url: str) -> str:
+    """The independence key of an evidence source: `manifest:<host>/<owner>/<repo>` for a tier-1 manifest repository
+    (a curated, separately maintained publisher even though it is hosted on github.com), else the eTLD+1."""
+    hp = _host_path(url)
+    for pfx in tier1_path_prefixes():
+        if hp.startswith(pfx) and _manifest_ref_ok(hp):
+            parts = pfx.replace("raw.githubusercontent.com/", "github.com/", 1).strip("/").split("/")
+            return "manifest:" + "/".join(parts[:3])
+    return etld1_of(host_of(url))
+
+
 def family_of(etld1: str) -> str:
-    """Independence family of a source domain: Wikipedia+Wikidata are one, every domain of a hosting platform
-    (github.com + githubusercontent.com + github.io, huggingface.co + hf.co, ...) is one, anything else is itself."""
+    """Independence family of a source key: Wikipedia+Wikidata are one, every domain of a hosting platform
+    (github.com + githubusercontent.com + github.io, huggingface.co + hf.co, ...) is one, each tier-1 manifest
+    repository (source_key "manifest:...") is its own family, anything else is itself."""
+    if etld1.startswith("manifest:"):
+        return etld1
     if etld1 in ("wikipedia.org", "wikidata.org"):
         return "wikimedia"
     a = anchor_for(etld1)
