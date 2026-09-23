@@ -13,8 +13,12 @@ Verdicts `VERIFIED_TRUE` · `VERIFIED_FALSE` · `UNVERIFIABLE`, each with a conf
 
 1. **L0 — deterministic checks** (no LLM): TLS chain / SAN / Organization, DNS, redirect chain, punycode / homoglyph / typosquat / subdomain abuse, Certificate-Transparency first-seen, platform anchors, allow/deny lists, prompt-injection screening of the target page.
    確定性檢查（不經 LLM）：TLS、DNS、重導鏈、同形字/仿冒網域、CT 首見時間、平台錨點、黑白名單、目標頁注入篩檢。
-2. **L1 — identity resolution** (LLM + tools): product → developer → aliases → official domains / orgs, backed by tiered independent third-party sources with temporal-stability checks.
-   身分解析（LLM＋工具）：產品→開發者→別名→官方網域/組織，需多個分級獨立第三方來源佐證，並檢查時間穩定性。
+2. **L1 — identity resolution**: first fixed lookups with no LLM (Wikidata / Wikipedia for the project, package and
+   developer names; platform records of the owners involved). If the rules can already decide, the LLM is not started;
+   otherwise the LLM works only on the missing identity edges (aliases, renames, product ↔ company). Structured results
+   are numbered facts the LLM cites by id; web pages need verbatim quotes.
+   身分解析：先由程式做固定查詢（Wikidata／Wikipedia、相關 owner 的平台紀錄），規則已能裁決就不啟動 LLM；否則 LLM 只針對缺少的身分邊調查。
+   結構化結果以編號 facts 引用，網頁需逐字引文。
 3. **Rules engine**: verifies every quote, counts independent sources, matches the target against the established identity. The LLM proposes; the rules decide.
    規則引擎：驗證引文、計算獨立來源數、比對目標與官方身分——LLM 提議，規則裁決。
 

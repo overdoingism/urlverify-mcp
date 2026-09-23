@@ -170,10 +170,13 @@ class Prefetch:
                 await self.platform_record(l0.platform, o, None)
         if l0.platform_scope != "user_content" and l0.etld1:
             self._add_domain(l0.etld1)
+        return self.submission(project)
+
+    def submission(self, project: str) -> LLMSubmission:
         ident = IdentityGraph(product=project, developer=self.developers[0] if self.developers else None,
-                              official_domains=self.domains, official_orgs=self.orgs,
+                              official_domains=list(self.domains), official_orgs={k: list(v) for k, v in self.orgs.items()},
                               narrative="fixed lookups (no LLM): " + "; ".join(self.notes)[:1500])
-        return LLMSubmission(identity=ident, evidence=self.evidence, proposed_verdict="UNVERIFIABLE")
+        return LLMSubmission(identity=ident, evidence=list(self.evidence), proposed_verdict="UNVERIFIABLE")
 
 
 def merge(det: LLMSubmission, llm: LLMSubmission) -> LLMSubmission:

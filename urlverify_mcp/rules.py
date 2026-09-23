@@ -24,6 +24,7 @@ class Decision:
     supporting_sources: dict[str, set[str]] = field(default_factory=dict)   # official domain -> distinct source eTLD+1s
     established_domains: list[str] = field(default_factory=list)
     established_orgs: dict[str, list[str]] = field(default_factory=dict)
+    codes: list[str] = field(default_factory=list)            # fixed reason codes for a FALSE (what contradicts)
     established_edges: list[str] = field(default_factory=list)
     missing_edges: list[dict] = field(default_factory=list)
 
@@ -350,7 +351,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
                "the name was taken over by the npm security team after a malicious package was removed")
         notes.append("registry state: " + msg)
         l0.risk_signals.append(f"registry_{st}")
-        return Decision(Verdict.FALSE, 0.95 if st == "security_holding" else 0.9, notes, evidence, support, established, est_orgs)
+        return Decision(Verdict.FALSE, 0.95 if st == "security_holding" else 0.9, notes, evidence, support, established, est_orgs, codes=["PACKAGE_SECURITY_HOLDING" if st == "security_holding" else "PACKAGE_NOT_FOUND"])
     if registry_state and registry_state.get("state") == "latest_yanked":
         notes.append(f"registry state: latest release {registry_state.get('version')} is fully yanked")
         l0.risk_signals.append("registry_latest_yanked")
@@ -360,7 +361,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
     if fatal:
         msgs = "; ".join(f"{c.name}: {c.message}" for c in fatal)
         notes.append(f"fatal deterministic failure: {msgs}")
-        return Decision(Verdict.FALSE, 0.9, notes, evidence, support, established, est_orgs)
+        return Decision(Verdict.FALSE, 0.9, notes, evidence, support, established, est_orgs, codes=["L0_FATAL"])
 
     if registry_state and registry_state.get("state") == "unknown":
         notes.append("target registry state unavailable; cannot establish the target release")
@@ -402,7 +403,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
     in_official = target_e1 in established or (final_e1 in established and final_e1 == target_e1)
     if l0.final_etld1 and l0.final_etld1 != target_e1 and target_e1 in established and l0.final_etld1 not in established and not anchor_for(l0.final_etld1):
         notes.append(f"redirect leaves the official domain ({target_e1} -> {l0.final_etld1})")
-        return Decision(Verdict.FALSE, 0.8, notes, evidence, support, established, est_orgs)
+        return Decision(Verdict.FALSE, 0.8, notes, evidence, support, established, est_orgs, codes=["REDIRECT_LEAVES_OFFICIAL_DOMAIN"])
 
     # A known hosting platform does not authenticate the redirect's path owner.
     if l0.final_url and l0.final_url != l0.normalized_url:
@@ -434,13 +435,13 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
             if l0.platform_repo:
                 if _fork_of_other(l0, store):
                     notes.append("repository is a fork of another repository")
-                    return Decision(Verdict.FALSE, 0.7, notes, evidence, support, established, est_orgs)
+                    return Decision(Verdict.FALSE, 0.7, notes, evidence, support, established, est_orgs, codes=["REPOSITORY_IS_FORK"])
             if not project_ok:
                 return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
             return Decision(Verdict.TRUE, max(0.5, conf), notes, evidence, support, established, est_orgs)
         if platform_orgs and owner not in platform_orgs:
             notes.append(f"path owner '{owner}' differs from the established official {anchor.platform} org(s) {platform_orgs}")
-            return Decision(Verdict.FALSE, 0.8, notes, evidence, support, established, est_orgs)
+            return Decision(Verdict.FALSE, 0.8, notes, evidence, support, established, est_orgs, codes=["OWNER_NOT_OFFICIAL"])
         if owner in claimed_orgs:
             notes.append(f"LLM claims '{owner}' is official on {anchor.platform} but independent support is insufficient")
         return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
@@ -451,7 +452,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
             conf = min(0.98, conf + 0.05)
         if org_match is False:
             notes.append("OV/EV certificate organisation mismatch overrides domain evidence")
-            return Decision(Verdict.FALSE, 0.75, notes, evidence, support, established, est_orgs)
+            return Decision(Verdict.FALSE, 0.75, notes, evidence, support, established, est_orgs, codes=["CERT_ORG_MISMATCH"])
         conf = min(conf, (cached or {}).get("confidence_cap", 1.0))
         notes.append(f"target domain {target_e1} is an established official domain")
         if not project_ok:

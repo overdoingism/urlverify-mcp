@@ -112,3 +112,16 @@ def test_merge_keeps_llm_prose_and_unions_candidates():
     m = merge(det, llm)
     assert m.identity.official_domains == ["b.org", "a.org"] and m.identity.official_orgs["github"] == ["O1", "o2"]
     assert len(m.evidence) == 2 and m.identity.developer == "Dev" and m.proposed_verdict == "VERIFIED_TRUE"
+
+
+def test_false_carries_native_reason_code():
+    import asyncio
+    fork = {"ok": True, "owner": "drluoto", "owner_info": {"login": "drluoto", "type": "User"},
+            "repo_info": {"full_name": "drluoto/llama.cpp", "fork": True}, "source": "https://github.com/drluoto/llama.cpp"}
+    gh_org = {**GH_GGML, "repo_info": None, "source": "https://github.com/ggml-org"}
+    fs = FakeStructured(wikidata={"llama.cpp": [LLAMA_WD]}, github={("drluoto", "llama.cpp"): fork, ("ggml-org", None): gh_org})
+    store = EvidenceStore()
+    l0 = l0_for("github.com", "github", "drluoto", "llama.cpp")
+    sub = asyncio.run(Prefetch(Config(), fs, store).run(l0, "llama.cpp"))
+    d = decide(Config(), l0, sub, store, "llama.cpp")
+    assert d.verdict == Verdict.FALSE and d.codes == ["OWNER_NOT_OFFICIAL"], (d.codes, d.notes)

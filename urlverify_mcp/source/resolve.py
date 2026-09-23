@@ -191,7 +191,11 @@ class Resolver:
         try:
             doc = yaml.safe_load(text) or {}
         except yaml.YAMLError:
-            s.codes.append("WINGET_MANIFEST_UNREADABLE")
+            doc = None
+        if not isinstance(doc, dict) or str(doc.get("PackageIdentifier", "")).lower() != ident.lower():
+            # e.g. a rate-limit page served in place of the file: a lookup failure, not a problem with the caller's input
+            s.codes.append("RESOLUTION_FAILED:winget")
+            s.notes.append("the manifest request did not return this package's manifest (GitHub rate limit?); retry later")
             return [s]
         installers = _winget_installers(doc)
         want_arch = _ARCH.get((s.options.get("architecture") or "").lower()) or _arch_from_text(hint_text)

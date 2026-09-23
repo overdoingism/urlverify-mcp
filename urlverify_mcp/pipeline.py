@@ -216,6 +216,11 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                     llm_sub = await inv.investigate(req.project, req.url, req.description, l0, cached_identity,
                                                     gap_brief=brief(det_dec, inv.evidence_store))
                     sub = merge(det_sub, llm_sub)
+                    # third fixed candidate: the developer the LLM resolved, if Wikimedia has not been asked about it yet
+                    dev = (llm_sub.identity.developer or "").strip()
+                    if dev and await pre.wikimedia(dev, l0):
+                        sub = merge(pre.submission(req.project), llm_sub)
+                        engine_notes.append(f"fixed lookup after the LLM: Wikimedia for developer '{dev}'")
                 except Exception as e:  # noqa: BLE001
                     sub = det_sub
                     engine_notes.append(f"investigation failed: {type(e).__name__}: {e}")
@@ -276,7 +281,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             identity=sub.identity, risk_signals=l0.risk_signals + sub.risk_notes, cache_hits=sorted(set(cache_hits)),
             engine_notes=engine_notes, trace_id=trace_id, duration_s=round(time.time() - t0, 1),
             path="l0_fatal" if l0.fatal_failures else "full",
-            established_edges=dec.established_edges, missing_edges=dec.missing_edges,
+            established_edges=dec.established_edges, missing_edges=dec.missing_edges, rule_codes=dec.codes,
         )
     finally:
         await fetcher.close()

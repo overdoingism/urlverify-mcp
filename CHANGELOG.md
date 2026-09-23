@@ -9,7 +9,12 @@
   the developer (at most three searches, entities accepted only by exact label/alias or a link to the target, Wikipedia
   only via the entity's sitelink), the target owner's platform record and the records of owners a Wikimedia repository
   record names. When that already decides the case the LLM is not started; otherwise it is told what is known and which
-  edges are missing.
+  edges are missing. After the LLM, the developer it resolved is looked up on Wikimedia once (third candidate).
+- A `VERIFIED_FALSE` carries a native reason code (`OWNER_NOT_OFFICIAL`, `REPOSITORY_IS_FORK`,
+  `REDIRECT_LEAVES_OFFICIAL_DOMAIN`, `CERT_ORG_MISMATCH`, `L0_FATAL`, `PACKAGE_SECURITY_HOLDING`, `PACKAGE_NOT_FOUND`);
+  missing-edge codes are reported only for `UNVERIFIABLE`.
+- WinGet: a response that is not the requested manifest (e.g. a rate-limit page) is `RESOLUTION_FAILED:winget`, not an
+  input error.
 
 - TLS check tries the resolved addresses in turn (address families interleaved, at most 4): a machine without an IPv6
   route no longer fails dual-stack hosts. Only a failed connection moves on; any TLS answer is final.

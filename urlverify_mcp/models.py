@@ -107,5 +107,6 @@ class VerifyResult(BaseModel):
     duration_s: float = 0.0
     path: str = "full"                     # full | registry_fast_path | l0_fatal | timeout
     degraded: list[str] = Field(default_factory=list)   # dependencies that failed during this verification (observed, not probed)
+    rule_codes: list[str] = Field(default_factory=list)          # fixed reason codes emitted by the rules (FALSE contradictions)
     established_edges: list[str] = Field(default_factory=list)   # identity edges the rules established (AGENTS §6.3)
     missing_edges: list[dict[str, Any]] = Field(default_factory=list)   # what is still missing: {edge, have, need, why}

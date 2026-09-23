@@ -106,3 +106,10 @@ async def test_winget_manifest_selection():
     assert s.codes == ["WINGET_QUERY_NOT_EXACT"]
     [s] = await _resolve("winget install --id Docker.DockerDesktop -v 1.0", routes)
     assert s.codes == ["VERSION_NOT_FOUND"]
+
+
+async def test_winget_rate_limit_page_is_a_lookup_failure():
+    routes = {"contents/manifests/d/Docker/DockerDesktop": (200, WINGET_LIST),
+              "4.91.0/Docker.DockerDesktop.installer.yaml": (200, "Rate limited.\nFor more on scraping GitHub see https://x: terms")}
+    [s] = await _resolve("winget install --id Docker.DockerDesktop -e", routes)
+    assert s.codes == ["RESOLUTION_FAILED:winget"]
