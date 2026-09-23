@@ -45,3 +45,16 @@ def test_clear_history(tmp_path):
     assert len(st.list_history()) == 1
     assert st.clear_history() >= 2
     assert st.list_history() == [] and st.get_history("t1") is None
+
+
+def test_rules_version_is_part_of_the_identity_policy():
+    from urlverify_mcp import rules
+    from urlverify_mcp.config import Config
+    from urlverify_mcp.pipeline import identity_policy
+    a = identity_policy(Config())
+    old = rules.RULES_VERSION
+    try:
+        rules.RULES_VERSION = old + "-next"
+        assert identity_policy(Config()) != a
+    finally:
+        rules.RULES_VERSION = old

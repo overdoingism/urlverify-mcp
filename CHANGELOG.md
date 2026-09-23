@@ -6,6 +6,8 @@
   is the same independence family as the distribution itself; and an unverified Flathub app gets no support from the
   Flathub family at all (Flathub states such apps are not affiliated with the developer). An unverified app plus
   Flathub's own build manifest no longer adds up to "official".
+- The identity cache fingerprint includes `rules.RULES_VERSION`: identities established under older rules are
+  re-verified (the wrong VLC identity above had been cached and was read back after the fix).
 
 - Flatpak verified (Flathub only): the Flathub developer-verification record is a platform-verified link to the
   verified domain (or the appstream homepage when verified manually / by account); unverified apps are community

@@ -73,7 +73,9 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage, record: b
 
 def identity_policy(cfg: Config) -> str:
     """Changing the evidence policy invalidates identities established under a different policy."""
-    policy = {"identity": cfg.identity.model_dump(exclude={"github_token"}), "lists": cfg.lists.model_dump(),
+    from .rules import RULES_VERSION
+    policy = {"rules_version": RULES_VERSION,
+              "identity": cfg.identity.model_dump(exclude={"github_token"}), "lists": cfg.lists.model_dump(),
               "tier1_paths": sorted(tier1_path_prefixes())}
     return hashlib.sha256(json.dumps(policy, sort_keys=True).encode()).hexdigest()
 

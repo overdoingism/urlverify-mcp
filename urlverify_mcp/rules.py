@@ -38,6 +38,9 @@ def _squash(s: str) -> str:
     return re.sub(r"\s+", "", s or "").lower()
 
 
+# Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
+# established under older rules are re-verified instead of being trusted from the cache.
+RULES_VERSION = "2026-09-24.2"
 SELF_PUBLISHED_MAX_CONFIDENCE = 0.75   # TRUE for an owner established only by cross-platform consistency
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub"}
 _DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b")
