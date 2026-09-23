@@ -98,7 +98,11 @@ CODE_TEXT = {
     "RELEASE_COOLDOWN_ACTIVE": ("The release is very new (within the cooldown period); consider waiting.", "此版本剛發布（仍在冷卻期內），建議稍後再裝。"),
     "RELEASE_COOLDOWN_UNKNOWN": ("The release date could not be checked.", "無法確認發布時間。"),
     "SELF_PUBLISHED_CAP": ("A self-published project: established only by consistency across hosting platforms.", "自我發佈的專案：只靠託管平台間的一致性成立。"),
-    "PACKAGE_NOT_FOUND": ("The registry does not know this package.", "registry 查無此套件。"),
+    "PACKAGE_NOT_FOUND": ("The registry does not know this package (often a typo that someone could register later).", "registry 查無此套件（常是拼錯，之後可能被人搶註）。"),
+    "PACKAGE_SECURITY_HOLDING": ("The registry replaced this name with a security placeholder: the original package was malicious.",
+                                 "registry 已把此名稱換成安全佔位套件：原本的套件是惡意的。"),
+    "PACKAGE_NAME_LOOKALIKE": ("The name looks like a popular package's name (possible typosquat).", "名稱與熱門套件相近（可能是仿冒）。"),
+    "OFFICIAL_CHANNEL_CONTRADICTED": ("The evidence shows the official channel is elsewhere; see details.", "證據顯示官方管道在別處，詳見 details。"),
     "VERSION_NOT_ENFORCED": ("`version` could not be enforced for this kind of source.", "此類來源無法強制 `version`。"),
     "NPM_ALIAS": ("npm alias: a different package than the alias name is installed.", "npm 別名：實際安裝的是另一個套件。"),
     "GITHUB_SHORTHAND": ("`user/repo` installs straight from GitHub, not from the registry.", "`user/repo` 會直接從 GitHub 安裝，不經 registry。"),
@@ -142,9 +146,9 @@ def summary(res: SourceResult, lang: str) -> str:
     zh = lang == "zh"
     lines = []
     if not res.subjects:
-        lines.append(("無法驗證這次的呼叫。" if zh else "This call could not be verified.") + " " + ACTION_TEXT[lang][res.next_action])
+        lines.append(ACTION_TEXT[lang][res.next_action])
         lines += [f"- {code_text(c, lang)}" for c in res.codes]
-        if res.message:
+        if res.message and all(code_text(c, lang) == c for c in res.codes):
             lines.append(f"- {res.message}")
         return "\n".join(lines)
     head = (f"專案「{res.request.project}」共檢查 {n} 項，整體結論：{'全部' if res.verdict.value == 'VERIFIED_TRUE' else '至少一項'}{VERDICT_TEXT[lang][res.verdict.value]}。"

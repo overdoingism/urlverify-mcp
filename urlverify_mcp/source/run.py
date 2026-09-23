@@ -130,10 +130,19 @@ def result_codes(res: VerifyResult) -> tuple[list[str], list[str]]:
         elif sig == "release_cooldown_unknown":
             notices.append("RELEASE_COOLDOWN_UNKNOWN")
     notes = " ".join(res.engine_notes)
+    sigs = " ".join(str(x) for x in res.risk_signals)
+    if "npm_security_holding_package" in sigs or "security holding package" in notes:
+        codes.append("PACKAGE_SECURITY_HOLDING")
+    if "does not exist on" in notes or "registry state: missing" in notes:
+        codes.append("PACKAGE_NOT_FOUND")
+    if "registry_typosquat:" in sigs:
+        codes.append("PACKAGE_NAME_LOOKALIKE")
     if "VERIFIED_TRUE withheld" in notes:
         codes.append("PROJECT_NAME_NOT_MATCHED")
     if "self-published" in notes:
         notices.append("SELF_PUBLISHED_CAP")
+    if res.verdict == Verdict.FALSE and not codes:
+        codes.append("OFFICIAL_CHANNEL_CONTRADICTED")
     if res.verdict == Verdict.UNVERIFIABLE and not codes:
         if res.path == "timeout":
             codes.append("TIME_BUDGET_EXCEEDED")
