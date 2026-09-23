@@ -22,9 +22,11 @@ STATIC = Path(__file__).parent / "static"
 
 
 class VerifyBody(BaseModel):
-    project: str
-    url: str
+    project: str = ""
+    source: str = ""
+    artifact: str = ""
     description: str = ""
+    version: str = ""
     options: dict[str, Any] | None = None
 
 
@@ -185,8 +187,10 @@ def create_app(config_path: str | None = None) -> FastAPI:
 
     @app.post("/api/verify")
     async def api_verify(body: VerifyBody):
-        res = await verify(VerifyRequest(**body.model_dump()), st.cfg, st.store)
-        return res.model_dump(mode="json")
+        from ..presentation import to_yaml
+        from ..source.run import SourceRequest, verify_source
+        res = await verify_source(SourceRequest(**body.model_dump()), st.cfg, st.store)
+        return {"result": res.model_dump(mode="json"), "yaml": to_yaml(res)}
 
     # ---- full data log
     @app.get("/api/fulllog")

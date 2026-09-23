@@ -1,6 +1,6 @@
 [project]
 name = "urlverify-mcp"
-version = "0.1.2"
+version = "0.2.0"
 description = "MCP server that verifies whether a download / install / data-source URL comes from an official channel."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -11,6 +11,7 @@ dependencies = [
     "openai>=1.40",
     "pydantic>=2.7",
     "pyyaml>=6.0",
+    "packaging>=23",
     "tldextract>=5.1",
     "idna>=3.7",
     "certifi>=2024.6.2",

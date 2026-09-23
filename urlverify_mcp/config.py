@@ -170,6 +170,15 @@ class ReleaseCooldownConfig(BaseModel):
     hours: float = Field(default=72, ge=0, allow_inf_nan=False)
 
 
+class SourceConfig(BaseModel):
+    """How the `source` argument is interpreted (AGENTS.md §13). Registries: the default used when the command does not
+    name one. A non-public registry here is reported as REGISTRY_UNSUPPORTED (mirrors cannot be verified), never
+    silently replaced by the public one."""
+    registries: dict[str, str] = {"pypi": "https://pypi.org/simple", "npm": "https://registry.npmjs.org",
+                                  "nuget": "https://api.nuget.org/v3/index.json"}
+    max_subjects: int = 8
+
+
 class Config(BaseModel):
     llm: LLMConfig = LLMConfig()
     search: SearchConfig = SearchConfig()
@@ -188,6 +197,7 @@ class Config(BaseModel):
         r"\b(system|developer) (prompt|instruction|override)\b",
         r"\bplease (report|respond|answer|mark|classify)[^.\n]{0,60}\b(verified|official|true|legitimate|safe)\b",
     ])
+    source: SourceConfig = SourceConfig()
     package_registry_fast_path: PackageRegistryFastPathConfig = PackageRegistryFastPathConfig()
     release_cooldown: ReleaseCooldownConfig = ReleaseCooldownConfig()
     full_log: FullLogConfig = FullLogConfig()

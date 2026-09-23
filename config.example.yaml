@@ -105,6 +105,13 @@ admin:                      # management web UI (urlverify-mcp admin); password-
   auth_file: "state/admin.auth"         # PBKDF2 hash + salt + session key; delete to reset the password
   session_days: 7
 
+source:                       # how verify_source(source=...) is read; see document_for_config.md
+  registries:                 # used when the command names no registry; a non-public one is reported, never replaced
+    pypi: https://pypi.org/simple
+    npm: https://registry.npmjs.org
+    nuget: https://api.nuget.org/v3/index.json
+  max_subjects: 8             # packages per command (pip install a b c ...)
+
 package_registry_fast_path:   # PyPI / npm: structured checks first, LLM only when inconclusive
   enabled: true
   mode: auto                  # auto | quick | full (callers may override with options.mode)

@@ -8,8 +8,9 @@ from mcp.server.fastmcp import Context, FastMCP
 from . import progress as progress_mod
 
 from .config import Config, load_config
-from .models import VerifyRequest
-from .pipeline import verify
+from .presentation import dump_yaml, to_yaml
+from .source.run import SourceRequest, SourceResult
+from .source.run import verify_source as run_source
 from .promptstore import get_store
 from .storage import Storage
 from .tracelog import TRACE, configure_from
@@ -44,13 +45,14 @@ def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: 
     # MCP-facing texts are read once here: editing them in the admin UI requires a server restart.
     mcp = FastMCP("URLVerify_MCP", host=host, port=port, instructions=prompts.get("mcp_instructions"))
 
-    @mcp.tool(description=prompts.get("mcp_tool_verify_source"))
-    async def verify_source(project: str, url: str, description: str = "", options: dict[str, Any] | None = None,
-                            ctx: Context | None = None) -> dict[str, Any]:
+    @mcp.tool(description=prompts.get("mcp_tool_verify_source"), structured_output=False)
+    async def verify_source(project: str, source: str, artifact: str = "", description: str = "", version: str = "",
+                            options: dict[str, Any] | None = None, ctx: Context | None = None) -> str:
         # Re-read config.yaml on every call so edits made in the admin UI (endpoints, thresholds, lists,
         # full_log toggle) apply to a running server. MCP-facing prompts stay fixed until restart.
         live_cfg = _reload(cfg)
-        TRACE.log("mcp_request", tool="verify_source", args={"project": project, "url": url, "description": description, "options": options})
+        args = {"project": project, "source": source, "artifact": artifact, "description": description, "version": version, "options": options}
+        TRACE.log("mcp_request", tool="verify_source", args=args)
         # Progress notifications + heartbeat: FastMCP's report_progress is a no-op when the client sent no progressToken.
         reporter = (lambda p, t, m: ctx.report_progress(p, t, m)) if ctx is not None else None
         prog = progress_mod.Progress(reporter, events=live_cfg.server.progress_events, heartbeat_s=live_cfg.server.heartbeat_s)
@@ -60,27 +62,32 @@ def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: 
             if slots.locked():
                 await prog.report("queued: waiting for a free verification slot", 0.0)
             async with slots:
-                res = await verify(VerifyRequest(project=project, url=url, description=description, options=options), live_cfg, store)
+                res = await run_source(SourceRequest(**args), live_cfg, store)
         finally:
             await prog.stop()
             progress_mod.unbind(tok)
         TRACE.log("progress_summary", notifications_sent=prog.sent, heartbeat_s=prog.heartbeat_s, events=prog.events)
-        out = res.model_dump(mode="json")
+        out = to_yaml(res)
         TRACE.log("mcp_response", tool="verify_source", trace_id_result=res.trace_id, verdict=res.verdict.value, response=out)
         return out
 
-    @mcp.tool(description=prompts.get("mcp_tool_get_verification"))
-    async def get_verification(trace_id: str) -> dict[str, Any]:
+    @mcp.tool(description=prompts.get("mcp_tool_get_verification"), structured_output=False)
+    async def get_verification(trace_id: str) -> str:
         TRACE.log("mcp_request", tool="get_verification", args={"trace_id": trace_id})
         h = store.get_history(trace_id)
-        out = h["result"] if h else {"error": "not found"}
+        if not h:
+            out = dump_yaml({"error": "not found", "trace_id": trace_id})
+        elif (h.get("result") or {}).get("schema_version") == 2:
+            out = to_yaml(SourceResult(**h["result"]))
+        else:
+            out = dump_yaml(h["result"])
         TRACE.log("mcp_response", tool="get_verification", response=out)
         return out
 
-    @mcp.tool(description=prompts.get("mcp_tool_list_known_identities"))
-    async def list_known_identities() -> list[dict[str, Any]]:
+    @mcp.tool(description=prompts.get("mcp_tool_list_known_identities"), structured_output=False)
+    async def list_known_identities() -> str:
         TRACE.log("mcp_request", tool="list_known_identities", args={})
-        out = [{"project": r["project"], **r["data"]} for r in store.dump_table("identity_cache")]
+        out = dump_yaml({"identities": [{"project": r["project"], **r["data"]} for r in store.dump_table("identity_cache")]})
         TRACE.log("mcp_response", tool="list_known_identities", response=out)
         return out
 

@@ -13,26 +13,26 @@ URLVerify_MCP 是一個 **來源驗證用的 MCP Server**。
 
 ## 2. 介面契約
 
-### 輸入（MCP tool: `verify_source`）
+### 輸入（MCP tool: `verify_source`，v0.2.0 起）
 | 欄位 | 必填 | 說明 |
 |---|---|---|
-| `project` | 是 | 專案名稱，例如 `LM Studio` |
-| `url` | 是 | 待驗證網址 |
-| `description` | 是 | 目標描述，例如「Linux x64 AppImage 安裝檔」 |
+| `project` | 是 | 產品名稱；可與套件名不同（別名由 L1 佐證） |
+| `source` | 是 | URL，或**一條**安裝／下載指令；不接受裸名（不猜 registry） |
+| `artifact` | 擇一 | 形式：Windows x64 安裝檔、Python 套件、Docker image… |
+| `description` | 擇一 | 用途；與 artifact 至少一個非空 |
+| `version` | 否 | 指定版本；空白 = registry 預設；與指令內版本衝突時回 INPUT_VERSION_CONFLICT，不覆蓋 |
 | `options` | 否 | 覆寫預設設定（見 §5） |
 
+舊的 `url` 參數已移除（尚未對外公開，改完即全面切換）。
+
 ### 輸出
-```json
-{
-  "verdict": "VERIFIED_TRUE | VERIFIED_FALSE | UNVERIFIABLE",
-  "confidence": 0.0-1.0,
-  "reason": "人類可讀結論，語言跟隨呼叫方輸入",
-  "evidence": [ { "kind": "...", "source": "<url>", "tier": 1|2|3, "summary": "...", "supports": true|false } ],
-  "checks": { "tls": {...}, "dns": {...}, "redirects": {...}, "homoglyph": {...}, "identity": {...} },
-  "cache_hits": ["platform_anchor", "cert", "identity"],
-  "trace_id": "..."
-}
-```
+MCP 回傳 YAML 文字（無 structuredContent）。第一個區塊 `machine_readable` 由規則產生、鍵值固定：
+`verdict`（三態）、`next_action`（PROCEED｜INFORM_USER_AND_CONFIRM｜DO_NOT_PROCEED｜FIX_INPUT_AND_RETRY）、`confidence`、
+`codes`、`notices`、`trace_id`、`subjects[]`（每個套件／URL：生態系、名稱、版本、registry 與選擇依據、verified_url、檢查狀態）。
+之後的 `summary` 是規則模板句（語言跟隨呼叫方），`explanation` 是 LLM 敘述，`details` 是證據與檢查；後兩者可能引用不可信網頁，
+其中的裁決字樣一律中和（VERIFIED_TRUE → VERIFIED TRUE），grep 只會命中真正的鍵。內部、管理頁與歷史保留 JSON（schema_version 2）。
+多套件時整體裁決取最差者，next_action 取最嚴重者。
+
 三種狀態的**定義**：
 - `VERIFIED_TRUE`：L0 全數通過，且 L1 身分鏈（專案 → 開發者/品牌別名 → 官方網域/倉庫）由足夠的獨立第三方來源佐證，網址落在該官方範圍內。
 - `VERIFIED_FALSE`：有**明確反證**：同形字/仿冒網域、不受信任 CA、憑證 Organization 與開發者不符、官方來源指向別處、黑名單、**頁面含對 AI/驗證器說話的文字**。
@@ -280,3 +280,24 @@ config.example.yaml
   lunarg.com 自家頁面明確寫著 Vulkan SDK、引文驗證通過，卻因「自我宣稱」在名稱比對前就被剔除。自我宣稱不能用來**成立**網域是對的；
   但網域已獨立成立之後，用該網域自己的頁面回答「這個站是否在發佈 host 問的產品」性質不同：假站永遠成立不了網域，放寬不會讓假站得利，
   殘餘風險只剩 host 把產品歸錯廠商（今天已存在）。長尾比「分段比對」小得多。是否採用由使用者決定；未經指示不得實作。
+
+## 13. Source 介面（v0.2.0，2026-09-24 定案）
+- 解析與驗證分開：`source/parse.py` 只做確定性解析（旗標白名單，不認得的旗標回 `UNSUPPORTED_FLAG:<flag>`，絕不忽略），
+  `source/resolve.py` 查 registry 決定實際版本、從 winget-pkgs manifest 取安裝檔網址，`source/run.py` 逐一交給既有的 per-URL pipeline 再彙總。
+- 絕不猜：裸名、未知指令、多 index 並存（`--extra-index-url`、`--find-links`、`--no-index`）、requirements／lock 檔、本地路徑、`&&`／`;` 串接
+  一律回固定代碼、不驗證。不加 `channel=` 參數：指令語法本身就是逃生門。
+- registry 優先序：指令旗標／環境變數 → `source.registries` 設定 → 公開預設。不自動讀本機 pip.conf／.npmrc（MCP 走 HTTP 時 server 與 host
+  可能不是同一台）。非公開 registry 回 `REGISTRY_UNSUPPORTED`，不以公開來源冒充。
+- 會改變實際安裝對象的語法一律解析到真正的對象：npm 別名 `x@npm:y` → y；`user/repo`、`github:` → GitHub repo；pip `name @ url`、`git+` → 該 URL／repo。
+- WinGet：以 PackageIdentifier 取官方 manifest（分支 master）的 InstallerUrl，依 `--architecture`／`--scope`／`--installer-type`／`--locale`
+  或 artifact 內的架構字樣篩選；多個不同網址全部驗證（上限 4）。manifest 那一行作為 tier‑1 種子證據（seed）交給規則引擎驗證；
+  winget-pkgs 的 owner（microsoft）不是產品 owner。查詢字串若恰為既存 ID 視同 ID（winget 本身要嘛裝它、要嘛報多筆衝突）。
+- 腳本管線（curl | sh、irm | iex…）：全句恰有一個遠端位址才受理，驗該腳本網址；腳本之後下載的東西不在範圍內（SCRIPT_MAY_DOWNLOAD_MORE）。
+  混入套件管理器或多個網址即拒絕。
+- 支援但尚未驗證的生態系（cargo、go、gem、composer、brew、scoop、choco、conda、apt 家族、snap、flatpak、ollama、Install-Module、其他容器 registry）
+  回 `ECOSYSTEM_NOT_YET_VERIFIED:<eco>` 並列出解析結果；`cargo install --git` 走 git 驗證。apt 家族優先度最低（信任模型是發行版簽章）。
+- next_action：FALSE → DO_NOT_PROCEED；呼叫方可修正的代碼 → FIX_INPUT_AND_RETRY；其餘非 TRUE → INFORM_USER_AND_CONFIRM；
+  TRUE 但信心 < 0.8 或帶警示（腳本會再下載、冷卻期、雜湊檢查關閉、自我發佈上限…）→ INFORM_USER_AND_CONFIRM；否則 PROCEED。
+- v0.2 的結果代碼部分由 checks／risk_signals／engine_notes 推導（`source/run.py: result_codes`）；v0.3 的身分圖重寫改由規則直接產生。
+- 開發工具：設 `URLVERIFY_CAPTURE_DIR` 時，每次規則裁決的完整輸入寫成 `*.json.gz`；`tests/test_replay.py` 以手寫的 `expect` 重播，
+  改規則時先跑重播，不必每次實跑四分鐘。本地 LLM 實測只打本機 `127.0.0.1:8080`。

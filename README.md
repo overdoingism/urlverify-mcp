@@ -82,7 +82,15 @@ Long verifications and client timeouts: the server sends MCP progress notificati
 (`server.progress_events`, `server.heartbeat_s`), so clients that honour `resetTimeoutOnProgress` never hit `-32001`
 however long a run takes; every wait is bounded and the whole run by `budget.max_total_s`. OpenCode honours progress
 since its June 2026 fix (PR #32477); older builds time out regardless of what the server sends.
-| One-shot check | `uv run urlverify-mcp verify "LM Studio" https://lmstudio.ai/download "Linux AppImage"` | Prints the full JSON result. Exit code 0 only for `VERIFIED_TRUE`. |
+
+
+One-shot check from the command line (prints the same YAML an MCP host receives; `--json` for the internal JSON; exit
+code 0 only for `VERIFIED_TRUE`):
+
+```bash
+uv run urlverify-mcp verify "LM Studio" "https://lmstudio.ai/download" --artifact "Linux AppImage"
+uv run urlverify-mcp verify requests "pip install requests" --artifact "Python package" --description "HTTP client"
+```
 
 MCP host configuration:
 
@@ -102,8 +110,63 @@ agent must use it is policy, which belongs in the host's system prompt. Suggeste
 > URLVerify_MCP. If the verdict is not VERIFIED_TRUE, or the result carries any additional conditions, you MUST report the issue to the
 > user and ask for permission before proceeding. If URLVerify_MCP is unavailable, you MUST report this to the user and obtain
 > permission before downloading or installing anything.
+> Package installs (pip, npm, NuGet, winget, docker, git clone, curl | sh …) download and run code too: pass the exact command
+> you intend to run as `source`, and follow `machine_readable.next_action` in the reply.
 
-Tool exposed: `verify_source(project, url, description, options?)` → `{verdict, confidence, reason, evidence[], checks{}, identity{}, risk_signals[], trace_id}`.
+### The `verify_source` tool (v0.2)
+
+```
+verify_source(project, source, artifact="", description="", version="", options=None) -> YAML text
+```
+
+| Argument | Meaning |
+|---|---|
+| `project` | Product name only (`LM Studio`, `Vulkan SDK`, `requests`). The installed package name may differ; that alias is L1's job. |
+| `source` | Exactly what will be used: a URL, or ONE install / download command. Never a bare name. |
+| `artifact` | The form: `Windows x64 installer`, `Python package`, `Docker image`, `install script`. |
+| `description` | What it is for: `LLM front-end`, `HTTP client library`. Give `artifact` or `description`, preferably both. |
+| `version` | Optional exact version; empty = the registry's default. Must not contradict a pin inside `source`. |
+
+What `source` understands (flags are white-listed per tool: an unknown flag is reported, never ignored, because it may
+change what gets installed; a bare name is rejected because it does not say which registry):
+
+| Verified | Commands |
+|---|---|
+| URL | `https://…` |
+| PyPI | `pip`/`pip3`/`python -m pip`/`py -m pip install`, `uv pip install`, `uv add`, `uv tool install`, `uvx`, `pipx install/run`, `poetry add`, `pdm add`, `pipenv install` |
+| npm | `npm i/install/add`, `yarn add`, `pnpm add`, `bun add`, `npx`, `npm exec`, `pnpm dlx`, `bunx` (aliases `x@npm:y`, `user/repo`, `github:` resolved to what really installs) |
+| NuGet | `dotnet add package`, `dotnet package add`, `dotnet tool install`, `nuget install`, `Install-Package` |
+| WinGet | `winget install --id <Id>` / `-e <Id>`: the installer URL is taken from Microsoft's winget-pkgs manifest, then verified |
+| git | `git clone https://…`, `git@github.com:o/r`, `ssh://…` on known hosts, `gh repo clone o/r` |
+| Hugging Face | `hf download`, `huggingface-cli download` |
+| Containers | `docker/podman/nerdctl pull|run` for Docker Hub and ghcr.io |
+| Scripts | `curl … \| sh`, `sh -c "$(curl …)"`, `irm … \| iex`, `iex ((New-Object Net.WebClient).DownloadString(…))`: the script URL is verified; what the script downloads next is not (reported) |
+
+Understood but not verified yet (reported as `ECOSYSTEM_NOT_YET_VERIFIED`): cargo, go, gem, composer, brew, scoop, choco,
+conda/mamba, apt/dnf/yum/pacman/zypper/apk, snap, flatpak, ollama, Install-Module, other container registries.
+Always rejected: requirement / lock files, local paths, several indexes at once (`--extra-index-url`, `--find-links`),
+chained commands (`&&`, `;`). Registry: a flag in the command wins, then `source.registries` in config, then the public
+registry; a non-public registry is reported (`REGISTRY_UNSUPPORTED`), never silently replaced by the public one.
+
+The reply is YAML. `machine_readable` comes first and is the only part to act on:
+
+```yaml
+machine_readable:
+  schema_version: 2
+  verdict: VERIFIED_TRUE            # VERIFIED_TRUE | VERIFIED_FALSE | UNVERIFIABLE (worst subject wins)
+  next_action: PROCEED              # PROCEED | INFORM_USER_AND_CONFIRM | DO_NOT_PROCEED | FIX_INPUT_AND_RETRY
+  confidence: 0.9
+  codes: []                         # fixed reason codes (why not TRUE / what blocked it)
+  notices: []                       # e.g. EXECUTES_ON_INSTALL, SCRIPT_MAY_DOWNLOAD_MORE, RELEASE_COOLDOWN_ACTIVE
+  trace_id: 3f2a…
+  subjects:                         # one per package / URL: ecosystem, package, version, registry, verified_url, checks …
+summary: |                          # fixed sentences built by the rules, in the caller's language
+explanation:                        # the LLM's prose per subject
+details:                            # evidence, checks, identity, engine notes
+```
+
+Everything after `machine_readable` may quote untrusted web pages; verdict words inside it are neutralised
+(`VERIFIED TRUE`), so a grep for `verdict: VERIFIED_TRUE` or `next_action: PROCEED` only ever hits the real keys.
 
 ### Full data log & editable prompts
 

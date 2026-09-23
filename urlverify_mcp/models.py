@@ -14,10 +14,12 @@ class Verdict(str, Enum):
 
 
 class VerifyRequest(BaseModel):
+    """Internal request for ONE URL (the MCP interface takes a `source`, see source/run.py)."""
     project: str
     url: str
     description: str = ""
     options: dict[str, Any] | None = None
+    seeds: list[dict[str, Any]] = Field(default_factory=list)   # deterministic facts found while resolving the source
 
 
 class Evidence(BaseModel):

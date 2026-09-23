@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v0.2.0 — 2026-09-24
+
+Breaking: the MCP interface changed; restart the MCP host after updating.
+
+- `verify_source(project, source, artifact, description, version, options)` replaces `url`. `source` is a URL or ONE
+  install / download command (pip/uv/pipx/poetry/pdm/pipenv, npm/yarn/pnpm/bun/npx, dotnet/nuget/Install-Package,
+  winget, git/gh, hf, docker/podman, curl | sh style scripts). Flags are white-listed per tool; bare names, unknown
+  flags, several indexes, requirement files, local paths and chained commands are reported with fixed codes, never
+  guessed. Several packages in one command are verified one by one (worst wins).
+- Versions are resolved against the registry (PEP 440, npm semver ranges and dist-tags, NuGet ranges); WinGet installs
+  are resolved to the installer URL in Microsoft's winget-pkgs manifest, which becomes tier-1 seed evidence.
+- Parse-only ecosystems (cargo, go, gem, composer, brew, scoop, choco, conda, apt family, snap, flatpak, ollama, ...)
+  return `ECOSYSTEM_NOT_YET_VERIFIED` with the parsed package.
+- Replies are YAML: `machine_readable` (verdict, next_action, confidence, codes, notices, subjects) first, then rule-made
+  `summary`, the LLM `explanation`, and `details`. Verdict tokens inside untrusted text are neutralised.
+- New config section `source` (registries, max_subjects). Admin Test tab and CLI `verify` use the new arguments.
+- Developer tool: `URLVERIFY_CAPTURE_DIR` captures rules-engine inputs; `tests/test_replay.py` replays them offline.
+
 - 冷卻期訊號改為 `RELEASE_COOLDOWN_PERIOD:<已發布小時數>`（最多六位小數），明確要求呼叫端告知風險並取得使用者確認後才可下載／安裝；時間不明亦須確認。README 呼叫端 system prompt 加入工具鏈，且任何非 TRUE 或附帶條件的結果均須確認。
 
 - 審視修正：引文嚴格綁定來源，API 來源類型由工具標記，Wikidata 多實體分開儲存；阻止借用其他頁面或單一真實錨點替虛構內容背書。

@@ -127,6 +127,13 @@ Callers may override `min_sources`, `allow_tier3`, `history_days` and the `ident
 
 List of case-insensitive regexes. A match in the **target page** means "text addressed to AI agents / verifiers" and yields `VERIFIED_FALSE`. Ordinary "this is the official site" wording is deliberately not matched (it carries zero weight instead).
 
+## `source` — how `verify_source(source=…)` is interpreted
+
+| Field | Type · default | Meaning |
+|---|---|---|
+| `registries` | map · pypi `https://pypi.org/simple`, npm `https://registry.npmjs.org`, nuget `https://api.nuget.org/v3/index.json` | Registry used when the command names none. A flag in the command (`-i`, `--registry`, `-s`/`-Source`) or `PIP_INDEX_URL` / `NPM_CONFIG_REGISTRY` in front of it wins. A non-public registry (mirror, private feed) is reported as `REGISTRY_UNSUPPORTED:<host>` and not verified; it is never replaced by the public registry. |
+| `max_subjects` | int · `8` | Most packages accepted in one command (`pip install a b c …`); more gives `TOO_MANY_SUBJECTS`. Each package is verified in turn, each with its own `budget.max_total_s`. |
+
 ## `package_registry_fast_path` — PyPI / npm shortcut
 
 | Field | Type / default | Meaning |

@@ -26,7 +26,7 @@ from .rules import decide
 from .storage import Storage
 
 
-async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> VerifyResult:
+async def verify(req: VerifyRequest, base_cfg: Config, store: Storage, record: bool = True) -> VerifyResult:
     t0 = time.time()
     cfg = base_cfg.with_overrides(req.options)
     trace_id = uuid.uuid4().hex[:12]
@@ -47,7 +47,8 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
             dtoken = None
             if res.degraded:
                 res.engine_notes.append("degraded dependencies during this run: " + ", ".join(res.degraded))
-            store.add_history(trace_id, req.project, req.url, req.description, res.verdict.value, res.confidence, res.model_dump(mode="json"))
+            if record:
+                store.add_history(trace_id, req.project, req.url, req.description, res.verdict.value, res.confidence, res.model_dump(mode="json"))
             TRACE.log("verify_end", result=res.model_dump(mode="json"))
             return res
         except asyncio.TimeoutError:
@@ -59,7 +60,8 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage) -> Verify
             result = VerifyResult(verdict=Verdict.UNVERIFIABLE, confidence=0.0, reason=reason,
                                   engine_notes=[f"total deadline {cfg.budget.max_total_s}s exceeded at: {stage}"],
                                   trace_id=trace_id, duration_s=round(time.time() - t0, 1), path="timeout")
-            store.add_history(trace_id, req.project, req.url, req.description, result.verdict.value, 0.0, result.model_dump(mode="json"))
+            if record:
+                store.add_history(trace_id, req.project, req.url, req.description, result.verdict.value, 0.0, result.model_dump(mode="json"))
             return result
     finally:
         if dtoken is not None:
@@ -134,6 +136,8 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         if page is not None:
             inv.target_page_text = page[: cfg.budget.fetch_max_chars]
             inv.evidence_store[page_source] = inv.target_page_text
+        for seed in req.seeds:                      # e.g. the winget manifest that names this installer URL
+            inv.evidence_store[seed["source"]] = seed["text"]
         apply_injection_check(l0, inv.target_page_text, cfg.injection_patterns)
         TRACE.log("target_page", url=l0.final_url or l0.normalized_url, chars=len(inv.target_page_text or ""), text=inv.target_page_text,
                   injection=next((c.model_dump() for c in l0.checks if c.name == "injection"), None))
@@ -174,6 +178,12 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                 from .models import LLMSubmission
                 sub = LLMSubmission(identity=IdentityGraph(product=req.project))
                 engine_notes.append(f"investigation failed: {type(e).__name__}: {e}")
+        if not l0.fatal_failures:
+            from .models import Evidence
+            for seed in req.seeds:
+                if not any(e.source == seed["source"] for e in sub.evidence):
+                    sub.evidence.append(Evidence(kind=seed["kind"], source=seed["source"], tier=1, claim=seed["claim"],
+                                                 quote=seed["quote"], supports=True))
         # temporal provenance for tier-3 sources the LLM cited (deterministic; no LLM involved)
         ages: dict = {}
         target_age: dict | None = None

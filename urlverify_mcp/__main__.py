@@ -38,7 +38,11 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--port", type=int)
 
     v = sub.add_parser("verify", help="run one verification from the command line")
-    v.add_argument("project"); v.add_argument("url"); v.add_argument("description", nargs="?", default="")
+    v.add_argument("project"); v.add_argument("source", help="URL or one install / download command (quote it)")
+    v.add_argument("--artifact", default="", help="what form, e.g. 'Windows x64 installer'")
+    v.add_argument("--description", default="", help="what it is for")
+    v.add_argument("--version", dest="pkg_version", default="", help="pin a version (else the registry default)")
+    v.add_argument("--json", action="store_true", help="print the internal JSON instead of the MCP YAML")
     v.add_argument("--min-sources", type=int); v.add_argument("--allow-tier3", action="store_true")
 
     sub.add_parser("init-config", help="write config.yaml from the example into the current directory")
@@ -97,16 +101,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "verify":
         from .config import load_config
-        from .models import VerifyRequest
-        from .pipeline import verify
+        from .presentation import to_yaml
+        from .source.run import SourceRequest, verify_source
         from .storage import Storage
         cfg = load_config(args.config)
         store = Storage(cfg.storage.resolved(), cfg.log.resolved())
         opts = {}
         if args.min_sources: opts["min_sources"] = args.min_sources
         if args.allow_tier3: opts["allow_tier3"] = True
-        res = asyncio.run(verify(VerifyRequest(project=args.project, url=args.url, description=args.description, options=opts or None), cfg, store))
-        print(json.dumps(res.model_dump(mode="json"), ensure_ascii=False, indent=2))
+        req = SourceRequest(project=args.project, source=args.source, artifact=args.artifact, description=args.description,
+                            version=args.pkg_version, options=opts or None)
+        res = asyncio.run(verify_source(req, cfg, store))
+        print(json.dumps(res.model_dump(mode="json"), ensure_ascii=False, indent=2) if args.json else to_yaml(res))
         return 0 if res.verdict.value == "VERIFIED_TRUE" else 2
 
     if args.cmd == "check-env":

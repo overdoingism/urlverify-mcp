@@ -1,1 +1,1 @@
-List cached, independently-established project identities (official domains / orgs).
+List cached, independently established project identities (official domains / orgs), as YAML.

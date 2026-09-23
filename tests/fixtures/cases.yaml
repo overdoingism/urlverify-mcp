@@ -69,3 +69,29 @@
   description: Electron's asar packaging tool
   expect: VERIFIED_TRUE
   expect_path: registry_fast_path      # scoped package with npm provenance from github.com/electron/asar (verified org)
+# ---- v0.2.0 source interface: install commands
+- id: pip-requests
+  project: requests
+  source: pip install requests
+  artifact: Python package
+  description: HTTP client library
+  expect_any: [VERIFIED_TRUE, UNVERIFIABLE]
+- id: npm-typosquat-command
+  project: lodash
+  source: npm i lodahs
+  artifact: npm package
+  description: utility library
+  expect_any: [VERIFIED_FALSE, UNVERIFIABLE]
+- id: winget-docker-desktop
+  project: Docker Desktop
+  source: winget install --id Docker.DockerDesktop -e
+  artifact: Windows x64 installer
+  description: container desktop app
+  expect_any: [VERIFIED_TRUE, UNVERIFIABLE]
+- id: bare-name-rejected
+  project: requests
+  source: requests
+  artifact: Python package
+  description: HTTP client library
+  expect: UNVERIFIABLE
+  expect_next_action: FIX_INPUT_AND_RETRY

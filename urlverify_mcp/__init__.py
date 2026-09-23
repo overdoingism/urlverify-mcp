@@ -1,2 +1,2 @@
 """URLVerify_MCP — source-of-origin verification agent exposed as an MCP server."""
-__version__ = "0.1.2"
+__version__ = "0.2.0"
