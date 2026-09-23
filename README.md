@@ -302,8 +302,8 @@ Public third-party services are not probed at all: for a service that stays up f
 their state is the **observed dependency health** table (admin Status tab, `/api/health`):
 every real call records its outcome, failures print a prominent `!! DEPENDENCY …` line on stderr and a
 `dependency_failure` record in the full log, and each result lists the dependencies that failed during that run in
-`degraded`. The table is a report, never a gate: networks flap, and the next call is always attempted. Results carry `schema_version` (currently 1); a breaking change to the
-result shape bumps it.
+`degraded`. The table is a report, never a gate: networks flap, and the next call is always attempted. Results carry `schema_version` (currently 2: the v0.2 `verify_source` YAML / JSON with `subjects`); a breaking change
+to the result shape bumps it. History entries written before v0.2 are schema 1 and are still readable.
 
 Windows without uv: `.venv\Scripts\python -m pytest -q` (same flags).
 

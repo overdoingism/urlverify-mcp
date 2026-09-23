@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.0 — 2026-09-24
+
 - Identity edges (AGENTS §6.3): every decision reports established / missing edges (TARGET_CHECKS, PROJECT_TO_DOMAIN,
   PROJECT_TO_ORG, PACKAGE_TO_REPOSITORY, PROJECT_NAME_MATCH) with how many independent sources were found; the YAML
   subjects carry them and the reason codes (`MISSING_EDGE:*`) come from them.
