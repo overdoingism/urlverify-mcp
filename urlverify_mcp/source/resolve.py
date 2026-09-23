@@ -217,8 +217,11 @@ class Resolver:
         out = []
         for u in urls:
             line = next((ln.strip() for ln in text.splitlines() if u in ln and "InstallerUrl" in ln), f"InstallerUrl: {u}")
+            # like a record's identity facts: the citation says which package the manifest belongs to
+            id_line = next((ln.strip() for ln in text.splitlines() if ln.strip().startswith("PackageIdentifier:")), None)
             seed = Seed(kind="distro", source=murl, text=text,
-                        claim=f"Microsoft's winget manifest for {ident} {ver} names this installer URL", quote=line)
+                        claim=f"Microsoft's winget manifest for {ident} {ver} names this installer URL",
+                        quote=f"{id_line} ... {line}" if id_line else line)
             sub = s.model_copy(deep=True)
             sub.version, sub.url = ver, u
             sub.registry, sub.registry_basis = f"https://github.com/{WINGET_REPO}", "public default"

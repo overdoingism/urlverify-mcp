@@ -97,7 +97,13 @@ async def test_winget_manifest_selection():
     [s] = await _resolve("winget install --id Docker.DockerDesktop -e", routes, hint="Windows x64 installer")
     assert s.version == "4.91.0" and "/amd64/" in s.url
     seed = s.seeds[0]
-    assert seed.kind == "distro" and "microsoft/winget-pkgs/master/" in seed.source and seed.quote in seed.text
+    assert seed.kind == "distro" and "microsoft/winget-pkgs/master/" in seed.source
+    assert seed.quote.startswith("PackageIdentifier: Docker.DockerDesktop ... InstallerUrl: https://desktop.docker.com/")
+    from urlverify_mcp.models import Evidence
+    from urlverify_mcp.rules import verify_quotes
+    ev = Evidence(kind="distro", source=seed.source, claim=seed.claim, quote=seed.quote)
+    verify_quotes([ev], {seed.source: seed.text})
+    assert ev.verified_quote
     both = await _resolve("winget install --id Docker.DockerDesktop -e", routes)
     assert len(both) == 2 and all("WINGET_ONE_OF_2_INSTALLERS" in x.notes for x in both)
     [s] = await _resolve("winget install --id Docker.DockerDesktop -e -a arm64", routes)
