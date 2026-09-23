@@ -20,8 +20,14 @@ WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 URL_RE = re.compile(r"https?://[^\s|}\]<>\"']+", re.I)
 
 
+_ANSWERED = re.compile(r"HTTP (400|404|410|422)\b")
+
+
 def _obs(dep: str, r: dict) -> dict:
-    observe(dep, r.get("ok") is not False, r.get("error"))
+    # A "no such thing" answer (404 for a guessed repo, an invalid title) means the service is up: it is reported to
+    # the caller as not found, never counted as a dependency failure in the health table.
+    err = r.get("error") or ""
+    observe(dep, r.get("ok") is not False or bool(_ANSWERED.search(err)), None if _ANSWERED.search(err) else err)
     return r
 
 
@@ -127,7 +133,7 @@ class Structured:
             # revision ≥ history_days old
             old = await self._json(WIKIDATA_API, {"action": "query", "prop": "revisions", "titles": qid, "rvprop": "ids|timestamp|content",
                                                   "rvslots": "main", "rvlimit": 1, "rvstart": cutoff, "rvdir": "older", "format": "json", "formatversion": 2})
-            old_revs = old["query"]["pages"][0].get("revisions", [])
+            old_revs = (((old.get("query") or {}).get("pages") or [{}])[0]).get("revisions", [])
             old_content = old_revs[0].get("slots", {}).get("main", {}).get("content", "") if old_revs else None
             out: dict[str, Any] = {}
             for pid in pids:
@@ -145,9 +151,11 @@ class Structured:
         try:
             r = await self._json(api, {"action": "query", "prop": "revisions", "titles": title, "rvprop": "ids|timestamp|content", "rvslots": "main",
                                        "rvlimit": 15, "rvdir": "older", "redirects": 1, "format": "json", "formatversion": 2})
-            page = r["query"]["pages"][0]
-            if page.get("missing"):
-                return {"ok": True, "found": False, "source": f"https://{lang}.wikipedia.org/wiki/{title}"}
+            pages = (r.get("query") or {}).get("pages") or []
+            if not pages or pages[0].get("missing") or pages[0].get("invalid"):
+                why = (r.get("error") or {}).get("info") or (pages[0].get("invalidreason") if pages else None) or "no such article"
+                return {"ok": True, "found": False, "note": why, "source": f"https://{lang}.wikipedia.org/wiki/{title}"}
+            page = pages[0]
             revs = page.get("revisions", [])
             contents = [rev.get("slots", {}).get("main", {}).get("content", "") for rev in revs]
             values = [{"ts": rev["timestamp"], "official": _infobox_sites(c)} for rev, c in zip(revs, contents)]
@@ -161,7 +169,8 @@ class Structured:
             current = values[0]["official"] if values else []
             current_repos = repo_values[0]["official"] if repo_values else []
             latest_text = revs[0].get("slots", {}).get("main", {}).get("content", "") if revs else ""
-            devs = re.findall(r"\|\s*(?:developer|author|publisher|company)\s*=\s*([^\n|]+)", latest_text, flags=re.I)
+            devs = re.findall(r"^\s*\|\s*(?:developer|author|publisher|company)\s*=\s*([^\n|]+)", _strip_refs(latest_text), flags=re.I | re.M)
+            devs = [d for d in devs if d.strip() and not d.strip().startswith(("{{", "<"))]
             return {"ok": True, "found": True, "title": page["title"], "official_website": current, "official_repos": current_repos,
                     "developer_fields": [re.sub(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", r"\1", d).strip() for d in devs][:5],
                     "stability": _stability_verdict(values, old_val, min_stable, history_days),

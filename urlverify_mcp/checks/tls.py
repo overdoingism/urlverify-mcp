@@ -142,3 +142,37 @@ def _unverified_details(host: str, port: int, timeout: float, connect_ip: str | 
 
 async def fetch_cert(host: str, port: int = 443, timeout: float = 10.0, connect_ip: str | None = None) -> dict[str, Any]:
     return await asyncio.to_thread(fetch_cert_sync, host, port, timeout, connect_ip)
+
+
+MAX_CONNECT_ATTEMPTS = 4
+
+
+def _interleave(ips: list[str]) -> list[str]:
+    """Alternate address families (keeping the resolver's order within each) so a family this machine cannot reach
+    (e.g. IPv6 without a route) does not use up every attempt."""
+    v6 = [ip for ip in ips if ":" in ip]
+    v4 = [ip for ip in ips if ":" not in ip]
+    first, second = (v6, v4) if ips and ":" in ips[0] else (v4, v6)
+    out: list[str] = []
+    for i in range(max(len(first), len(second))):
+        out += first[i:i + 1] + second[i:i + 1]
+    return out
+
+
+async def fetch_cert_any(host: str, port: int, timeout: float, connect_ips: list[str]) -> dict[str, Any]:
+    """TLS check against the resolved addresses in turn. Only a failure to CONNECT moves on to the next address; any TLS
+    answer (trusted or not) is final, so a bad certificate on one address is never hidden by trying another."""
+    ips = _interleave(list(dict.fromkeys(connect_ips or [])))[:MAX_CONNECT_ATTEMPTS] or [None]
+    tried: list[str] = []
+    r: dict[str, Any] = {}
+    for ip in ips:
+        r = await fetch_cert(host, port, timeout, ip)
+        err = r.get("error") or ""
+        if r.get("trusted") or not (err.startswith("connection error") or err.startswith("timeout")):
+            break
+        tried.append(f"{ip}: {err}")
+    if tried and (r.get("trusted") or len(tried) < len(ips)):
+        r["unreachable_addresses"] = tried
+    elif tried:
+        r["error"] = "no resolved address accepted a connection: " + "; ".join(tried)
+    return r

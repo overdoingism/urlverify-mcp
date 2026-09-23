@@ -114,7 +114,7 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
         cache_hits.append("cert")
         tls_task = asyncio.sleep(0, result=cert_cached)
     else:
-        tls_task = tls_mod.fetch_cert(host, urlsplit(norm).port or 443, cfg.net.timeout_s, connect_ip=dns_r["addresses"][0])
+        tls_task = tls_mod.fetch_cert_any(host, urlsplit(norm).port or 443, cfg.net.timeout_s, dns_r["addresses"])
     redir_task = redir_mod.expand(norm, cfg.net.timeout_s, cfg.net.user_agent)
     ct_task = asyncio.sleep(0, result={"ok": False, "error": "skipped for platform anchor"}) if user_content else ct_mod.first_seen(e1, cfg.net.timeout_s, cfg.net.user_agent)
     doh_task = doh_mod.resolve_doh(host, cfg.net.doh_resolvers, cfg.net.timeout_s, cfg.net.user_agent) if cfg.net.doh_cross_check else asyncio.sleep(0, result=None)
@@ -186,7 +186,7 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
             sys_tls_ok = None if isinstance(tls_r, Exception) else bool(tls_r.get("trusted"))
             doh_tls_ok = None
             if doh_r["addresses"] and not non_public(doh_r["addresses"]) and not (set(sys_ips) & set(doh_r["addresses"])):
-                alt = await tls_mod.fetch_cert(host, urlsplit(norm).port or 443, cfg.net.timeout_s, connect_ip=doh_r["addresses"][0])
+                alt = await tls_mod.fetch_cert_any(host, urlsplit(norm).port or 443, cfg.net.timeout_s, doh_r["addresses"])
                 doh_tls_ok = bool(alt.get("trusted"))
             status, fatal, msg = doh_mod.assess(sys_ips, doh_r["addresses"], sys_tls_ok, doh_tls_ok)
             detail = {"system": sys_ips, "doh": doh_r["addresses"], "resolvers": doh_r["resolvers"], "dnssec_ad": doh_r["dnssec_ad"],
