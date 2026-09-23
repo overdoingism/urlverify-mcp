@@ -137,8 +137,15 @@ def result_codes(res: VerifyResult) -> tuple[list[str], list[str]]:
         codes.append("PACKAGE_NOT_FOUND")
     if "registry_typosquat:" in sigs:
         codes.append("PACKAGE_NAME_LOOKALIKE")
-    if "VERIFIED_TRUE withheld" in notes:
-        codes.append("PROJECT_NAME_NOT_MATCHED")
+    if res.verdict != Verdict.TRUE:
+        # native gap codes (AGENTS §6.3): one per missing identity edge, argument-free so callers can switch on them
+        for m in res.missing_edges:
+            edge = m.get("edge", "")
+            kind = edge.split(":", 1)[0]
+            if kind == "PROJECT_NAME_MATCH":
+                codes.append("PROJECT_NAME_NOT_MATCHED")
+            elif kind != "TARGET_CHECKS":
+                codes.append(f"MISSING_EDGE:{kind}")
     if "self-published" in notes:
         notices.append("SELF_PUBLISHED_CAP")
     if res.verdict == Verdict.FALSE and not codes:

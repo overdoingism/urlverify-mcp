@@ -28,3 +28,23 @@ def test_replay(path):
                case.get("provenance"), case.get("registry_state"))
     assert d.verdict == Verdict(exp["verdict"]), (exp.get("why"), d.notes)
     assert exp.get("min_confidence", 0) <= d.confidence <= exp.get("max_confidence", 1), (d.confidence, d.notes)
+
+
+def _replay(name):
+    path = next(p for p in FIXTURES if p.name.startswith(name))
+    case = load(path)
+    return decide(Config(**case["config"]), L0Result(**case["l0"]), LLMSubmission(**case["submission"]),
+                  EvidenceStore.from_json(case["store"]), case["project"], case.get("cached_identity"),
+                  case.get("ages") or {}, case.get("target_domain_age"), case.get("provenance"), case.get("registry_state"))
+
+
+def test_edges_reported():
+    d = _replay("llama-cpp-6ae")
+    assert "PROJECT_TO_ORG:github:ggml-org" in d.established_edges and not d.missing_edges
+    d = _replay("rocmfpx")
+    assert [m["edge"] for m in d.missing_edges] == ["PROJECT_TO_ORG:github:charlie12345"]
+    assert d.missing_edges[0]["need"] == 2 and d.missing_edges[0]["have"] <= 1
+    d = _replay("vulkan-sdk")
+    assert "PROJECT_TO_DOMAIN:lunarg.com" in d.established_edges and [m["edge"] for m in d.missing_edges] == ["PROJECT_NAME_MATCH"]
+    d = _replay("electron-asar")
+    assert {"PACKAGE_TO_REPOSITORY", "PROJECT_TO_ORG:npm:@electron/asar"} <= set(d.established_edges)

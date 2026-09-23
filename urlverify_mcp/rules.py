@@ -24,6 +24,8 @@ class Decision:
     supporting_sources: dict[str, set[str]] = field(default_factory=dict)   # official domain -> distinct source eTLD+1s
     established_domains: list[str] = field(default_factory=list)
     established_orgs: dict[str, list[str]] = field(default_factory=dict)
+    established_edges: list[str] = field(default_factory=list)
+    missing_edges: list[dict] = field(default_factory=list)
 
 
 def _norm_ws(s: str) -> str:
@@ -122,6 +124,61 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
            cached: dict | None = None, ages: dict[str, dict] | None = None,
            target_domain_age: dict | None = None, provenance: dict | None = None,
            registry_state: dict | None = None) -> Decision:
+    ctx: dict = {}
+    d = _decide(cfg, l0, sub, store, project, cached, ages, target_domain_age, provenance, registry_state, ctx)
+    d.established_edges, d.missing_edges = identity_edges(cfg, l0, d, ctx, provenance)
+    return d
+
+
+def target_kind(l0: L0Result) -> str:
+    if l0.platform in ("pypi", "npm", "nuget") and l0.platform_owner:
+        return "package"
+    if l0.platform_scope == "user_content" and l0.platform_owner:
+        return "platform"
+    return "website"
+
+
+def identity_edges(cfg: Config, l0: L0Result, d: "Decision", ctx: dict, provenance: dict | None) -> tuple[list[str], list[dict]]:
+    """Which identity edges this decision established and which are missing (AGENTS.md §6.3). Pure bookkeeping over the
+    decision's own state: it never changes the verdict."""
+    need = cfg.identity.min_sources
+    fam = lambda srcs: len({family_of(x) for x in srcs})   # noqa: E731
+    est: list[str] = []
+    miss: list[dict] = []
+
+    def add(edge: str, ok: bool, have: int | None = None, why: str = "") -> None:
+        if ok:
+            est.append(edge)
+        else:
+            m = {"edge": edge}
+            if have is not None:
+                m.update(have=have, need=need)
+            if why:
+                m["why"] = why
+            miss.append(m)
+
+    add("TARGET_CHECKS", not l0.fatal_failures and not l0.incomplete_required_checks,
+        why=", ".join(sorted({c.name for c in l0.fatal_failures} | set(l0.incomplete_required_checks))))
+    kind = target_kind(l0)
+    if kind == "website":
+        e1 = l0.etld1
+        add(f"PROJECT_TO_DOMAIN:{e1}", e1 in d.established_domains, fam(d.supporting_sources.get(e1, set())))
+    else:
+        owner = (l0.platform_owner or "").lower()
+        org_support = ctx.get("org_support", {})
+        add(f"PROJECT_TO_ORG:{l0.platform}:{owner}", owner in [o.lower() for o in d.established_orgs.get(l0.platform or "", [])],
+            fam(org_support.get(f"{l0.platform}:{owner}", set())))
+        if kind == "package" and l0.platform in ("pypi", "npm"):
+            add("PACKAGE_TO_REPOSITORY", bool(provenance and provenance.get("found")),
+                why="" if provenance and provenance.get("found") else "no signed build provenance")
+    if ctx.get("project_ok") is not None:
+        add("PROJECT_NAME_MATCH", bool(ctx["project_ok"]))
+    return est, miss
+
+
+def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str], project: str,
+            cached: dict | None, ages: dict[str, dict] | None, target_domain_age: dict | None, provenance: dict | None,
+            registry_state: dict | None, ctx: dict) -> Decision:
     notes: list[str] = []
     ic = cfg.identity
     ages = ages or {}
@@ -273,6 +330,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     for p, orgs in est_orgs.items():
         notes.append(f"official {p} org(s) established: {', '.join(orgs)}")
 
+    ctx["org_support"] = org_support
     # ---- 3. allowlist
     for entry in cfg.lists.allowlist:
         if entry.project in ("*", project) or entry.project.lower() == project.lower():
@@ -327,6 +385,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
 
     # ---- 5b. the resolved identity must be about the requested project (asked for "requests", got pypdf's identity)
     project_ok, why_project = _project_matches(project, l0, usable)
+    ctx["project_ok"] = project_ok
     if not project_ok:
         notes.append(f"{why_project}; VERIFIED_TRUE withheld")
 
