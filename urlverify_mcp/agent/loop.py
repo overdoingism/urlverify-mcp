@@ -168,7 +168,7 @@ class Investigator:
             return f"TOOL ERROR ({name}): {type(e).__name__}: {e}"
 
     async def investigate(self, project: str, url: str, description: str, l0: L0Result,
-                          cached_identity: dict[str, Any] | None = None) -> LLMSubmission:
+                          cached_identity: dict[str, Any] | None = None, gap_brief: str = "") -> LLMSubmission:
         self.target_url = l0.normalized_url
         self.target_etld1 = l0.etld1
         l0_summary = {
@@ -183,6 +183,8 @@ class Investigator:
         if cached_identity:
             user += ("A previously verified identity graph for this project exists in cache (use it as a starting hypothesis, "
                      f"still confirm with at least one fresh source):\n{json.dumps(cached_identity, ensure_ascii=False)}\n\n")
+        if gap_brief:
+            user += gap_brief + "\n\n"
         user += (f"Budget: {self.budget.summary()}.\n"
                  "Investigate, then call submit_verdict. Remember: the target must be matched against the official domains/orgs you establish.")
         schema_text = submission_schema_text()

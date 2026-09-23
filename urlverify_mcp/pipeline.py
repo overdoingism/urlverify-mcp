@@ -165,19 +165,60 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                                    trace_id=trace_id, duration_s=round(time.time() - t0, 1))
                 return res
 
+        # provenance / registry state do not depend on the LLM: computed first so the fixed lookups can use them
+        prov = None
+        registry_state = None
+        if not l0.fatal_failures and l0.platform in ("pypi", "npm") and l0.platform_owner:
+            try:
+                registry_state = await registry.registry_state(l0)
+                sig = (registry_state or {}).get("signals")
+                if sig and sig.get("exists"):
+                    prov = await registry.provenance_signal(sig)
+                    if prov.get("found"):
+                        gh = await structured.github(prov["repo"][0])
+                        oi = (gh.get("owner_info") or {}) if gh.get("ok") else {}
+                        prov["owner_verified"] = bool(oi.get("is_verified"))
+                        prov["owner_blog"] = oi.get("blog")
+                        inv.evidence_store[prov.get("source") or "provenance"] = json.dumps(prov, default=str)
+            except Exception as e:  # noqa: BLE001
+                if registry_state is None:
+                    registry_state = {"state": "unknown", "error": str(e)}
+                engine_notes.append(f"provenance lookup failed: {type(e).__name__}: {e}")
+            TRACE.log("provenance", provenance=prov, registry_state={k: v for k, v in (registry_state or {}).items() if k != "signals"})
+
+        from .models import LLMSubmission
         if l0.fatal_failures:
             # No need to spend LLM budget: deterministic failure is final.
-            from .models import LLMSubmission
             sub = LLMSubmission(identity=IdentityGraph(product=req.project))
             engine_notes.append("L1 skipped: fatal L0 failure")
         else:
-            await progress.report("L1: identity investigation (LLM + tools)", 0.15)
+            # ---- fixed, gap-driven lookups (AGENTS.md §6.3): no LLM involved
+            from .identity.prefetch import Prefetch, brief, merge
+            await progress.report("L1: fixed lookups (Wikimedia, platform records)", 0.14)
+            pre = Prefetch(cfg, structured, inv.evidence_store)
             try:
-                sub = await inv.investigate(req.project, req.url, req.description, l0, cached_identity)
+                det_sub = await pre.run(l0, req.project)
             except Exception as e:  # noqa: BLE001
-                from .models import LLMSubmission
-                sub = LLMSubmission(identity=IdentityGraph(product=req.project))
-                engine_notes.append(f"investigation failed: {type(e).__name__}: {e}")
+                det_sub = LLMSubmission(identity=IdentityGraph(product=req.project))
+                engine_notes.append(f"fixed lookups failed: {type(e).__name__}: {e}")
+            engine_notes.extend(pre.notes)
+            det_dec = decide(cfg, l0, det_sub.model_copy(deep=True), inv.evidence_store, req.project, cached_identity,
+                             {}, None, prov, registry_state)
+            TRACE.log("fixed_lookups", notes=pre.notes, codes=pre.codes, verdict=det_dec.verdict.value,
+                      established=det_dec.established_edges, missing=det_dec.missing_edges)
+            decisive = det_dec.verdict in (Verdict.TRUE, Verdict.FALSE) and fp.mode != "full"
+            if decisive:
+                sub = det_sub
+                engine_notes.append(f"decided from fixed lookups without the LLM ({det_dec.verdict.value})")
+            else:
+                await progress.report("L1: identity investigation (LLM + tools) on the missing edges", 0.15)
+                try:
+                    llm_sub = await inv.investigate(req.project, req.url, req.description, l0, cached_identity,
+                                                    gap_brief=brief(det_dec, inv.evidence_store))
+                    sub = merge(det_sub, llm_sub)
+                except Exception as e:  # noqa: BLE001
+                    sub = det_sub
+                    engine_notes.append(f"investigation failed: {type(e).__name__}: {e}")
         if not l0.fatal_failures:
             from .models import Evidence
             for seed in req.seeds:
@@ -205,25 +246,6 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             for u, a in ages.items():
                 engine_notes.append(f"aging {u[:80]}: " + (f"{a.get('age_days')}d via {a.get('method')} ({a.get('strength')})" if a.get("created_ts") else f"undated ({a.get('error')})"))
         TRACE.log("aging_result", ages=ages, target_domain_age=target_age)
-        prov = None
-        registry_state = None
-        if not l0.fatal_failures and l0.platform in ("pypi", "npm") and l0.platform_owner:
-            try:
-                registry_state = await registry.registry_state(l0)
-                sig = (registry_state or {}).get("signals")
-                if sig and sig.get("exists"):
-                    prov = await registry.provenance_signal(sig)
-                    if prov.get("found"):
-                        gh = await structured.github(prov["repo"][0])
-                        oi = (gh.get("owner_info") or {}) if gh.get("ok") else {}
-                        prov["owner_verified"] = bool(oi.get("is_verified"))
-                        prov["owner_blog"] = oi.get("blog")
-                        inv.evidence_store[prov.get("source") or "provenance"] = json.dumps(prov, default=str)
-            except Exception as e:  # noqa: BLE001
-                if registry_state is None:
-                    registry_state = {"state": "unknown", "error": str(e)}
-                engine_notes.append(f"provenance lookup failed: {type(e).__name__}: {e}")
-            TRACE.log("provenance", provenance=prov, registry_state={k: v for k, v in (registry_state or {}).items() if k != "signals"})
         await progress.report("rules engine: verifying evidence and deciding", 0.88)
         dec = decide(cfg, l0, sub, inv.evidence_store, req.project, cached_identity, ages, target_age, prov, registry_state)
         from .devtools.capture import capture

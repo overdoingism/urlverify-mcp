@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Identity edges (AGENTS §6.3): every decision reports established / missing edges (TARGET_CHECKS, PROJECT_TO_DOMAIN,
+  PROJECT_TO_ORG, PACKAGE_TO_REPOSITORY, PROJECT_NAME_MATCH) with how many independent sources were found; the YAML
+  subjects carry them and the reason codes (`MISSING_EDGE:*`) come from them.
+- Fixed, gap-driven lookups before the LLM: Wikimedia for the project name, then the package / repository name, then
+  the developer (at most three searches, entities accepted only by exact label/alias or a link to the target, Wikipedia
+  only via the entity's sitelink), the target owner's platform record and the records of owners a Wikimedia repository
+  record names. When that already decides the case the LLM is not started; otherwise it is told what is known and which
+  edges are missing.
+
 - TLS check tries the resolved addresses in turn (address families interleaved, at most 4): a machine without an IPv6
   route no longer fails dual-stack hosts. Only a failed connection moves on; any TLS answer is final.
 - Admin Config tab: optional GitHub token field (masked, check-limit button, links to create a no-permission token).
