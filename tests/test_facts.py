@@ -38,7 +38,9 @@ def test_fact_citation_rewrites_source_and_quote():
     ev = Evidence(kind="media", source="(facts)", claim="ggml-org is the org", facts=[fid, "F999"])
     verify_quotes([ev], st)
     assert ev.verified_quote and ev.source == GH["source"] and ev.kind == "github"
-    assert ev.quote == "github.owner_info.login = ggml-org" and any("F999" in n for n in ev.notes)
+    assert ev.quote == "github.owner_info.login = ggml-org; github.repo.full_name = ggml-org/llama.cpp" or \
+        ev.quote.startswith("github.owner_info.login = ggml-org"), ev.quote
+    assert any("F999" in n for n in ev.notes)
     bad = Evidence(kind="github", source="(facts)", claim="x", facts=["F404"])
     verify_quotes([bad], st)
     assert bad.verified_quote is False
@@ -78,3 +80,14 @@ def test_store_roundtrip():
     back = EvidenceStore.from_json(json.loads(json.dumps(st.to_json())))
     assert back.kinds == st.kinds and back.facts == st.facts and back.page_text("https://x.example/p") == "page"
     assert back.find_record("https://api.github.com/repos/ggml-org/llama.cpp") == GH["source"]
+
+
+def test_identity_facts_always_attached():
+    """drluoto regression: citing only `fullname` / `num_models` of a Hugging Face account still says whose account it is."""
+    st = EvidenceStore()
+    hf = {"owner": "drluoto", "owner_info": {"type": "user", "name": "drluoto", "fullname": "Johannes Luoto", "num_models": 2}}
+    st.record("https://huggingface.co/drluoto", json.dumps(hf), "huggingface")
+    fid = next(f for f, (_, p, _) in st.facts.items() if p.endswith("fullname"))
+    ev = Evidence(kind="huggingface", source="(facts)", claim="same person", facts=[fid])
+    verify_quotes([ev], st)
+    assert "huggingface.owner = drluoto" in ev.quote and "Johannes Luoto" in ev.quote

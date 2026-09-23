@@ -20,6 +20,7 @@ from typing import Any
 MAX_FACTS_PER_RECORD = 120
 MAX_FACT_VALUE = 300
 _SKIP_KEYS = {"ok", "found", "source"}
+_IDENTITY_PATH = re.compile(r"^\w+\.(owner|qid|label|title|name|domain|owner_info\.(login|name)|repo_info\.(full_name|id|author))$")
 
 
 def norm_url(u: str) -> str:
@@ -126,6 +127,11 @@ class EvidenceStore(dict[str, str]):
         if re.fullmatch(r"F\d+", c):
             return self.facts.get(c, (None,))[0]
         return self.aliases.get(norm_url(c))
+
+    def identity_facts(self, source: str) -> list[str]:
+        """The facts that say WHOSE record this is (owner / login / repo id / entity label). They are attached to any
+        citation of the record: which facts the LLM happened to pick must not change who the record belongs to."""
+        return [f for f, (src, path, _) in self.facts.items() if src == source and _IDENTITY_PATH.match(path)]
 
     def fact_text(self, fids: list[str]) -> str:
         return "; ".join(f"{self.facts[f][1]} = {self.facts[f][2]}" for f in fids if f in self.facts)

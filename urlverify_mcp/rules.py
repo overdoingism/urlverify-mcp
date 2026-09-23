@@ -83,9 +83,10 @@ def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
             same = [f for f in known if es.facts[f][0] == src]
             if len(same) < len(ev.facts):
                 ev.notes.append(f"facts from other records or unknown ids ignored: {sorted(set(ev.facts) - set(same))}")
+            ident = [f for f in es.identity_facts(src) if f not in same]
             ev.facts = same
             ev.source, ev.kind = src, es.kinds[src]
-            ev.quote = es.fact_text(same)
+            ev.quote = es.fact_text(ident + same)
             ev.verified_quote = True
             ev.notes.append(f"structured facts {', '.join(same)} of record {es.record_ids.get(src)}")
             continue
