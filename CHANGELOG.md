@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed lookup for websites: Homebrew casks that download from the target domain (reverse lookup in the cask
+  catalogue, cached in `state/brew_cask_index.json`, refreshed weekly with ETag) become evidence when their token /
+  name equals the project or their homepage is on the same domain (`identity.homebrew_reverse_lookup`).
+
 - New verified ecosystems: Homebrew (`brew install [--cask|--formula]`, official taps; cask download URL or the
   formula's upstream source, with the formulae.brew.sh record as evidence), Scoop (official ScoopInstaller buckets;
   no bucket = main, otherwise `SCOOP_BUCKET_AMBIGUOUS`), Go (`go install` / `go get`; hosting-platform paths map to the

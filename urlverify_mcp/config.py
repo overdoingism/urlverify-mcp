@@ -57,6 +57,8 @@ class IdentityConfig(BaseModel):
     min_stable_revisions: int = 3
     new_domain_days: int = 180
     github_token: str = ""
+    homebrew_reverse_lookup: bool = True       # websites: look up Homebrew casks that download from the target domain
+    homebrew_index_refresh_days: int = 7       # the ~2 MB cask catalogue is re-checked (ETag) at most this often
     # additive source tier lists (eTLD+1 or full host). Built-in lists live in identity/sources.py.
     extra_tier1: list[str] = Field(default_factory=list)
     extra_tier2: list[str] = Field(default_factory=list)

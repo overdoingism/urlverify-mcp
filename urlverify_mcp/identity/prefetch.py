@@ -141,6 +141,36 @@ class Prefetch:
         else:
             self.notes.append(f"fixed lookup: {platform} record of {owner} unavailable ({r.get('error')})")
 
+    async def homebrew(self, l0: L0Result, project: str) -> None:
+        """Website targets: casks that download from the target domain (reverse lookup in Homebrew's catalogue).
+        The cask record's token / homepage / url lines are the evidence (brew.sh family)."""
+        from ..source.resolve import _json_snippets
+        from .brew_index import BrewCaskIndex
+        idx = BrewCaskIndex(self.cfg.storage.resolved(), self.cfg.net.user_agent,
+                            refresh_days=self.cfg.identity.homebrew_index_refresh_days)
+        for c in await idx.casks_for(l0.etld1, project):
+            api = f"https://formulae.brew.sh/api/cask/{c['token']}.json"
+            try:
+                r = await self.structured.client.get(api)
+            except Exception as e:  # noqa: BLE001
+                self.notes.append(f"fixed lookup: Homebrew cask {c['token']} unavailable ({type(e).__name__})")
+                continue
+            if r.status_code != 200:
+                continue
+            doc, text = r.json(), r.text
+            urls = [doc.get("url")] + [(v or {}).get("url") for v in (doc.get("variations") or {}).values()]
+            on_target = next((u for u in urls if isinstance(u, str) and etld1_of(host_of(u)) == l0.etld1), None)
+            parts = _json_snippets(text, [("token", doc.get("token")), ("homepage", doc.get("homepage")), ("url", on_target)])
+            m = re.search(r'"name"\s*:\s*\[[^\]]*\]', text)
+            if m:
+                parts.insert(1, m.group(0))
+            if len(parts) < 2:
+                continue
+            self.store[api] = text
+            self.evidence.append(Evidence(kind="distro", source=api, tier=1, supports=True, quote=" ... ".join(parts),
+                                          claim=f"[fixed lookup] Homebrew cask {c['token']} downloads from {l0.etld1}"))
+            self.notes.append(f"fixed lookup: Homebrew cask '{c['token']}' downloads from {l0.etld1}")
+
     # ------------------------------------------------------------------ plan
     async def run(self, l0: L0Result, project: str) -> LLMSubmission:
         """The fixed plan: Wikimedia for the project name, then the package / repository name, then the developer of
@@ -170,6 +200,11 @@ class Prefetch:
                 await self.platform_record(l0.platform, o, None)
         if l0.platform_scope != "user_content" and l0.etld1:
             self._add_domain(l0.etld1)
+            if self.cfg.identity.homebrew_reverse_lookup:
+                try:
+                    await self.homebrew(l0, project)
+                except Exception as e:  # noqa: BLE001
+                    self.notes.append(f"fixed lookup: Homebrew reverse lookup failed ({type(e).__name__}: {e})")
         return self.submission(project)
 
     def submission(self, project: str) -> LLMSubmission:

@@ -98,7 +98,7 @@ async def test_developer_is_the_next_candidate_and_queries_are_capped():
     prod = {"qid": "Q2", "label": "LM Studio", "official_website": [], "developer": [{"label": "Element Labs", "official_website": ["https://lmstudio.ai"]}],
             "source": "https://www.wikidata.org/wiki/Q2"}
     fs = FakeStructured(wikidata={"LM Studio": [prod], "Element Labs": [dev_ent]})
-    pre = Prefetch(Config(), fs, EvidenceStore())
+    pre = Prefetch(Config(identity={"homebrew_reverse_lookup": False}), fs, EvidenceStore())   # no network in unit tests
     sub = await pre.run(l0_for("lmstudio.ai"), "LM Studio")
     assert [c[1] for c in fs.calls if c[0] == "wikidata"] == ["LM Studio", "Element Labs"]
     assert "lmstudio.ai" in sub.identity.official_domains and pre.wikimedia_queries <= 3
@@ -125,3 +125,46 @@ def test_false_carries_native_reason_code():
     sub = asyncio.run(Prefetch(Config(), fs, store).run(l0, "llama.cpp"))
     d = decide(Config(), l0, sub, store, "llama.cpp")
     assert d.verdict == Verdict.FALSE and d.codes == ["OWNER_NOT_OFFICIAL"], (d.codes, d.notes)
+
+
+def test_brew_index_and_acceptance():
+    from urlverify_mcp.identity.brew_index import accepted, build_index
+    idx = build_index([
+        {"token": "docker-desktop", "name": ["Docker Desktop"], "homepage": "https://www.docker.com/products/docker-desktop",
+         "url": "https://desktop.docker.com/mac/main/arm64/1/Docker.dmg"},
+        {"token": "some-tool", "name": ["Some Tool"], "homepage": "https://elsewhere.example", "url": "https://desktop.docker.com/x.dmg"},
+        {"token": "gh-app", "name": ["GH App"], "homepage": "https://gh.example",
+         "url": "https://github.com/o/r/releases/download/v1/a.dmg", "variations": {"sonoma": {"url": "https://cdn.example/b.dmg"}}}])
+    assert [e["token"] for e in idx["docker.com"]] == ["docker-desktop", "some-tool"]
+    assert "cdn.example" in idx and "github.com" in idx
+    got = [e["token"] for e in idx["docker.com"] if accepted(e, "Docker Desktop", "docker.com")]
+    assert got == ["docker-desktop"]                     # homepage elsewhere and a different name: not taken
+    assert accepted(idx["docker.com"][0], "Something Else", "docker.com")    # homepage on the same domain
+
+
+async def test_brew_reverse_lookup_in_prefetch(tmp_path, monkeypatch):
+    import json as _json
+    import httpx as _httpx
+    from urlverify_mcp.identity import brew_index
+    cat = [{"token": "docker-desktop", "name": ["Docker Desktop"], "homepage": "https://www.docker.com/products/docker-desktop",
+            "url": "https://desktop.docker.com/mac/main/arm64/1/Docker.dmg"}]
+    rec = _json.dumps(cat[0], separators=(",", ":"))
+
+    class FakeClient:
+        async def get(self, url, **kw):
+            return _httpx.Response(200, text=rec, request=_httpx.Request("GET", url))
+
+    async def fake_index(self):
+        return brew_index.build_index(cat)
+    monkeypatch.setattr(brew_index.BrewCaskIndex, "index", fake_index)
+    fs = FakeStructured()
+    fs.client = FakeClient()
+    cfg = Config(storage={"dir": str(tmp_path)})
+    store = EvidenceStore()
+    l0 = l0_for("desktop.docker.com", "dockerhub", scope="company_site")
+    sub = await Prefetch(cfg, fs, store).run(l0, "Docker Desktop")
+    ev = [e for e in sub.evidence if e.kind == "distro"]
+    assert len(ev) == 1 and '"homepage":"https://www.docker.com/products/docker-desktop"' in ev[0].quote
+    from urlverify_mcp.rules import verify_quotes
+    verify_quotes(ev, store)
+    assert ev[0].verified_quote
