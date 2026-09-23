@@ -10,11 +10,15 @@ submit_verdict args schema:
     "narrative": "how the chain was resolved"
   },
   "evidence": [
-    {"kind": "wikidata|wikipedia|package_registry|distro|media|github|huggingface|wayback|page",
-     "source": "<exact URL you fetched / API you called>",
-     "tier": 1|2|3,
+    {"kind": "github",                       <- structured tool result: cite fact ids, no source / quote needed
+     "facts": ["F12", "F14"],
+     "claim": "what the facts support, e.g. the GitHub org lmstudio-ai links to lmstudio.ai",
+     "supports": true|false},
+    {"kind": "media|page|distro",            <- fetched web page: exact URL + verbatim quote
+     "source": "<exact URL you fetched>",
+     "tier": 2|3,
      "claim": "what it supports, e.g. official domain is lmstudio.ai",
-     "quote": "verbatim excerpt from the tool output",
+     "quote": "verbatim excerpt from the page",
      "supports": true|false}
   ],
   "proposed_verdict": "VERIFIED_TRUE|VERIFIED_FALSE|UNVERIFIABLE",

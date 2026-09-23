@@ -9,6 +9,7 @@ import pytest
 
 from urlverify_mcp.config import Config
 from urlverify_mcp.devtools.capture import load
+from urlverify_mcp.evidence import EvidenceStore
 from urlverify_mcp.models import L0Result, LLMSubmission, Verdict
 from urlverify_mcp.rules import decide
 
@@ -22,7 +23,7 @@ def test_replay(path):
     if not exp:
         pytest.skip("no expect block yet")
     cfg = Config(**case["config"])
-    d = decide(cfg, L0Result(**case["l0"]), LLMSubmission(**case["submission"]), case["store"], case["project"],
+    d = decide(cfg, L0Result(**case["l0"]), LLMSubmission(**case["submission"]), EvidenceStore.from_json(case["store"]), case["project"],
                case.get("cached_identity"), case.get("ages") or {}, case.get("target_domain_age"),
                case.get("provenance"), case.get("registry_state"))
     assert d.verdict == Verdict(exp["verdict"]), (exp.get("why"), d.notes)

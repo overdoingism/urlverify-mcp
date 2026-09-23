@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 from .cache.anchors import anchor_for, resolve as resolve_anchor
-from .evidence import record_kind
+from .evidence import EvidenceStore, record_kind
 from .checks.urltools import etld1_of, host_of
 from .config import Config
 from .cache.anchors import SEED
@@ -64,19 +64,42 @@ def _fragments(q: str) -> list[str]:
 
 
 def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
-    """Mark evidence.verified_quote. Page/media evidence needs a verbatim quote; structured (API) evidence is
-    fact-anchored: the domain / org named in the claim must literally appear in that source's raw output."""
+    """Mark evidence.verified_quote and pin each evidence to what the tools actually fetched.
+
+    - Fact citations (ev.facts = ["F12", ...]): the facts must exist; the evidence's source, kind and quote are
+      rewritten from the structured record (the LLM's own source / quote text is not used).
+    - Structured evidence without fact ids (legacy): fact-anchored against the cited record, found by any of its URLs.
+    - Pages: the quote must appear verbatim (whitespace ignored) in the page fetched from that URL. A structured record
+      for the same URL is a different thing and is never used to verify a page quote, and vice versa."""
+    es = store if isinstance(store, EvidenceStore) else None
     for ev in evidence:
-        raw = store.get(ev.source)
-        if raw is None:
+        if ev.facts and es is not None:
+            known = [f for f in ev.facts if f in es.facts]
+            if not known:
+                ev.verified_quote = False
+                ev.notes.append("cited fact ids do not exist; evidence discarded")
+                continue
+            src = es.facts[known[0]][0]
+            same = [f for f in known if es.facts[f][0] == src]
+            if len(same) < len(ev.facts):
+                ev.notes.append(f"facts from other records or unknown ids ignored: {sorted(set(ev.facts) - set(same))}")
+            ev.facts = same
+            ev.source, ev.kind = src, es.kinds[src]
+            ev.quote = es.fact_text(same)
+            ev.verified_quote = True
+            ev.notes.append(f"structured facts {', '.join(same)} of record {es.record_ids.get(src)}")
+            continue
+        rec = es.find_record(ev.source) if es is not None else None
+        page = es.page_text(ev.source) if es is not None else store.get(ev.source)
+        use_record = rec is not None and (ev.kind in STRUCTURED_KINDS or page is None)
+        if not use_record and page is None:
             ev.verified_quote = False
             ev.notes.append("cited URL was not fetched; evidence discarded")
             continue
-        text = _squash(raw)
+        text = _squash(dict.get(store, rec) if use_record else page)
         frags = _fragments(ev.quote)
         quote_ok = sum(map(len, frags)) >= 8 and all(f in text for f in frags)
-        kind = record_kind(store, ev.source)
-        if kind in STRUCTURED_KINDS:
+        if use_record:
             # Every anchor must match THIS record. A single real domain cannot legitimise
             # a fabricated domain/org elsewhere in the same proposed quote.
             anchors = {_squash(a) for a in _anchors(ev)}
@@ -85,10 +108,10 @@ def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
             if ev.verified_quote and not quote_ok:
                 # Voting uses only fetched facts, never unverified prose surrounding anchors.
                 ev.quote = " ... ".join(sorted(a for a in _anchors(ev) if _squash(a) in text))
-            ev.kind = kind
+            ev.source, ev.kind = rec, es.kinds[rec]
         else:
             ev.verified_quote = quote_ok
-            if ev.kind in STRUCTURED_KINDS:
+            if ev.kind in STRUCTURED_KINDS and ev.kind != "distro":
                 ev.kind = "page"
         if not ev.verified_quote:
             ev.notes.append("claimed quote/facts not found in the cited source; evidence discarded")

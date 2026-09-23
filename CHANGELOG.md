@@ -18,6 +18,10 @@ Breaking: the MCP interface changed; restart the MCP host after updating.
 - Replies are YAML: `machine_readable` (verdict, next_action, confidence, codes, notices, subjects) first, then rule-made
   `summary`, the LLM `explanation`, and `details`. Verdict tokens inside untrusted text are neutralised.
 - New config section `source` (registries, max_subjects). Admin Test tab and CLI `verify` use the new arguments.
+- Typed facts: structured tool results are stored as records and flattened into numbered facts that the investigator
+  cites by id (`facts: ["F12"]`) instead of copying JSON into quotes; API records and fetched pages for the same URL
+  are kept apart; a record can be cited by any of its URLs (api.github.com/repos/o/r = github.com/o/r). Fixes
+  structured evidence being discarded as "cited URL was not fetched" (llama.cpp, drluoto regressions).
 - Developer tool: `URLVERIFY_CAPTURE_DIR` captures rules-engine inputs; `tests/test_replay.py` replays them offline.
 
 - 冷卻期訊號改為 `RELEASE_COOLDOWN_PERIOD:<已發布小時數>`（最多六位小數），明確要求呼叫端告知風險並取得使用者確認後才可下載／安裝；時間不明亦須確認。README 呼叫端 system prompt 加入工具鏈，且任何非 TRUE 或附帶條件的結果均須確認。

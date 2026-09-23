@@ -59,6 +59,28 @@ class Budget:
         return f"remaining budget: searches={self.searches} fetches={self.fetches} api_calls={self.api_calls}"
 
 
+def _record_aliases(tool: str, args: dict[str, Any], raw: dict[str, Any]) -> list[str]:
+    """Other URLs by which the same structured record may be cited (API endpoints, html pages)."""
+    out: list[str] = []
+    owner, repo = str(args.get("owner") or ""), str(args.get("repo") or "")
+    if tool == "github_info" and owner:
+        out += [f"https://github.com/{owner}", f"https://api.github.com/users/{owner}", f"https://api.github.com/orgs/{owner}"]
+        if repo:
+            out += [f"https://github.com/{owner}/{repo}", f"https://api.github.com/repos/{owner}/{repo}"]
+    elif tool == "huggingface_info" and owner:
+        out += [f"https://huggingface.co/{owner}"] + ([f"https://huggingface.co/{owner}/{repo}"] if repo else [])
+    elif tool == "package_registry":
+        name = str(args.get("name") or "")
+        out += {"pypi": [f"https://pypi.org/project/{name}/", f"https://pypi.org/pypi/{name}/json"],
+                "npm": [f"https://www.npmjs.com/package/{name}", f"https://registry.npmjs.org/{name}"],
+                "nuget": [f"https://www.nuget.org/packages/{name}"]}.get(str(args.get("registry") or "pypi"), [])
+    for key in ("html_url", "url", "homepage_url"):
+        v = raw.get(key) if isinstance(raw, dict) else None
+        if isinstance(v, str) and v.startswith("http"):
+            out.append(v)
+    return out
+
+
 class Investigator:
     def __init__(self, cfg: Config, llm: LLM, search: SearchProvider, structured: Structured, fetcher=None):
         self.cfg = cfg
@@ -128,16 +150,19 @@ class Investigator:
                     lookup = {"pypi": self.structured.pypi, "npm": self.structured.npm, "nuget": self.structured.nuget}[reg]
                     r = await lookup(str(args.get("name", "")))
                     keys = [r.get("source")] if r.get("source") else []
-                text = json.dumps(r, ensure_ascii=False, indent=1)
                 kind = {"wikidata_lookup": "wikidata", "wikipedia_history": "wikipedia",
                         "github_info": "github", "huggingface_info": "huggingface",
                         "wayback_first_seen": "wayback", "package_registry": "package_registry"}[name]
-                for k in keys if r.get("ok") and r.get("found") is not False else []:
+                if not (r.get("ok") and r.get("found") is not False and keys):
+                    return json.dumps(r, ensure_ascii=False, indent=1)
+                title = f"{name}({', '.join(f'{k}={v}' for k, v in args.items() if v)})"
+                parts = []
+                for k in keys:
                     # An entity URL must never inherit another entity's facts from a search result batch.
                     raw = next(e for e in r["entities"] if e["source"] == k) if name == "wikidata_lookup" else r
-                    self.evidence_store.record(k, json.dumps(raw, ensure_ascii=False), kind)
-                self._remember(f"{name}:{json.dumps(args, sort_keys=True)}", text)
-                return text
+                    self.evidence_store.record(k, json.dumps(raw, ensure_ascii=False), kind, aliases=_record_aliases(name, args, raw))
+                    parts.append(self.evidence_store.render(k, title))
+                return "\n\n".join(parts)
             return f"Unknown tool {name}"
         except Exception as e:  # noqa: BLE001
             return f"TOOL ERROR ({name}): {type(e).__name__}: {e}"
@@ -240,14 +265,20 @@ class Investigator:
         ident["aliases"] = [str(x) for x in ident.get("aliases") or []]
         evs = []
         for e in data.get("evidence") or []:
-            if not isinstance(e, dict) or not e.get("source"):
+            if not isinstance(e, dict):
                 continue
-            src = _clean_url(str(e["source"]))
-            if not src:
+            facts = [str(f).strip() for f in (e.get("facts") or []) if re.fullmatch(r"F\d+", str(f).strip())] \
+                if isinstance(e.get("facts"), list) else []
+            src = _clean_url(str(e.get("source") or "")) if e.get("source") else ""
+            if not src and not facts:
                 continue
-            evs.append({"kind": str(e.get("kind") or "page"), "source": src, "tier": int(e.get("tier") or 3),
+            try:
+                tier = int(e.get("tier") or 3)
+            except (TypeError, ValueError):
+                tier = 3
+            evs.append({"kind": str(e.get("kind") or "page"), "source": src or "(facts)", "tier": tier,
                         "claim": str(e.get("claim") or ""), "quote": str(e.get("quote") or ""), "summary": str(e.get("summary") or ""),
-                        "supports": bool(e.get("supports", True))})
+                        "supports": bool(e.get("supports", True)), "facts": facts})
         pv = str(data.get("proposed_verdict") or "UNVERIFIABLE").upper()
         if pv not in ("VERIFIED_TRUE", "VERIFIED_FALSE", "UNVERIFIABLE"):
             pv = "UNVERIFIABLE"

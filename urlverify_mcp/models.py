@@ -27,7 +27,8 @@ class Evidence(BaseModel):
     source: str                    # URL of the evidence
     tier: int = 3
     claim: str                     # what it supports, e.g. "official domain is lmstudio.ai"
-    quote: str = ""                # verbatim excerpt that must exist in the fetched content
+    quote: str = ""                # verbatim excerpt that must exist in the fetched page (pages only)
+    facts: list[str] = Field(default_factory=list)   # fact ids of a structured record (F12, ...); replaces quote
     summary: str = ""
     supports: bool = True
     verified_quote: bool | None = None   # set by rules engine

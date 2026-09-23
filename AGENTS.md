@@ -160,6 +160,15 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 | 身分圖 | 專案 → 公司 → 別名 → 官方網域/倉庫，附證據 URL | TTL；管理介面可手動作廢 |
 儲存於 `state/` 的 JSON 檔（cert_cache.json、identity_cache.json）；命中結果要在輸出 `cache_hits` 標示。
 
+## 6.2 Typed facts（v0.2.0 起，提案三第一步）
+- 結構化工具（wikidata_lookup、wikipedia_history、github_info、huggingface_info、package_registry、wayback_first_seen）的回傳由程式存成
+  **紀錄**（R#），並攤平成帶編號的 **facts**（`F12 github.repo.full_name = ggml-org/llama.cpp`）。LLM 看到的是 facts 清單，
+  證據以 `facts: ["F12"]` 引用；規則只確認 ID 存在，來源、種類與引文全由紀錄改寫，LLM 寫的 source／quote 不採用。
+- 網頁（fetch_url）仍要逐字 quote。同一 URL 的 API 紀錄與網頁分開存，永不互相覆蓋；頁面引文只比對頁面，紀錄只比對紀錄。
+- 紀錄可用任何一個網址引用（api.github.com/repos/o/r ≡ github.com/o/r、registry.npmjs.org/x ≡ npmjs.com/package/x…，見 `evidence.norm_url`）。
+- 仍接受舊式「source + quote」的結構化證據（以事實錨定比對），但新提示要求用 fact ID。
+- 下一步（提案三其餘部分）：由 facts 建初始身分圖、算 missing_edges、依缺口固定補查，LLM 只處理語意邊。
+
 ## 6.1 規則寫死 vs. LLM 自主：責任分工
 原則：**密碼學與結構性事實、安全不變量歸規則；語意推理歸 LLM。LLM 提議，規則驗證。**
 最低目標模型：Qwen3.8 27B 等級（能力足以做實體解析與證據判讀）。
