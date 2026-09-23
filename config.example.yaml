@@ -58,6 +58,9 @@ net:
   doh_cross_check: true     # resolve again over DNS-over-HTTPS and compare; sends the host name to the resolvers below
   doh_resolvers: ["https://cloudflare-dns.com/dns-query", "https://dns.google/resolve"]
   user_agent: "URLVerify-MCP/0.1 (+https://github.com/overdoingism/urlverify-mcp)"   # keep a contact URL or email: Wikipedia returns 403 without one
+  retries: 2                  # 429/502/503/504 from third-party services: retry with backoff
+  retry_backoff_s: 3.0
+  ct_first_seen_cache_days: 90  # CT first-seen dates never change: cache them (crt.sh is often overloaded)
 
 cache:
   cert_ttl_hours: 168

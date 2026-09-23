@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Third-party "try again later" answers (429/502/503/504) are retried with backoff (`net.retries`, `net.retry_backoff_s`,
+  Retry-After honoured up to 10 s). CT first-seen dates are cached (`net.ct_first_seen_cache_days`, default 90): the
+  date never changes and crt.sh often answers 502 for popular domains.
+
 ## v0.3.0 — 2026-09-24
 
 - Identity edges (AGENTS §6.3): every decision reports established / missing edges (TARGET_CHECKS, PROJECT_TO_DOMAIN,

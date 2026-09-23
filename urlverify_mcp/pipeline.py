@@ -98,7 +98,8 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
     llm = LLM(cfg)
     search = make_search_provider(cfg)
     fetcher = make_fetcher(cfg, search)
-    structured = Structured(max(cfg.net.timeout_s, 30), cfg.net.user_agent, cfg.identity.github_token)  # archive.org / wikimedia can be slow
+    structured = Structured(max(cfg.net.timeout_s, 30), cfg.net.user_agent, cfg.identity.github_token,   # archive.org / wikimedia can be slow
+                            cfg.net.retries, cfg.net.retry_backoff_s)
     inv = Investigator(cfg, llm, search, structured, fetcher)
     registry = RegistryFastPath(cfg, structured)
     engine_notes: list[str] = []

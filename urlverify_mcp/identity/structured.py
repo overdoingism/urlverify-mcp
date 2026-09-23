@@ -32,7 +32,8 @@ def _obs(dep: str, r: dict) -> dict:
 
 
 class Structured:
-    def __init__(self, timeout: float, user_agent: str, github_token: str = ""):
+    def __init__(self, timeout: float, user_agent: str, github_token: str = "", retries: int = 2, backoff_s: float = 3.0):
+        self.retries, self.backoff_s = retries, backoff_s
         headers = {"User-Agent": user_agent, "Accept": "application/json"}
         self.client = public_client(timeout=timeout, headers=headers, follow_redirects=True)
         self._wayback_down = 0
@@ -52,7 +53,8 @@ class Structured:
     async def nuget(self, *a, **k): return _obs("nuget", await self._nuget(*a, **k))
 
     async def _json(self, url: str, params: dict | None = None, headers: dict | None = None) -> Any:
-        r = await self.client.get(url, params=params, headers=headers)
+        from ..providers.retry import get_with_retry
+        r = await get_with_retry(self.client, url, self.retries, self.backoff_s, params=params, headers=headers)
         if r.status_code >= 400:
             raise RuntimeError(f"HTTP {r.status_code} for {url}")
         return r.json()

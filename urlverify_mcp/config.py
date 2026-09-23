@@ -79,6 +79,9 @@ class NetConfig(BaseModel):
     doh_cross_check: bool = True               # resolve the host again over DNS-over-HTTPS and compare with the system resolver
     doh_resolvers: list[str] = Field(default_factory=lambda: ["https://cloudflare-dns.com/dns-query", "https://dns.google/resolve"])
     user_agent: str = "URLVerify-MCP/0.1 (+https://github.com/overdoingism/urlverify-mcp)"   # Wikimedia UA policy: must carry a contact URL/email
+    retries: int = 2                           # retries for 429 / 502 / 503 / 504 from third-party services (crt.sh, Wikimedia, archive.org ...)
+    retry_backoff_s: float = 3.0               # first retry wait; doubles each time; a Retry-After header is honoured up to 10 s
+    ct_first_seen_cache_days: int = 90         # CT first-seen dates never change: reuse a found date this long (a "no certificate" answer for 1 day)
 
 
 class CacheConfig(BaseModel):

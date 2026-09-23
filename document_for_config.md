@@ -94,6 +94,9 @@ Callers may override `min_sources`, `allow_tier3`, `history_days` and the `ident
 | `doh_cross_check` | bool · `true` | Resolve the host again over DNS-over-HTTPS and compare with the system resolver. Differing answers are not an error by themselves (GeoDNS); when they differ, a TLS handshake against the DoH address decides: system path invalid + DoH path valid → `VERIFIED_FALSE` (local DNS spoofing suspected). Sends the host name to the resolvers; disable if that matters. |
 | `doh_resolvers` | list · Cloudflare, Google | DoH JSON endpoints tried in order. |
 | `user_agent` | str · `URLVerify-MCP/0.1 (+https://github.com/overdoingism/urlverify-mcp)` | Sent on every request. **Keep a contact URL or email**: Wikipedia's API returns 403 to user agents without one. |
+| `retries` | int · `2` | Retries for "try again later" answers (429, 502, 503, 504) from third-party services: crt.sh, Wikidata, Wikipedia, archive.org, GitHub. Network errors and other statuses are not retried. |
+| `retry_backoff_s` | float · `3.0` | Wait before the first retry; doubles each time. A `Retry-After` header is honoured up to 10 s. |
+| `ct_first_seen_cache_days` | int · `90` | Certificate-Transparency first-seen dates never change, so a found date is kept in `state/kv.json` and crt.sh (a volunteer service that often answers 502 for popular domains) is asked again only after this many days. A "no certificate yet" answer is kept for 1 day. `0` disables the cache. |
 
 ## `cache`
 
