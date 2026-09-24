@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Distribution packages (`apt`/`apt-get`, `dnf`/`yum`, `pacman -S`): verified from the package manager's own origin
+  report passed in `options.origin`; official archive / repositories → `VERIFIED_TRUE` + `DISTRO_PACKAGE`, third-party
+  apt repositories verified like download sites, no report → `FIX_INPUT_AND_RETRY` with the command to run.
+  New config `source.distro_archives` for your distribution's other mirrors.
+
 - No-LLM mode: `llm.enabled: false` (or `options.mode: "fast"` per call) stops after the fixed lookups; undecided cases
   are `UNVERIFIABLE` with the missing edges and `NO_LLM_MODE`; the explanation is template text; `check-env` reports
   the LLM as disabled.

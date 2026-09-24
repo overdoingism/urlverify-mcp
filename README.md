@@ -152,11 +152,12 @@ change what gets installed; a bare name is rejected because it does not say whic
 | Homebrew | `brew install [--cask|--formula] <name>` (official taps only): the cask's download URL, or the upstream source a formula is built from, taken from formulae.brew.sh |
 | Scoop | `scoop install [bucket/]<app>` for the official ScoopInstaller buckets (main, extras, versions, java, nonportable); no bucket = main |
 | Flatpak | `flatpak install [flathub] <app-id>` (and dl.flathub.org `.flatpakref`): a developer-verified Flathub app is established through its verified domain (or its homepage when verified manually / by account) once that domain is the project's; unverified apps are community packaging and stay `UNVERIFIABLE` (`FLATHUB_UNVERIFIED`) |
+| Distribution packages | `apt`/`apt-get install`, `dnf`/`yum install`, `pacman -S`: pass the package manager's origin report in `options.origin` (`LC_ALL=C apt-cache policy <pkg>`, `LC_ALL=C dnf info <pkg>`, `LC_ALL=C pacman -Si <pkg>`, run on the target machine; any locale works for apt). A candidate from the distribution's official archive / repositories is `VERIFIED_TRUE` with `DISTRO_PACKAGE`; a third-party apt repository is verified like a download site; without the report the answer is `FIX_INPUT_AND_RETRY` with the exact command to run |
 | Go | `go install` / `go get <module>@<version>`: github.com / gitlab.com / codeberg.org / bitbucket.org paths map to the repository; other domains are verified as the module's own domain (its go-import tag is recorded) |
 | Scripts | `curl … \| sh`, `sh -c "$(curl …)"`, `irm … \| iex`, `iex ((New-Object Net.WebClient).DownloadString(…))`: the script URL is verified; what the script downloads next is not (reported) |
 
 Understood but not verified yet (reported as `ECOSYSTEM_NOT_YET_VERIFIED`): cargo, gem, composer, choco,
-conda/mamba, apt/dnf/yum/pacman/zypper/apk, snap, ollama, Install-Module, winget's msstore source, other container
+conda/mamba, zypper, apk, AUR helpers, snap, ollama, Install-Module, winget's msstore source, other container
 registries, Flatpak remotes other than Flathub.
 Always rejected: requirement / lock files, local paths, several indexes at once (`--extra-index-url`, `--find-links`),
 chained commands (`&&`, `;`). Registry: a flag in the command wins, then `source.registries` in config, then the public

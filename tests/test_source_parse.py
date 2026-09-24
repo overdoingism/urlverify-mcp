@@ -196,7 +196,7 @@ def test_download_only_and_script_limits():
 def test_parse_only():
     for src, eco, name in [("cargo install ripgrep", "crates", "ripgrep"),
                            ("gem install rails -v 7.1", "rubygems", "rails"), ("choco install git -y", "chocolatey", "git"),
-                           ("conda install -c conda-forge numpy", "conda", "numpy"), ("sudo apt install -y curl", "apt", "curl"),
+                           ("conda install -c conda-forge numpy", "conda", "numpy"),
                            ("ollama pull qwen3:8b", "ollama", "qwen3:8b")]:
         p = parse_source(src)
         assert [(x.ecosystem, x.name) for x in p.subjects] == [(eco, name)], src

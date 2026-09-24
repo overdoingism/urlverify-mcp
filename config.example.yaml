@@ -116,6 +116,7 @@ source:                       # how verify_source(source=...) is read; see docum
     npm: https://registry.npmjs.org
     nuget: https://api.nuget.org/v3/index.json
   max_subjects: 8             # packages per command (pip install a b c ...)
+  distro_archives: []         # apt mirrors of your distribution besides *.debian.org / *.ubuntu.com, e.g. free.nchc.org.tw/ubuntu
 
 package_registry_fast_path:   # PyPI / npm: structured checks first, LLM only when inconclusive
   enabled: true

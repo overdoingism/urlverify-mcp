@@ -243,11 +243,11 @@ def _apply_registry_defaults(parsed: ParsedSource, regs: dict[str, str]) -> None
 
 # ------------------------------------------------------------------------------------------------------ dispatch
 PARSE_ONLY = {"cargo": "crates", "gem": "rubygems", "composer": "packagist", "choco": "chocolatey", "conda": "conda", "mamba": "conda", "micromamba": "conda",
-              "apt": "apt", "apt-get": "apt", "dnf": "rpm", "yum": "rpm", "pacman": "pacman", "zypper": "rpm",
+              "zypper": "rpm",
               "apk": "apk", "snap": "snap", "flatpak": "flatpak", "ollama": "ollama", "install-module": "psgallery"}
 KNOWN_COMMANDS = {"pip", "pip3", "python", "python3", "py", "uv", "uvx", "pipx", "poetry", "pdm", "rye", "pipenv",
                   "npm", "pnpm", "yarn", "bun", "npx", "pnpx", "bunx", "dotnet", "nuget", "install-package", "winget",
-                  "git", "gh", "hf", "huggingface-cli", "docker", "podman", "nerdctl", "brew", "scoop", "go", "flatpak"} | set(PARSE_ONLY)
+                  "git", "gh", "hf", "huggingface-cli", "docker", "podman", "nerdctl", "brew", "scoop", "go", "flatpak", "apt", "apt-get", "dnf", "yum", "pacman"} | set(PARSE_ONLY)
 
 
 def _dispatch(cmd: str, args: list[str]) -> Callable[[], ParsedSource] | None:
@@ -293,6 +293,8 @@ def _dispatch(cmd: str, args: list[str]) -> Callable[[], ParsedSource] | None:
         return lambda: _go(args)
     if cmd == "flatpak":
         return lambda: _flatpak(args)
+    if cmd in ("apt", "apt-get", "dnf", "yum", "pacman"):
+        return lambda: _distro(cmd, args)
     if cmd in PARSE_ONLY:
         return lambda: _parse_only(cmd, args)
     return None
@@ -1088,13 +1090,74 @@ def _flatpak(args: list[str]) -> ParsedSource:
     return out
 
 
+# ---------------------------------------------------------------------------------------- distribution packages
+APT_FLAGS = Flags(boolean=["-y", "--yes", "--assume-yes", "-q", "--quiet", "-qq", "--no-install-recommends", "--install-recommends",
+                           "--reinstall", "--only-upgrade", "-f", "--fix-broken", "--no-upgrade", "-s", "--simulate", "--dry-run",
+                           "-V", "--verbose-versions", "--allow-downgrades", "--show-progress"],
+                  value=["-t", "--target-release", "-o", "--option"])
+DNF_FLAGS = Flags(boolean=["-y", "--assumeyes", "-q", "--quiet", "--refresh", "--best", "--nobest", "--allowerasing",
+                           "--skip-broken", "--nogpgcheck", "-v", "--verbose", "--downloadonly", "-C", "--cacheonly"],
+                  value=["--enablerepo", "--disablerepo", "--repo", "--repoid", "--releasever", "--setopt", "--installroot",
+                         "--exclude", "-x", "--forcearch"])
+PACMAN_FLAGS = Flags(boolean=["-S", "-y", "-yy", "-u", "--noconfirm", "--needed", "--asdeps", "--asexplicit", "-q", "--quiet",
+                              "--noprogressbar", "-v", "--verbose", "-w", "--downloadonly"],
+                     value=["--config", "--dbpath", "--root", "--overwrite", "--ignore"])
+
+
+def _distro(cmd: str, args: list[str]) -> ParsedSource:
+    """apt / dnf / pacman installs. What the host installs from depends on ITS repository configuration, which this
+    server cannot see: the caller passes the package manager's own origin report in options.origin (see source/distro.py)."""
+    manager = {"apt": "apt", "apt-get": "apt", "dnf": "dnf", "yum": "dnf", "pacman": "pacman"}[cmd]
+    out = ParsedSource(tool=cmd)
+    a = list(args)
+    if manager == "pacman":
+        if not a or not re.fullmatch(r"-S[yu]*", a[0]):
+            out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
+            out.message = "pacman is understood as `pacman -S <package>` (official repositories; AUR helpers are user content)"
+            return out
+        a = a[1:]
+        flags = PACMAN_FLAGS
+    else:
+        if not a or a[0] not in ("install",):
+            out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
+            out.message = f"{cmd} is understood as `{cmd} install <package>`"
+            return out
+        a = a[1:]
+        flags = APT_FLAGS if manager == "apt" else DNF_FLAGS
+    pos, seen, codes, rest = walk(a, flags)
+    pos += rest
+    out.codes += codes
+    if _has(seen, "-o", "--option", "--setopt", "--config", "--dbpath", "--root", "--installroot"):
+        out.codes.append("UNSUPPORTED_FLAG:" + next(f for f in ("-o", "--option", "--setopt", "--config", "--dbpath", "--root", "--installroot") if f in seen))
+    if out.codes:
+        return out
+    for p in pos:
+        if _is_local_path(p) or re.match(r"^https?://", p) or p.endswith((".deb", ".rpm", ".pkg.tar.zst")):
+            out.subjects.append(_subject(p, "distro", codes=["LOCAL_PATH_UNSUPPORTED" if "://" not in p else "SOURCE_COMMAND_UNSUPPORTED"]))
+            continue
+        name, _, ver = p.partition("=") if manager == "apt" else (p, "", "")
+        s = _subject(p, "distro", name=name, version_spec=ver or None, options={"manager": manager})
+        if not re.fullmatch(r"[a-z0-9][a-z0-9+.:_-]*", name, re.I):
+            s.codes.append("INVALID_PACKAGE_SPEC")
+        if _val(seen, "-t", "--target-release"):
+            s.options["target_release"] = _val(seen, "-t", "--target-release")
+        if _has(seen, "--nogpgcheck"):
+            s.notes.append("SIGNATURE_CHECK_DISABLED")
+        if _has(seen, "--enablerepo", "--repo", "--repoid"):
+            s.notes.append("REPOSITORY_SELECTED_ON_COMMAND_LINE")
+        out.subjects.append(s)
+    if not pos and not out.codes:
+        out.codes.append("SOURCE_NO_PACKAGE")
+    return out
+
+
 # ------------------------------------------------------------------------------------------------------ parse-only
 _PO_VALUE = {"cargo": {"--version", "--vers", "--git", "--branch", "--tag", "--rev", "--path", "--registry", "--index",
                        "--features", "-F", "--bin", "--root", "--target", "--profile", "-j", "--jobs", "--example"},
              "gem": {"-v", "--version", "-s", "--source", "-i", "--install-dir", "-n", "--bindir", "--platform"},
              "choco": {"--version", "-s", "--source", "--params", "--package-parameters", "--ia", "--install-arguments"},
              "conda": {"-c", "--channel", "-n", "--name", "-p", "--prefix"},
-             "composer": set(), "apt": {"-t", "--target-release", "-o"},
+             "composer": set(), 
              "flatpak": {"--arch", "--branch"}, "snap": {"--channel", "--revision"}}
 
 
@@ -1104,7 +1167,7 @@ def _parse_only(cmd: str, args: list[str]) -> ParsedSource:
     a = list(args)
     subs = {"crates": ("install", "add"), "rubygems": ("install",), "packagist": ("require",),
             "chocolatey": ("install",), "conda": ("install", "create"),
-            "apt": ("install",), "rpm": ("install", "in"), "pacman": ("-S", "-Sy", "-Syu"), "apk": ("add",),
+            "rpm": ("install", "in"), "apk": ("add",),
             "snap": ("install",), "flatpak": ("install",), "ollama": ("pull", "run"), "psgallery": ()}[eco]
     if subs:
         if not a or a[0] not in subs:

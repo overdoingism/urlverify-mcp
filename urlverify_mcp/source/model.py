@@ -4,7 +4,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 # ecosystems whose subjects are verified end to end in this version
-VERIFIED_ECOSYSTEMS = {"url", "pypi", "npm", "nuget", "winget", "git", "script", "huggingface", "docker", "homebrew", "scoop", "go", "flatpak"}
+VERIFIED_ECOSYSTEMS = {"url", "pypi", "npm", "nuget", "winget", "git", "script", "huggingface", "docker", "homebrew", "scoop", "go", "flatpak", "distro"}
 
 
 class Seed(BaseModel):

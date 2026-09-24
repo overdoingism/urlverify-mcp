@@ -30,12 +30,13 @@ _FIXABLE = ("INPUT_", "SOURCE_", "UNSUPPORTED_FLAG", "UNSUPPORTED_ENV", "FLAG_MI
             "VERSION_NOT_FOUND", "VERSION_RANGE_UNSUPPORTED", "WINGET_QUERY_NOT_EXACT", "WINGET_TOO_MANY_INSTALLERS",
             "WINGET_MANIFEST_NOT_FOUND", "WINGET_INSTALLER_NOT_FOUND", "TOO_MANY_SUBJECTS", "GIT_REMOTE_UNSUPPORTED",
             "GIT_PROTOCOL_INSECURE", "PACKAGE_HAS_NO_RELEASE", "HOMEBREW_NOT_FOUND", "SCOOP_BUCKET_AMBIGUOUS",
-            "SCOOP_MANIFEST_NOT_FOUND", "SCOOP_VERSION_PIN_UNSUPPORTED", "GO_IMPORT_NOT_FOUND", "FLATHUB_APP_NOT_FOUND")
+            "SCOOP_MANIFEST_NOT_FOUND", "SCOOP_VERSION_PIN_UNSUPPORTED", "GO_IMPORT_NOT_FOUND", "FLATHUB_APP_NOT_FOUND",
+            "DISTRO_ORIGIN_NEEDED", "DISTRO_ORIGIN_MISSING_PACKAGE", "DISTRO_PACKAGE_NOT_AVAILABLE")
 # notices that turn a TRUE into "tell the user first"
 _CAUTION = ("SCRIPT_MAY_DOWNLOAD_MORE", "HASH_CHECK_DISABLED", "MALWARE_SCAN_DISABLED", "TLS_VERIFICATION_DISABLED",
             "PRIVILEGED_CONTAINER", "SUBMODULES_NOT_VERIFIED", "RELEASE_COOLDOWN_ACTIVE", "RELEASE_COOLDOWN_UNKNOWN",
             "SELF_PUBLISHED_CAP", "CONTENT_TRUST_DISABLED", "INSTALLER_ARGUMENTS_OVERRIDDEN", "LOW_CONFIDENCE",
-            "QUARANTINE_DISABLED")
+            "QUARANTINE_DISABLED", "SIGNATURE_CHECK_DISABLED")
 CONFIDENCE_FOR_PROCEED = 0.8
 
 
@@ -237,12 +238,24 @@ async def verify_source(req: SourceRequest, cfg: Config, store: Storage) -> Sour
         exp = s.options.get("expected_version")
         if exp and s.version and not s.codes and not _same_version(s.ecosystem, s.version, exp):
             s.codes.append("INPUT_VERSION_CONFLICT")
-        if not s.codes and not s.url:
+        if not s.codes and not s.url and s.ecosystem != "distro":
             s.codes.append("SOURCE_UNPARSABLE")
     TRACE.log("source_resolved", subjects=[s.model_dump() for s in resolved])
 
     results: list[SubjectResult] = []
     for i, s in enumerate(resolved, 1):
+        if s.ecosystem == "distro" and not s.blocked:
+            from .distro import decide as distro_decide
+            dd = distro_decide(s, req.project, (req.options or {}).get("origin"), cfg.source.distro_archives)
+            if "url" in dd:
+                s.url = dd["url"]                     # third-party repository: verify it like a download site
+                s.notes.append("THIRD_PARTY_REPOSITORY")
+            else:
+                notices = list(dict.fromkeys(s.notes + dd["notices"] + ([f"HOWTO:{dd['message']}"] if dd.get("message") else [])))
+                v = Verdict(dd["verdict"])
+                results.append(SubjectResult(index=i, subject=s, verdict=v, confidence=dd["confidence"], codes=dd["codes"],
+                                             notices=notices, next_action=_next_action(v, dd["confidence"], dd["codes"], notices)))
+                continue
         if s.blocked:
             results.append(_blocked_result(i, s))
             continue
@@ -252,6 +265,9 @@ async def verify_source(req: SourceRequest, cfg: Config, store: Storage) -> Sour
         res = await verify(vr, cfg, store, record=False)
         codes, notices = result_codes(res)
         notices = list(dict.fromkeys(s.notes + notices))
+        if "THIRD_PARTY_REPOSITORY" in s.notes and res.verdict != Verdict.TRUE:
+            notices.append(f"HOWTO:if {s.url} is a mirror of your distribution rather than a vendor repository, add "
+                           "its host/path to source.distro_archives in config.yaml")
         if res.verdict == Verdict.TRUE and res.confidence < CONFIDENCE_FOR_PROCEED:
             notices.append("LOW_CONFIDENCE")
         results.append(SubjectResult(index=i, subject=s, verdict=res.verdict, confidence=res.confidence, codes=codes,

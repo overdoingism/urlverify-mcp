@@ -346,7 +346,12 @@ config.example.yaml
   平台目標的專案名稱比對可採用「目標自己那筆平台紀錄」的顯示名稱（Flathub app ID 常不含名稱），他人紀錄不算。
   發行管道的 manifest 倉庫（github.com/flathub、Homebrew、ScoopInstaller…）與該發行管道同一家族，不另計一家；
   未驗證的 Flathub app 不接受任何 Flathub 家族的支持（Flathub 對此類 app 明示「非開發者所屬」）。（VLC 實測發現，2026-09-24）
-- 支援但尚未驗證的生態系（cargo、gem、composer、choco、conda、apt 家族、snap、ollama、Install-Module、msstore、其他容器 registry、非 Flathub 的 flatpak remote）
+- 發行版套件（apt／dnf／pacman，2026-09-24）：MCP 看不到主機的倉庫設定，所以由呼叫方把套件管理器自己的來源報告放進 `options.origin`
+  （`apt-cache policy`、`dnf info`、`pacman -Si`，在要安裝的那台機器上執行）。判定純確定性、不連網：
+  候選版本只來自官方 archive（*.debian.org、*.ubuntu.com，或 `source.distro_archives` 加列的鏡像）／官方 repo ID → TRUE 並附 `DISTRO_PACKAGE`
+  （發行版以上游原始碼建置並簽章，屬發行版官方管道）；apt 第三方 repo → 以該 repo 網址走網址驗證；官方與非官方混合 → UNVERIFIABLE；
+  未附報告 → FIX_INPUT 並給出該跑的指令。不以路徑或 component 名稱猜「是不是發行版鏡像」（廠商 repo 與 PPA 也長得一樣）。
+- 支援但尚未驗證的生態系（cargo、gem、composer、choco、conda、zypper、apk、AUR、snap、ollama、Install-Module、msstore、其他容器 registry、非 Flathub 的 flatpak remote）
   回 `ECOSYSTEM_NOT_YET_VERIFIED:<eco>` 並列出解析結果；`cargo install --git` 走 git 驗證。apt 家族優先度最低（信任模型是發行版簽章）。
 - next_action：FALSE → DO_NOT_PROCEED；呼叫方可修正的代碼 → FIX_INPUT_AND_RETRY；其餘非 TRUE → INFORM_USER_AND_CONFIRM；
   TRUE 但信心 < 0.8 或帶警示（腳本會再下載、冷卻期、雜湊檢查關閉、自我發佈上限…）→ INFORM_USER_AND_CONFIRM；否則 PROCEED。

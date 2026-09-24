@@ -183,6 +183,10 @@ class SourceConfig(BaseModel):
     registries: dict[str, str] = {"pypi": "https://pypi.org/simple", "npm": "https://registry.npmjs.org",
                                   "nuget": "https://api.nuget.org/v3/index.json"}
     max_subjects: int = 8
+    # apt: extra official archive mirrors (host, or host/path prefix) besides *.debian.org / *.ubuntu.com, e.g.
+    # "free.nchc.org.tw/ubuntu". APT verifies the distribution's signatures on any mirror; this only says the mirror
+    # serves your distribution rather than a third-party repository.
+    distro_archives: list[str] = []
 
 
 class Config(BaseModel):

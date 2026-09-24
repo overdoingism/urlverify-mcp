@@ -17,6 +17,8 @@ Args:
         version already pinned in `source`.
     options: optional overrides: {"min_sources": 2, "allow_tier3": false, "history_days": 90, "mode": "auto"}.
         mode "fast" = no LLM investigation (fixed lookups only: seconds instead of minutes; more UNVERIFIABLE).
+        origin (apt / dnf / pacman only): the output of `LC_ALL=C apt-cache policy <pkg>`, `LC_ALL=C dnf info <pkg>` or `LC_ALL=C pacman -Si <pkg>`
+        run on the machine that will install, so the repository it installs from can be checked.
 
 Returns YAML text. `machine_readable` comes first and holds the fixed values to act on:
     verdict: VERIFIED_TRUE | VERIFIED_FALSE | UNVERIFIABLE

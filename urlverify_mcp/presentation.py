@@ -124,6 +124,18 @@ CODE_TEXT = {
     "FLATPAK_REMOTE_ASSUMED_FLATHUB": ("No remote was named; Flathub was assumed.", "指令未指定 remote，視為 Flathub。"),
     "NO_LLM_MODE": ("No-LLM mode: only the fixed lookups ran. A full verification (options.mode \"full\" or an LLM configured) may establish what is missing.",
                     "no LLM 模式：只跑了固定查詢。完整驗證（options.mode \"full\" 或啟用 LLM）可能補上缺少的部分。"),
+    "DISTRO_PACKAGE": ("A distribution package from the distribution's official archive: built and signed by the distribution from the upstream source.",
+                       "發行版官方倉庫的套件：由發行版以上游原始碼建置並簽章。"),
+    "DISTRO_ORIGIN_NEEDED": ("Which repository this machine installs from cannot be seen from here: pass the package manager's origin report in options.origin (see HOWTO).",
+                             "這台機器會從哪個倉庫安裝，從這裡看不到：請把套件管理器的來源報告放進 options.origin（見 HOWTO）。"),
+    "DISTRO_ORIGIN_MISSING_PACKAGE": ("options.origin does not cover this package.", "options.origin 沒有這個套件的資料。"),
+    "DISTRO_PACKAGE_NOT_AVAILABLE": ("No configured repository provides this package (typo?).", "目前設定的倉庫都沒有這個套件（拼錯？）。"),
+    "DISTRO_ORIGIN_MIXED": ("This version is offered by both official and other repositories; which one is used cannot be told.",
+                            "此版本同時由官方與其他倉庫提供，無法判斷實際會用哪一個。"),
+    "DISTRO_ORIGIN_UNKNOWN": ("The version is only known locally (no repository).", "此版本只存在於本機紀錄（沒有倉庫來源）。"),
+    "THIRD_PARTY_REPOSITORY": ("The package comes from a third-party repository; that repository's URL was verified.",
+                               "套件來自第三方倉庫；驗證的是該倉庫網址。"),
+    "SIGNATURE_CHECK_DISABLED": ("The command disables package signature checks.", "指令關閉了套件簽章檢查。"),
     "LOW_CONFIDENCE": ("The official channel is established, but only just (few independent sources or a cached identity); confidence is below 0.8.",
                        "已確立為官方管道，但依據偏少（獨立來源少或沿用快取身分），信心低於 0.8。"),
     "OWNER_NOT_OFFICIAL": ("The owner in the URL is not the project's established official account (the official one is named in details).",
@@ -157,6 +169,8 @@ _PREFIX_TEXT = {
     "WINGET_ONE_OF": ("One of several installers in the manifest; all were verified.", "manifest 中多個安裝檔之一，全部都驗證了。"),
     "ONE_OF": ("One of several downloads in the manifest; all were verified.", "manifest 中多個下載檔之一，全部都驗證了。"),
     "GO_IMPORT": ("Go module path and the repository it declares: {x}.", "Go 模組路徑與其宣告的原始碼位置：{x}。"),
+    "HOWTO": ("To fix: {x}.", "修正方式：{x}。"),
+    "DISTRO_REPOSITORY_NOT_OFFICIAL": ("Repository {x} is not one of the distribution's official repositories.", "倉庫 {x} 不是發行版的官方倉庫。"),
 }
 
 
