@@ -42,7 +42,7 @@ def _squash(s: str) -> str:
 
 # Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
 # established under older rules are re-verified instead of being trusted from the cache.
-RULES_VERSION = "2026-09-24.7"
+RULES_VERSION = "2026-09-24.8"
 SELF_PUBLISHED_MAX_CONFIDENCE = 0.75
 DELEGATED_MAX_CONFIDENCE = 0.8     # mirror / CDN host delegated by the official site: verify the checksum   # TRUE for an owner established only by cross-platform consistency
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub", "sourceforge"}
@@ -859,10 +859,10 @@ def _sourceforge_link(l0: L0Result, established: list[str], store: dict[str, str
 def _wikimedia_solo(domain: str, store: dict[str, str], sc) -> tuple[bool, str]:
     """Judge the `wikimedia_solo` record collected for `domain` (identity/prefetch.py). All must hold:
     Wikidata and the enwiki infobox (or its {{Official URL}}, which shows the Wikidata value) name the domain now and in
-    a revision current at a random time in the sample window; that revision was itself made inside the window (the entry
-    was edited then) and is not the current one (edited since); no change within the history window; and the article
-    had at least `min_monthly_views` human views in each of the last 24 months."""
-    from datetime import datetime, timedelta
+    the revision current at a random time in the sample window (however old that revision is: an older one only means the
+    value stood longer), which is not the current revision (the entry was edited since); no change within the history
+    window; and the article had at least `min_monthly_views` human views in each of the last 24 months."""
+    from datetime import datetime
     rec = None
     for k, v in store.items():
         if record_kind(store, k) == "wikimedia_solo":
@@ -875,22 +875,14 @@ def _wikimedia_solo(domain: str, store: dict[str, str], sc) -> tuple[bool, str]:
                 break
     if rec is None:
         return False, "not checked"
-    try:
-        at = datetime.fromisoformat(rec["collected_at"])
-    except (KeyError, ValueError):
-        return False, "malformed record"
-    lo, hi = sorted(sc.sample_window_months)[:2]
-    oldest = at - timedelta(days=hi * 30.4375)
     for side in ("wikidata", "wikipedia"):
         r = rec.get(side) or {}
         if not r.get("ok") or not r.get("found"):
-            return False, f"{side}: sample revision unavailable ({r.get('error') or 'none at that time'})"
+            return False, f"{side}: sample revision unavailable ({r.get('error') or 'did not exist yet at that time'})"
         try:
-            rev_ts = datetime.fromisoformat(str(r.get("timestamp")).replace("Z", "+00:00"))
+            datetime.fromisoformat(str(r.get("timestamp")).replace("Z", "+00:00"))
         except ValueError:
             return False, f"{side}: sample revision has no timestamp"
-        if rev_ts < oldest:
-            return False, f"{side}: not edited between {lo} and {hi} months ago (revision in effect was made {rev_ts:%Y-%m-%d})"
         if r.get("current_revid") is None or r.get("revid") == r.get("current_revid"):
             return False, f"{side}: the sampled revision is still the current one (not edited since)"
         if r.get("recent_change"):

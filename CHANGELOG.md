@@ -4,7 +4,7 @@
 
 - Single-source Wikimedia rule (`identity.wikimedia_solo`): a domain whose only family is Wikimedia may be established by
   it alone when Wikidata and the English Wikipedia infobox name it now and in a revision current at a random time 18–30
-  months ago (itself made in that window and not the current revision, on both), nothing changed recently, and the
+  months ago (not the current revision, on both; an older revision is fine — the value stood longer), nothing changed recently, and the
   article had at least 2000 human page views in every one of the last 24 months. Lowest-confidence path: TRUE capped at
   0.6 with `WIKIMEDIA_ONLY` (tell the user first), kept in the identity cache. Thresholds are configurable. With an LLM
   configured, such a TRUE does not skip the investigation (it may find a second family).

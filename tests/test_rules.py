@@ -613,7 +613,7 @@ def test_old_widely_read_wikimedia_record_may_stand_alone_at_lowest_confidence()
 def test_single_source_rule_conditions():
     assert _solo_store(views=1999).verdict == Verdict.UNVERIFIABLE                          # one month below the floor
     assert _solo_store(months=23).verdict == Verdict.UNVERIFIABLE                           # article younger than 24 months
-    assert _solo_store(wd_ts="2023-12-01T00:00:00Z").verdict == Verdict.UNVERIFIABLE        # not edited inside the window
+    assert _solo_store(wd_ts="2023-12-01T00:00:00Z").verdict == Verdict.TRUE                # older revision: value stood longer
     assert _solo_store(wd_revid=900).verdict == Verdict.UNVERIFIABLE                        # sampled revision is still current
     assert _solo_store(wd_domains=("evil.example",)).verdict == Verdict.UNVERIFIABLE        # different domain back then
     assert _solo_store(wp_from_wd=False).verdict == Verdict.UNVERIFIABLE                    # article states no website
