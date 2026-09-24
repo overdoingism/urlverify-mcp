@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- SourceForge (narrow): a SourceForge project is treated as a mirror network, never as a voting source. Its REST record
+  (name, homepage, creation date) is fetched and cited only for name matching; nothing from the SourceForge family
+  votes. The project is established only through an independently established official site: a page there links the
+  exact file, or links the SourceForge project while the project's record names that site as its homepage (TRUE capped
+  at 0.8 with `OFFICIAL_DOWNLOAD_HOST`). SourceForge's automatic mirrors ("exact mirror of … not affiliated") are
+  `UNVERIFIABLE` with `SOURCEFORGE_MIRROR`; unknown projects give `SOURCEFORGE_PROJECT_NOT_FOUND`.
+- Fix: Wikidata labels / aliases stored under the language-independent `mul` code (7-Zip, many others since 2024-25)
+  were read as empty, so the entity never matched; aliases were not requested at all. Labels are now `en`, else `mul`;
+  a label match beats an alias-only match (7-Zip the program over the 7z format, which has "7zip" as an alias).
+- A same-name ambiguity in the developer lookup no longer reports `WIKIMEDIA_AMBIGUOUS` when the project itself matched.
+
 - Hardening: Wikimedia votes only through its structured records and only for an official-website (or repository)
   value that already existed before the history window and has not changed since. Brand-new Wikidata entities,
   changed values, other domains mentioned in a record (e.g. a developer's site) and fetched Wikipedia HTML pages no

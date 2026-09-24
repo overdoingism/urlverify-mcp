@@ -208,10 +208,12 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             fixed_codes = list(pre.codes)
             det_dec = decide(cfg, l0, det_sub.model_copy(deep=True), inv.evidence_store, req.project, cached_identity,
                              {}, None, prov, registry_state)
-            # website on a host that is not established while an official domain is (mirror / CDN): look at the official
-            # home page and its download page for a link to this exact file (AGENTS §6.4), then decide again
-            if (det_dec.verdict != Verdict.TRUE and l0.platform_scope != "user_content" and det_dec.established_domains
-                    and l0.etld1 not in det_dec.established_domains):
+            # website on a host that is not established while an official domain is (mirror / CDN), or a SourceForge
+            # project: look at the official home page and its download page for a link to this exact file (or to the
+            # SourceForge project) (AGENTS §6.4), then decide again
+            if det_dec.verdict != Verdict.TRUE and det_dec.established_domains and (
+                    (l0.platform_scope != "user_content" and l0.etld1 not in det_dec.established_domains)
+                    or (l0.platform == "sourceforge" and l0.platform_owner)):
                 try:
                     if await pre.official_pages(fetcher, det_dec.established_domains, l0.etld1):
                         det_dec = decide(cfg, l0, det_sub.model_copy(deep=True), inv.evidence_store, req.project, cached_identity,

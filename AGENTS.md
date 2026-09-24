@@ -190,7 +190,8 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
    - 缺 `PROJECT_TO_DOMAIN`／`PROJECT_TO_ORG` → Wikimedia 固定查詢，候選名稱依序最多 3 個：呼叫方 project → 套件／repo 名稱 →
      第一個被接受的 Wikidata 條目所記的開發者（P178）。條目接受條件是確定性的：標籤或別名與候選名稱正規化後相同，或其官網／原始碼庫
      指向目標。Wikipedia 只經該條目的 enwiki 連結取得，不猜標題。查不到記 `WIKIMEDIA_NO_MATCH`，不重試換標題。
-     接受分級（2026-09-24）：官網／原始碼庫指向目標的條目直接採用；只有名稱相同時，唯一一個才採用；**多個同名條目一個都不採用**，
+     接受分級（2026-09-24）：官網／原始碼庫指向目標的條目直接採用；其次是**標籤**相同，再其次才是**別名**相同（只在沒有任何標籤相同時才看別名：
+     「7-Zip」是程式的標籤，同時是 7z 格式條目的別名）；同一級只有一個才採用；**同一級多個同名條目一個都不採用**，
      紀錄保留（可用 fact ID 引用），候選清單放進給 LLM 的說明，由 LLM 判定哪一個是本專案並引用（`WIKIMEDIA_AMBIGUOUS`）。
      LLM 選擇本身不產生票，票仍依 §4.1 的時間條件由紀錄內容決定。
    - 平台目標缺 `PROJECT_TO_ORG` → 取 owner（與 repo）的平台紀錄。
@@ -211,7 +212,16 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - **同名檔案轉址**：官方網址轉址到其他主機時，需同時滿足 (1) 轉址前後檔名相同、(2) 轉址鏈任一跳的 query 或 path 都沒有夾帶另一個網址
   （防開放轉址 `/out?url=https://evil`）。不滿足者維持 UNVERIFIABLE（`REDIRECT_TO_UNESTABLISHED_HOST`），不判 FALSE（鏡像本來就會轉址）。
 - 只列鏡像主機的官方鏡像清單不讓整個主機過關。我們不下載檔案、不驗雜湊；雜湊比對留給使用者。
-- 待決：固定預查是否主動抓官網首頁與其同網域 download 頁以尋找上述連結（每次多兩次抓取）；目前靠 LLM 依缺口提示去抓。
+- 固定預查會主動抓已確立官網的首頁與其同網域 download 頁尋找上述連結（頁面只存為 page，不引用、不給 LLM）。
+- **SourceForge（窄版，2026-09-24 定案）**：SourceForge 當作鏡像網路處理，**不是**像 Wikimedia 那樣的投票來源。
+  - 固定預查取 SF REST 專案紀錄（`sourceforge.net/rest/p/<slug>`：名稱、external_homepage、建立日期、開發者），存為 `sourceforge` 紀錄；
+    引用只為了名稱比對（7-Zip ↔ `sevenzip`），**SF 家族的任何紀錄或頁面都不投票**（專案管理員自填，或 SF 自己的鏡像）。
+  - SF 專案成立為官方（`PROJECT_TO_ORG:sourceforge:<slug>`）只有兩條路，都以「官網已**獨立**確立」為前提、不會反過來自指：
+    (1) 官網頁面有**逐字相同**的檔案連結（同上）；(2) **雙向連結**：SF 紀錄的 homepage 指向已確立官網，**且**該官網抓回的頁面連到
+    `sourceforge.net/projects/<slug>`（或 `/p/<slug>`、`downloads.sourceforge.net/project/<slug>`）。TRUE 信心上限 0.8，附 `OFFICIAL_DOWNLOAD_HOST`。
+  - SF 自動鏡像（無 REST 紀錄，專案頁寫著「exact mirror of the X project … SourceForge is not affiliated with X」）→ `SOURCEFORGE_MIRROR`，
+    UNVERIFIABLE；只有官網逐字連到該檔案時例外。查無專案 → `SOURCEFORGE_PROJECT_NOT_FOUND`。
+  - 所以官網只有 Wikimedia 一家（Audacity、KeePass）時 SF 幫不上忙，這是預期行為。
 
 ## 6.1 規則寫死 vs. LLM 自主：責任分工
 原則：**密碼學與結構性事實、安全不變量歸規則；語意推理歸 LLM。LLM 提議，規則驗證。**
@@ -330,6 +340,8 @@ config.example.yaml
 - **探測 vs 觀察**（2026-09-17 定案）：外部依賴不做自動探測；每次真實呼叫回報成敗到 `health.py`（持久化於 `log/health.json`），失敗在 stderr 印
   `!! DEPENDENCY …`、full log 記 `dependency_failure`、結果帶 `degraded`。健康表**只是報告，永遠不是啟用與否的判準**。
   `check-env` 只在使用者手動觸發時跑，且只用各服務最輕的端點；管理頁載入時不打任何外部服務。
+- **Wikidata 的 `mul` 標籤**（2026-09-24）：Wikidata 2024–25 起把許多條目的標籤／別名移到語言無關的 `mul`（例：7-Zip Q215051 沒有 `en` 標籤），
+  只讀 `en` 會拿到空標籤、名稱比對失敗（`WIKIMEDIA_NO_MATCH`）。現在讀 `en|mul`，標籤以 `en` 優先；別名原本根本沒有要（props 漏了 `aliases`），一併修正。
 - **待議：專案名稱比對可否採用已成立網域自己的頁面**（2026-09-19 記錄，尚未動）：Vulkan SDK 案例中 lunarg.com 由 3 個獨立來源成立、
   LunarG 的 GitHub org 也成立，但被計入的引文只提「LunarG」，沒有一條提「Vulkan SDK」，`_project_matches` 擋下 TRUE。LLM 抓到的
   lunarg.com 自家頁面明確寫著 Vulkan SDK、引文驗證通過，卻因「自我宣稱」在名稱比對前就被剔除。自我宣稱不能用來**成立**網域是對的；

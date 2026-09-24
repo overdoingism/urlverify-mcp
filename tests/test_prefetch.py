@@ -315,3 +315,56 @@ async def test_same_name_entities_are_left_to_the_llm():
     pre3 = Prefetch(Config(identity={"homebrew_reverse_lookup": False}), FakeStructured(wikidata={"Audacity": [a]}), EvidenceStore())
     sub3 = await pre3.run(l0_for("muse-cdn.com"), "Audacity")
     assert [e.source for e in sub3.evidence] == [a["source"]]
+
+
+class FakeSF(FakeStructured):
+    def __init__(self, projects, **kw):
+        super().__init__(**kw)
+        self.projects = projects
+
+    async def sourceforge(self, slug):
+        return self.projects.get(slug, {"ok": True, "found": False, "source": f"https://sourceforge.net/projects/{slug}/"})
+
+
+def _sf(slug, **info):
+    return {"ok": True, "found": True, "owner": slug, "owner_info": info, "repo_info": {"id": slug},
+            "source": f"https://sourceforge.net/projects/{slug}/"}
+
+
+async def test_sourceforge_record_is_cited_for_its_name_but_mirrors_are_not():
+    fs = FakeSF({"sevenzip": _sf("sevenzip", name="7-Zip", homepage="http://www.7-zip.org/", mirror=False),
+                 "ollama.mirror": _sf("ollama.mirror", name="Ollama", mirror=True, mirror_of="https://github.com/ollama/ollama")})
+    cfg = Config(identity={"homebrew_reverse_lookup": False})
+    pre = Prefetch(cfg, fs, EvidenceStore())
+    sub = await pre.run(l0_for("sourceforge.net", "sourceforge", "sevenzip"), "7-Zip")
+    assert [e.kind for e in sub.evidence] == ["sourceforge"] and "7-zip.org" in sub.identity.official_domains
+    from urlverify_mcp.rules import _project_matches, verify_quotes
+    verify_quotes(sub.evidence, pre.store)
+    assert _project_matches("7-Zip", l0_for("sourceforge.net", "sourceforge", "sevenzip"), sub.evidence)[0]
+    pre2 = Prefetch(cfg, fs, EvidenceStore())
+    sub2 = await pre2.run(l0_for("sourceforge.net", "sourceforge", "ollama.mirror"), "Ollama")
+    assert "SOURCEFORGE_MIRROR" in pre2.codes and not sub2.evidence and len(pre2.store.kinds) == 1
+    pre3 = Prefetch(cfg, fs, EvidenceStore())
+    await pre3.run(l0_for("sourceforge.net", "sourceforge", "nope"), "Nope")
+    assert "SOURCEFORGE_PROJECT_NOT_FOUND" in pre3.codes
+
+
+async def test_label_beats_alias_and_several_alias_matches_are_ambiguous():
+    prog = {"qid": "Q215051", "label": "7-Zip", "aliases": ["7zip"], "official_website": ["https://7-zip.org/"],
+            "stability": aged("https://7-zip.org/"), "source": "https://www.wikidata.org/wiki/Q215051"}
+    fmt = {"qid": "Q270131", "label": "7z", "aliases": ["7zip", "7-zip archive"], "official_website": ["https://www.7-zip.org/7z.html"],
+           "stability": aged("https://www.7-zip.org/7z.html"), "source": "https://www.wikidata.org/wiki/Q270131"}
+    cfg = Config(identity={"homebrew_reverse_lookup": False})
+    pre = Prefetch(cfg, FakeStructured(wikidata={"7-Zip": [fmt, prog]}), EvidenceStore())
+    sub = await pre.run(l0_for("example.net"), "7-Zip")
+    assert [e.source for e in sub.evidence] == [prog["source"]] and "WIKIMEDIA_AMBIGUOUS" not in pre.codes
+    pre2 = Prefetch(cfg, FakeStructured(wikidata={"7zip": [fmt, {**prog, "label": "7-Zip program"}]}), EvidenceStore())
+    sub2 = await pre2.run(l0_for("example.net"), "7zip")
+    assert not sub2.evidence and "WIKIMEDIA_AMBIGUOUS" in pre2.codes
+
+
+def test_wikidata_label_falls_back_to_mul():
+    from urlverify_mcp.identity.structured import _label
+    assert _label({"labels": {"mul": {"value": "7-Zip"}}}) == "7-Zip"
+    assert _label({"labels": {"en": {"value": "VLC media player"}, "mul": {"value": "VLC"}}}) == "VLC media player"
+    assert _label({}) is None

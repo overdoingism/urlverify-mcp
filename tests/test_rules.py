@@ -511,3 +511,61 @@ def test_wikimedia_votes_only_for_aged_unchanged_official_website():
     assert run(ok, as_page=True).verdict == Verdict.UNVERIFIABLE                                     # HTML page of Wikipedia
     d = run(ok, extra_quote_domain="elementlabs.example")
     assert "elementlabs.example" not in {k for k, v in d.supporting_sources.items() if "wikidata.org" in v}   # developer's site: no vote
+
+
+def _sf_case(slug="vlc", sf_rec=None, page=None, url=None, cite_sf=False, techcrunch=True):
+    """SourceForge target; videolan.org established by aged Wikidata + media; SF record and official page optional."""
+    import json
+    store = EvidenceStore()
+    wd = "https://www.wikidata.org/wiki/Q171477"
+    store.record(wd, json.dumps({"label": "VLC media player", "official_website": ["https://www.videolan.org/vlc/"],
+                                 "stability": {"ok": True, "stable": True, "recent_change": False,
+                                               "current": ["https://www.videolan.org/vlc/"], "value_days_ago": ["https://www.videolan.org/vlc/"]}}), "wikidata")
+    store["https://techcrunch.com/vlc"] = "VLC media player is available from videolan.org for every platform."
+    ev = [Evidence(kind="wikidata", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == wd])]
+    if techcrunch:
+        ev.append(_ev("https://techcrunch.com/vlc", "official domain videolan.org", "VLC media player is available from videolan.org"))
+    if sf_rec is not None:
+        src = f"https://sourceforge.net/projects/{slug}/"
+        store.record(src, json.dumps({"ok": True, "found": True, "owner": slug, "owner_info": sf_rec, "repo_info": {"id": slug}, "source": src}), "sourceforge")
+        if cite_sf:
+            ev.append(Evidence(kind="sourceforge", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == src]))
+    if page:
+        store["https://www.videolan.org/vlc/download-sources.html"] = page
+    ident = IdentityGraph(product="VLC media player", developer="VideoLAN", official_domains=["videolan.org"])
+    l0 = _l0(host="sourceforge.net", platform="sourceforge", owner=slug)
+    l0.normalized_url = url or f"https://sourceforge.net/projects/{slug}/files/vlc/3.0.21/win64/vlc-3.0.21-win64.exe/download"
+    return decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev), store, "VLC media player")
+
+
+VLC_SF = {"name": "VLC media player", "homepage": "http://www.videolan.org/vlc/", "creation_date": "2010-04-29", "mirror": False}
+
+
+def test_sourceforge_project_needs_the_official_site_to_link_it_and_the_record_to_link_back():
+    link = "Sources and old releases (https://sourceforge.net/projects/vlc/files/)"
+    d = _sf_case(sf_rec=VLC_SF, page=link)
+    assert d.verdict == Verdict.TRUE and d.confidence <= 0.8 and d.notices == ["OFFICIAL_DOWNLOAD_HOST"], d.notes
+    assert "PROJECT_TO_ORG:sourceforge:vlc" in d.established_edges
+    # no link from the official site / a link to another SF project / a record whose homepage is elsewhere
+    assert _sf_case(sf_rec=VLC_SF).verdict == Verdict.UNVERIFIABLE
+    assert _sf_case(sf_rec=VLC_SF, page="(https://sourceforge.net/projects/vlc-evil/files/)").verdict == Verdict.UNVERIFIABLE
+    assert _sf_case(sf_rec={**VLC_SF, "homepage": "https://evil.example"}, page=link).verdict == Verdict.UNVERIFIABLE
+    # no record at all: the backlink cannot be checked
+    assert _sf_case(page=link).verdict == Verdict.UNVERIFIABLE
+    # the official domain must be established WITHOUT SourceForge: Wikidata + the SF record's own homepage is one source
+    assert _sf_case(sf_rec=VLC_SF, page=link, cite_sf=True, techcrunch=False).verdict == Verdict.UNVERIFIABLE
+
+
+def test_sourceforge_record_never_votes():
+    d = _sf_case(sf_rec=VLC_SF, cite_sf=True, techcrunch=False)
+    assert "videolan.org" not in d.established_domains, d.notes
+    assert all(family != "sourceforge" for s in d.supporting_sources.values() for family in s)
+
+
+def test_sourceforge_mirror_is_not_the_project_unless_the_exact_file_is_linked():
+    mirror = {"name": "VLC media player", "mirror": True, "mirror_of": "https://code.videolan.org/videolan/vlc"}
+    d = _sf_case(slug="vlc.mirror", sf_rec=mirror, page="(https://sourceforge.net/projects/vlc.mirror/files/)")
+    assert d.verdict == Verdict.UNVERIFIABLE and d.codes == ["SOURCEFORGE_MIRROR"], d.notes
+    f = "https://sourceforge.net/projects/vlc.mirror/files/3.0.21/vlc-3.0.21-win64.exe/download"
+    ok = _sf_case(slug="vlc.mirror", sf_rec=mirror, url=f, page=f"Download ({f})")
+    assert ok.verdict == Verdict.TRUE and ok.notices == ["OFFICIAL_DOWNLOAD_HOST"], ok.notes

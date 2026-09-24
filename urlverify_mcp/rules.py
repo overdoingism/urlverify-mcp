@@ -42,10 +42,10 @@ def _squash(s: str) -> str:
 
 # Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
 # established under older rules are re-verified instead of being trusted from the cache.
-RULES_VERSION = "2026-09-24.5"
+RULES_VERSION = "2026-09-24.6"
 SELF_PUBLISHED_MAX_CONFIDENCE = 0.75
 DELEGATED_MAX_CONFIDENCE = 0.8     # mirror / CDN host delegated by the official site: verify the checksum   # TRUE for an owner established only by cross-platform consistency
-STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub"}
+STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub", "sourceforge"}
 _DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b")
 
 
@@ -264,6 +264,12 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
         src_e1 = source_key(ev.source)
         if ev.kind == "wayback" or src_e1 == "archive.org":
             continue   # an archive snapshot proves age, not identity: no domain or org vote (temporal use is elsewhere)
+        if family_of(src_e1) == "sourceforge":
+            # a SourceForge project's record and pages are written by its own admins, or are SourceForge's automatic
+            # mirror of a project hosted elsewhere: shown, never a vote. A project there is established only through
+            # the official site (AGENTS §6.4, _sourceforge_link).
+            ev.notes.append("SourceForge project data is self-described (or SourceForge's own mirror): not counted as a vote")
+            continue
         if family_of(src_e1) == "wikimedia":
             # Wikimedia is editable by anyone: it votes only through its structured record, and only for an official
             # website value that already existed before the history window and has not changed since (AGENTS §4.1).
@@ -328,6 +334,16 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
                 est_orgs.setdefault(platform, []).append(org.lower())
                 org_support.setdefault(f"{platform}:{org.lower()}", set()).add("platform-verified-domain")   # basis beyond platform consistency
                 notes.append(f"{platform} org '{org}' is platform-verified and links to an established official domain")
+    # SourceForge target: the project there is the project's only if the independently established official site says so
+    sf_link: tuple[str, str] | None = None
+    if l0.platform == "sourceforge" and l0.platform_owner and established:
+        sf_link = _sourceforge_link(l0, established, store)
+        slug = l0.platform_owner.lower()
+        if sf_link and slug not in [o.lower() for o in est_orgs.get("sourceforge", [])]:
+            est_orgs.setdefault("sourceforge", []).append(slug)
+            org_support.setdefault(f"sourceforge:{slug}", set()).add("official-site-link")
+            notes.append(f"official page {sf_link[1]} links " + ("this exact file" if sf_link[0] == "file" else
+                         f"the SourceForge project '{slug}', whose SourceForge record names that site as its homepage"))
     # signed build provenance: the registry's own statement of which repository's CI published the package.
     # If that repository's owner is an established (or domain-verified, established-domain-linked) GitHub org, the
     # package owner on the registry is established too. Metadata links alone never do this.
@@ -418,7 +434,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
         org_match = None
 
     # ---- 5b. the resolved identity must be about the requested project (asked for "requests", got pypdf's identity)
-    project_ok, why_project = _project_matches(project, l0, usable)
+    project_ok, why_project = _project_matches(project, l0, usable, official_link=bool(sf_link))
     ctx["project_ok"] = project_ok
     if not project_ok:
         notes.append(f"{why_project}; VERIFIED_TRUE withheld")
@@ -472,6 +488,10 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
     risk_penalty = 0.05 * len(l0.risk_signals)
     if anchor and l0.platform_owner:
         owner = l0.platform_owner.lower()
+        if anchor.platform == "sourceforge" and _sourceforge_mirror(owner, store) and not (sf_link and sf_link[0] == "file"):
+            notes.append(f"SourceForge project '{owner}' is SourceForge's automatic mirror of a project hosted elsewhere "
+                         "(SourceForge states it is not affiliated with the project)")
+            return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs, codes=["SOURCEFORGE_MIRROR"])
         platform_orgs = [o.lower() for o in est_orgs.get(anchor.platform, [])]
         claimed_orgs = [o.lower() for o in sub.identity.official_orgs.get(anchor.platform, [])]
         if owner in platform_orgs:
@@ -488,9 +508,14 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
                 if _fork_of_other(l0, store):
                     notes.append("repository is a fork of another repository")
                     return Decision(Verdict.FALSE, 0.7, notes, evidence, support, established, est_orgs, codes=["REPOSITORY_IS_FORK"])
+            dnotes: list[str] = []
+            if anchor.platform == "sourceforge":
+                # the official site hands its downloads to a mirror network (AGENTS §6.4): same cap as a mirror / CDN
+                conf = min(conf, DELEGATED_MAX_CONFIDENCE)
+                dnotes = ["OFFICIAL_DOWNLOAD_HOST"]
             if not project_ok:
-                return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
-            return Decision(Verdict.TRUE, max(0.5, conf), notes, evidence, support, established, est_orgs)
+                return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs, notices=dnotes)
+            return Decision(Verdict.TRUE, max(0.5, conf), notes, evidence, support, established, est_orgs, notices=dnotes)
         if platform_orgs and owner not in platform_orgs:
             notes.append(f"path owner '{owner}' differs from the established official {anchor.platform} org(s) {platform_orgs}")
             return Decision(Verdict.FALSE, 0.8, notes, evidence, support, established, est_orgs, codes=["OWNER_NOT_OFFICIAL"])
@@ -603,10 +628,12 @@ def _name_in(project_norm: str, text: str) -> bool:
     return bool(t) and len(project_norm) >= 3 and (project_norm in t or (len(t) >= 3 and t in project_norm))
 
 
-def _project_matches(project: str, l0: L0Result, usable: list[Evidence]) -> tuple[bool, str]:
+def _project_matches(project: str, l0: L0Result, usable: list[Evidence], official_link: bool = False) -> tuple[bool, str]:
     """Deterministic check that the verified facts are about the project the caller asked for. The LLM's own
     `identity.product` text is deliberately NOT used: it is free text and drifts. Platform targets: the path owner or
-    repository name must match. Website targets: at least one verified, supporting evidence quote must mention the name."""
+    repository name must match. Website targets: at least one verified, supporting evidence quote must mention the name.
+    A platform target that the established official site itself links (`official_link`, SourceForge) may also use the
+    website rule: the link, not the path, ties it to the project."""
     p = _norm_name(project)
     if not p:
         return True, "no project name given"
@@ -621,7 +648,8 @@ def _project_matches(project: str, l0: L0Result, usable: list[Evidence]) -> tupl
                 names = re.findall(r"\.(?:owner_info\.name|repo_info\.name|name) = ([^;]+)", ev.quote)
                 if any(_norm_name(n) == p for n in names):
                     return True, f"project name is the display name in the target's own {l0.platform} record"
-        return False, f"project '{project}' matches neither the {l0.platform} owner '{l0.platform_owner}' nor the repository '{l0.platform_repo}'"
+        if not official_link:
+            return False, f"project '{project}' matches neither the {l0.platform} owner '{l0.platform_owner}' nor the repository '{l0.platform_repo}'"
     for ev in usable:
         if ev.supports and ev.verified_quote and _name_in(p, ev.quote):
             return True, f"project name appears in verified evidence from {host_of(ev.source)}"
@@ -757,6 +785,44 @@ def _official_page_links_file(l0: L0Result, established: list[str], store: dict[
             continue
         if any(f"({f})" in text for f in forms if f):
             return src
+    return None
+
+
+def _sourceforge_record(slug: str, store: dict[str, str]) -> dict | None:
+    for k, v in store.items():
+        if record_kind(store, k) == "sourceforge" and _owner_record(k, slug, "sourceforge"):
+            try:
+                return json.loads(v).get("owner_info") or {}
+            except (ValueError, AttributeError):
+                return None
+    return None
+
+
+def _sourceforge_mirror(slug: str, store: dict[str, str]) -> bool:
+    return bool((_sourceforge_record(slug, store) or {}).get("mirror"))
+
+
+def _sourceforge_link(l0: L0Result, established: list[str], store: dict[str, str]) -> tuple[str, str] | None:
+    """("file", page): a page from an established official domain links this exact file; ("project", page): a page from
+    the established domain that the (non-mirror) SourceForge record names as the project's homepage links the SourceForge
+    project itself. Both directions are needed for "project": the official site points at SourceForge and the SourceForge
+    project points back at the official site. Mentions of other projects, or of SourceForge in general, never count."""
+    src = _official_page_links_file(l0, established, store)
+    if src:
+        return "file", src
+    slug = l0.platform_owner or ""
+    rec = _sourceforge_record(slug, store)
+    if not rec or rec.get("mirror") or not rec.get("homepage"):
+        return None
+    home = etld1_of(host_of(rec["homepage"] if "://" in rec["homepage"] else "https://" + rec["homepage"]))
+    if home not in established:
+        return None
+    pat = re.compile(rf"(?i)(?:^|[^a-z0-9.-])(?:(?:www\.)?(?:sourceforge|sf)\.net/(?:projects|p)/|downloads\.sourceforge\.net/project/)"
+                     rf"{re.escape(slug)}(?=[/)?#\s\"'<]|$)")
+    pages = store.pages if isinstance(store, EvidenceStore) else store
+    for page, text in pages.items():
+        if isinstance(text, str) and etld1_of(host_of(page)) == home and pat.search(text):
+            return "project", page
     return None
 
 

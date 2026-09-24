@@ -71,7 +71,7 @@ class Structured:
             out_entities = []
             for h in hits[:3]:
                 qid = h["id"]
-                ent = await self._json(WIKIDATA_API, {"action": "wbgetentities", "ids": qid, "props": "labels|descriptions|claims|sitelinks", "languages": "en", "format": "json"})
+                ent = await self._json(WIKIDATA_API, {"action": "wbgetentities", "ids": qid, "props": "labels|descriptions|aliases|claims|sitelinks", "languages": "en|mul", "format": "json"})
                 e = ent["entities"][qid]
                 claims = e.get("claims", {})
                 def _vals(pid):
@@ -90,9 +90,9 @@ class Structured:
                 dev_ids = _vals("P178") + _vals("P123") + _vals("P176")  # developer, publisher, manufacturer
                 dev_labels = []
                 if dev_ids:
-                    d = await self._json(WIKIDATA_API, {"action": "wbgetentities", "ids": "|".join(dev_ids[:5]), "props": "labels|claims", "languages": "en", "format": "json"})
+                    d = await self._json(WIKIDATA_API, {"action": "wbgetentities", "ids": "|".join(dev_ids[:5]), "props": "labels|claims", "languages": "en|mul", "format": "json"})
                     for did, de in d.get("entities", {}).items():
-                        lab = de.get("labels", {}).get("en", {}).get("value")
+                        lab = _label(de)
                         dweb = []
                         for c in de.get("claims", {}).get("P856", []):
                             v = c.get("mainsnak", {}).get("datavalue", {}).get("value")
@@ -101,10 +101,10 @@ class Structured:
                         dev_labels.append({"id": did, "label": lab, "official_website": dweb})
                 stab = await self._wikidata_stability(qid, history_days, min_stable, [p for p, v in (("P856", official), ("P1324", repos)) if v])
                 out_entities.append({
-                    "qid": qid, "label": e.get("labels", {}).get("en", {}).get("value"),
+                    "qid": qid, "label": _label(e),
                     "description": e.get("descriptions", {}).get("en", {}).get("value"),
                     "official_website": official, "official_repos": repos, "developer": dev_labels,
-                    "aliases": [a["value"] for a in e.get("aliases", {}).get("en", [])] if e.get("aliases") else [],
+                    "aliases": list(dict.fromkeys(a["value"] for lang in ("en", "mul") for a in (e.get("aliases") or {}).get(lang, []))),
                     "enwiki": (e.get("sitelinks", {}).get("enwiki", {}) or {}).get("title"),
                     "stability": stab.get("P856"), "repo_stability": stab.get("P1324"),
                     "source": f"https://www.wikidata.org/wiki/{qid}",
@@ -320,6 +320,41 @@ class Structured:
         return {"ok": True, "found": True, "owner": app_id, "owner_info": info, "repo_info": {"id": app_id},
                 "source": f"https://flathub.org/apps/{app_id}"}
 
+    # ---------------- SourceForge
+    async def sourceforge(self, *a, **k): return _obs("sourceforge", await self._sourceforge(*a, **k))
+
+    async def _sourceforge(self, slug: str) -> dict[str, Any]:
+        """SourceForge project record (REST: name, external homepage, creation date, developers). SourceForge's own
+        automatic mirrors of projects hosted elsewhere have no REST record; their project page states "This is an exact
+        mirror of the X project, hosted at <url>. SourceForge is not affiliated with X." and is recorded as a mirror."""
+        from ..providers.retry import get_with_retry
+        page = f"https://sourceforge.net/projects/{slug}/"
+        try:
+            d = await self._json(f"https://sourceforge.net/rest/p/{slug}")
+        except Exception as ex:  # noqa: BLE001
+            if "HTTP 404" not in str(ex):
+                return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+            try:
+                r = await get_with_retry(self.client, page, retries=self.retries, backoff_s=self.backoff_s)
+            except Exception as ex2:  # noqa: BLE001
+                return {"ok": False, "error": f"{type(ex2).__name__}: {ex2}"}
+            if r.status_code == 404:
+                return {"ok": True, "found": False, "source": page}
+            text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r.text or ""))
+            m = re.search(r"exact mirror of the (.{1,120}?) project, hosted at (https?://\S+?) ?\. SourceForge is not affiliated", text)
+            if r.status_code != 200 or not m:
+                return {"ok": False, "error": f"no REST record and no mirror notice (HTTP {r.status_code})"}
+            return {"ok": True, "found": True, "owner": slug, "source": page, "repo_info": {"id": slug},
+                    "owner_info": {"name": m.group(1), "mirror": True, "mirror_of": m.group(2),
+                                   "notice": m.group(0)}}
+        if not isinstance(d, dict) or not d.get("shortname"):
+            return {"ok": False, "error": "unexpected SourceForge REST reply"}
+        info = {"name": d.get("name"), "homepage": d.get("external_homepage") or None, "creation_date": d.get("creation_date"),
+                "status": d.get("status"), "moved_to_url": d.get("moved_to_url") or None, "mirror": False,
+                "developers": [x.get("username") for x in d.get("developers") or [] if isinstance(x, dict)][:10]}
+        return {"ok": True, "found": True, "owner": d.get("shortname"), "source": f"https://sourceforge.net/projects/{d.get('shortname')}/",
+                "repo_info": {"id": d.get("shortname")}, "owner_info": {k: v for k, v in info.items() if v is not None}}
+
     # ---------------- package registries
     async def _nuget(self, name: str) -> dict[str, Any]:
         from .releases import ReleaseMetadata, ReleaseTarget
@@ -354,6 +389,12 @@ class Structured:
                     "repository": repo.get("url") if isinstance(repo, dict) else repo, "source": f"https://www.npmjs.com/package/{name}"}
         except Exception as ex:  # noqa: BLE001
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+
+
+def _label(entity: dict) -> str | None:
+    """English label, else the language-independent "mul" label (Wikidata moved many labels there in 2024-25)."""
+    labels = entity.get("labels") or {}
+    return (labels.get("en") or labels.get("mul") or {}).get("value")
 
 
 def _strip_refs(wikitext: str) -> str:

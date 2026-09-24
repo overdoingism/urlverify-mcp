@@ -28,8 +28,8 @@ def _norm(x: str) -> str:
 
 def entity_match(ent: dict[str, Any], name: str, l0: L0Result) -> tuple[str, str] | None:
     """(kind, why) for a Wikidata search hit, or None. kind "link": the entity's official website / source repository
-    points at the target (deterministic evidence). kind "label": only its label or an alias equals the searched name
-    (a name can belong to several things; see Prefetch.wikimedia)."""
+    points at the target (deterministic evidence). kind "label" / "alias": only its label / one of its aliases equals the
+    searched name (a name can belong to several things; see Prefetch.wikimedia)."""
     sites = {etld1_of(host_of(u if "://" in u else "https://" + u)) for u in ent.get("official_website") or [] if isinstance(u, str)}
     if l0.etld1 and l0.etld1 in sites and not (l0.platform_scope == "user_content"):
         return "link", f"official website is the target domain {l0.etld1}"
@@ -39,8 +39,10 @@ def entity_match(ent: dict[str, Any], name: str, l0: L0Result) -> tuple[str, str
         if any(str(r).lower() == prefix or str(r).lower().startswith(prefix + "/") for r in ent.get("official_repos") or []):
             return "link", f"source repository is under the target owner {l0.platform_owner}"
     n = _norm(name)
-    if n and (_norm(ent.get("label") or "") == n or any(_norm(a) == n for a in ent.get("aliases") or [])):
-        return "label", "label or alias equals the searched name"
+    if n and _norm(ent.get("label") or "") == n:
+        return "label", "label equals the searched name"
+    if n and any(_norm(a) == n for a in ent.get("aliases") or []):
+        return "alias", "an alias equals the searched name"
     return None
 
 
@@ -102,8 +104,9 @@ class Prefetch:
             self.notes.append(f"fixed lookup: Wikidata unavailable for '{name}' ({r.get('error')})")
             return False
         matches = [(ent, *m) for ent in r.get("entities") or [] if (m := entity_match(ent, name, l0))]
+        # link beats label beats alias: "7-Zip" is the label of the program and only an alias of the 7z format
         link = [x for x in matches if x[1] == "link"]
-        label = [x for x in matches if x[1] == "label"]
+        label = [x for x in matches if x[1] == "label"] or [x for x in matches if x[1] == "alias"]
         if not link and len(label) > 1:
             # several things carry this name: which one is the project is a semantic question for the LLM. The records
             # are kept (citable by fact id) but nothing is cited and no candidate domain / org is taken from them.
@@ -113,8 +116,8 @@ class Prefetch:
                 cands.append(f"{self.store.record_ids.get(ent['source'])} {ent.get('qid')} '{ent.get('label')}'"
                              f" ({(ent.get('description') or 'no description')[:80]})")
             self.ambiguous.append(f"Wikidata has several entities named '{name}': " + "; ".join(cands))
-            if "WIKIMEDIA_AMBIGUOUS" not in self.codes:
-                self.codes.append("WIKIMEDIA_AMBIGUOUS")
+            if "WIKIMEDIA_AMBIGUOUS" not in self.codes and not any(e.kind == "wikidata" for e in self.evidence):
+                self.codes.append("WIKIMEDIA_AMBIGUOUS")      # not when the project itself was already matched
             self.notes.append(f"fixed lookup: Wikidata '{name}' matches {len(label)} entities by name only; left to the investigator")
             return False
         accepted = False
@@ -160,9 +163,26 @@ class Prefetch:
             if r.get("ok") and not (r.get("owner_info") or {}).get("is_verified"):
                 self.codes.append("FLATHUB_UNVERIFIED")
                 self.notes.append(f"fixed lookup: Flathub app {owner} is not verified by its developer (community packaging)")
+        elif platform == "sourceforge":
+            r = await self.structured.sourceforge(owner)
+            if r.get("found") is False:
+                self.codes.append("SOURCEFORGE_PROJECT_NOT_FOUND")
+                self.notes.append(f"fixed lookup: SourceForge has no project {owner}")
+                return
+            info = r.get("owner_info") or {}
+            if r.get("ok") and info.get("mirror"):
+                # SourceForge's own copy of a project hosted elsewhere: recorded (the rules read it), never cited
+                self._record("sourceforge_info", {"owner": owner}, r, "sourceforge", r["source"])
+                self.codes.append("SOURCEFORGE_MIRROR")
+                self.notes.append(f"fixed lookup: SourceForge project {owner} is SourceForge's automatic mirror of "
+                                  f"{info.get('mirror_of')} (not affiliated with the project)")
+                return
+            if r.get("ok") and info.get("homepage"):
+                self._add_domain(info["homepage"])       # a candidate only: SourceForge records never vote (AGENTS §6.4)
         else:
             return
-        tool = {"github": "github_info", "huggingface": "huggingface_info", "flathub": "flathub_info"}[platform]
+        tool = {"github": "github_info", "huggingface": "huggingface_info", "flathub": "flathub_info",
+                "sourceforge": "sourceforge_info"}[platform]
         if r.get("ok") and r.get("source"):
             self._record(tool, {"owner": owner, "repo": repo}, r, platform, r["source"])
             self._cite(r["source"], platform, f"{platform} record of {owner}{'/' + repo if repo else ''}")
@@ -252,7 +272,7 @@ class Prefetch:
             await self.wikimedia(dev, l0)
         if not hit and "WIKIMEDIA_AMBIGUOUS" not in self.codes:
             self.codes.append("WIKIMEDIA_NO_MATCH")
-        if l0.platform in ("github", "huggingface", "flathub") and l0.platform_scope == "user_content" and l0.platform_owner:
+        if l0.platform in ("github", "huggingface", "flathub", "sourceforge") and l0.platform_scope == "user_content" and l0.platform_owner:
             self._add_org(l0.platform, l0.platform_owner)
             await self.platform_record(l0.platform, l0.platform_owner, l0.platform_repo)
             extra = [o for o in self.orgs.get(l0.platform, []) if o.lower() != l0.platform_owner.lower()][:MAX_EXTRA_OWNER_RECORDS]
