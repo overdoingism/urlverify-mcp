@@ -110,7 +110,7 @@ def family_of(etld1: str) -> str:
         # a distribution's manifest repository speaks for that distribution: same family as its own site / API
         k = etld1.lower()
         return next((fam for pfx, fam in DISTRIBUTION_FAMILY.items() if k == pfx or k.startswith(pfx + "/")), etld1)
-    if etld1 in ("wikipedia.org", "wikidata.org"):
+    if etld1 in ("wikipedia.org", "wikidata.org", "wikimedia.org"):
         return "wikimedia"
     a = anchor_for(etld1)
     return a.platform if a else etld1

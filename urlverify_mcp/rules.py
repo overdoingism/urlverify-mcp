@@ -42,7 +42,7 @@ def _squash(s: str) -> str:
 
 # Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
 # established under older rules are re-verified instead of being trusted from the cache.
-RULES_VERSION = "2026-09-24.6"
+RULES_VERSION = "2026-09-24.7"
 SELF_PUBLISHED_MAX_CONFIDENCE = 0.75
 DELEGATED_MAX_CONFIDENCE = 0.8     # mirror / CDN host delegated by the official site: verify the checksum   # TRUE for an owner established only by cross-platform consistency
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub", "sourceforge"}
@@ -132,7 +132,24 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
            target_domain_age: dict | None = None, provenance: dict | None = None,
            registry_state: dict | None = None) -> Decision:
     ctx: dict = {}
+    solo_cfg = cfg.identity.wikimedia_solo
+    solo = solo_cfg.enabled and any(k == "wikimedia_solo" for k in getattr(store, "kinds", {}).values())
+    spare = sub.model_copy(deep=True) if solo else None
     d = _decide(cfg, l0, sub, store, project, cached, ages, target_domain_age, provenance, registry_state, ctx)
+    if solo and d.verdict != Verdict.TRUE:
+        # second pass: an old, widely read Wikimedia record may stand alone for a domain whose only family it is
+        # (AGENTS §4.1). Used only if it turns the case TRUE, and then at the lowest confidence of any path.
+        ctx2: dict = {"allow_solo": True}
+        d2 = _decide(cfg, l0, spare, store, project, cached, ages, target_domain_age, provenance, registry_state, ctx2)
+        if d2.verdict == Verdict.TRUE and ctx2.get("solo_domains"):
+            d, ctx = d2, ctx2
+            d.confidence = min(d.confidence, solo_cfg.max_confidence)
+            d.notes.append(f"official domain {', '.join(ctx2['solo_domains'])} established by Wikimedia alone (old, unchanged, widely "
+                           f"read record); confidence capped at {solo_cfg.max_confidence}")
+            d.notices.append("WIKIMEDIA_ONLY")
+        d.notes.extend(ctx2.get("solo_notes", []))
+    elif cached and "WIKIMEDIA_ONLY" in (cached.get("basis_notices") or []) and d.verdict == Verdict.TRUE:
+        d.notices.append("WIKIMEDIA_ONLY")
     d.established_edges, d.missing_edges = identity_edges(cfg, l0, d, ctx, provenance)
     return d
 
@@ -270,6 +287,8 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
             # the official site (AGENTS §6.4, _sourceforge_link).
             ev.notes.append("SourceForge project data is self-described (or SourceForge's own mirror): not counted as a vote")
             continue
+        if record_kind(store, ev.source) == "wikimedia_solo":
+            continue   # input of the single-source rule (samples, page views), not evidence
         if family_of(src_e1) == "wikimedia":
             # Wikimedia is editable by anyone: it votes only through its structured record, and only for an official
             # website value that already existed before the history window and has not changed since (AGENTS §4.1).
@@ -319,6 +338,17 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
 
     established = [d for d, s in support.items() if _distinct(s) >= ic.min_sources]
     weak = [d for d, s in support.items() if 0 < _distinct(s) < ic.min_sources]
+    # an old, widely read Wikimedia record may establish a domain alone (second decision pass only; see decide())
+    if ctx.get("allow_solo"):
+        for d in list(weak):
+            if {family_of(x) for x in support[d]} != {"wikimedia"}:
+                continue
+            ok, why = _wikimedia_solo(d, store, ic.wikimedia_solo)
+            ctx.setdefault("solo_notes", []).append(f"single-source Wikimedia rule for {d}: {why}")
+            if ok:
+                weak.remove(d)
+                established.append(d)
+                ctx.setdefault("solo_domains", []).append(d)
     est_orgs: dict[str, list[str]] = {}
     for key, s in org_support.items():
         platform, org = key.split(":", 1)
@@ -824,6 +854,62 @@ def _sourceforge_link(l0: L0Result, established: list[str], store: dict[str, str
         if isinstance(text, str) and etld1_of(host_of(page)) == home and pat.search(text):
             return "project", page
     return None
+
+
+def _wikimedia_solo(domain: str, store: dict[str, str], sc) -> tuple[bool, str]:
+    """Judge the `wikimedia_solo` record collected for `domain` (identity/prefetch.py). All must hold:
+    Wikidata and the enwiki infobox (or its {{Official URL}}, which shows the Wikidata value) name the domain now and in
+    a revision current at a random time in the sample window; that revision was itself made inside the window (the entry
+    was edited then) and is not the current one (edited since); no change within the history window; and the article
+    had at least `min_monthly_views` human views in each of the last 24 months."""
+    from datetime import datetime, timedelta
+    rec = None
+    for k, v in store.items():
+        if record_kind(store, k) == "wikimedia_solo":
+            try:
+                j = json.loads(v)
+            except ValueError:
+                continue
+            if j.get("domain") == domain:
+                rec = j
+                break
+    if rec is None:
+        return False, "not checked"
+    try:
+        at = datetime.fromisoformat(rec["collected_at"])
+    except (KeyError, ValueError):
+        return False, "malformed record"
+    lo, hi = sorted(sc.sample_window_months)[:2]
+    oldest = at - timedelta(days=hi * 30.4375)
+    for side in ("wikidata", "wikipedia"):
+        r = rec.get(side) or {}
+        if not r.get("ok") or not r.get("found"):
+            return False, f"{side}: sample revision unavailable ({r.get('error') or 'none at that time'})"
+        try:
+            rev_ts = datetime.fromisoformat(str(r.get("timestamp")).replace("Z", "+00:00"))
+        except ValueError:
+            return False, f"{side}: sample revision has no timestamp"
+        if rev_ts < oldest:
+            return False, f"{side}: not edited between {lo} and {hi} months ago (revision in effect was made {rev_ts:%Y-%m-%d})"
+        if r.get("current_revid") is None or r.get("revid") == r.get("current_revid"):
+            return False, f"{side}: the sampled revision is still the current one (not edited since)"
+        if r.get("recent_change"):
+            return False, f"{side}: official website changed recently"
+        via_wd = side == "wikipedia"
+        now_ok = domain in (r.get("current_domains") or []) or (via_wd and r.get("current_from_wikidata"))
+        then_ok = domain in (r.get("domains") or []) or (via_wd and r.get("from_wikidata"))
+        if not now_ok:
+            return False, f"{side}: does not name {domain} now"
+        if not then_ok:
+            return False, f"{side}: did not name {domain} at {str(r.get('sampled_at'))[:10]} (had {r.get('domains') or 'none'})"
+    months = ((rec.get("views") or {}).get("months")) or []
+    if not (rec.get("views") or {}).get("ok") or len(months) < 24:
+        return False, f"page views unavailable or article younger than 24 months ({len(months)} months)"
+    low = min(m.get("views", 0) for m in months)
+    if low < sc.min_monthly_views:
+        return False, f"page views below {sc.min_monthly_views} in some month (lowest {low})"
+    return True, (f"Wikidata {rec['wikidata'].get('qid')} and '{rec['wikipedia'].get('title')}' named it at "
+                  f"{str(rec['wikidata'].get('sampled_at'))[:10]} / {str(rec['wikipedia'].get('sampled_at'))[:10]}; lowest monthly views {low}")
 
 
 def _flathub_verified(app_id: str, store: dict[str, str]) -> bool:

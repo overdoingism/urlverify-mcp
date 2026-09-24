@@ -29,3 +29,13 @@ def test_self_closing_ref_does_not_swallow_infobox():
                 '| website = {{URL|https://example.org}}\n}}\nText<ref name="a">{{cite web |url=https://evil.example}}</ref> more.\n')
     assert _infobox_repos(wikitext) == ["github.com/ggml-org/llama.cpp"]
     assert _infobox_sites(wikitext) == ["example.org"]
+
+
+def test_infobox_website_shown_from_wikidata():
+    from urlverify_mcp.identity.structured import _infobox_sites, _infobox_uses_wikidata
+    omitted = "{{Infobox software\n| name = 7-Zip\n| license = x<ref>{{cite web | url = https://7-zip.org/l.txt | website = 7-zip.org}}</ref>\n}}"
+    assert _infobox_uses_wikidata(omitted) and _infobox_sites(omitted) == []          # citation fields are not the infobox's
+    assert _infobox_uses_wikidata("{{Infobox software\n| website = {{Official URL}}\n}}")
+    assert not _infobox_uses_wikidata("{{Infobox software\n| website = hide\n}}")
+    assert not _infobox_uses_wikidata("{{Infobox company\n| name = x\n}}")                # no verified Wikidata fallback
+    assert _infobox_sites("{{Infobox software\n| website = 7-zip.org\n}}") == ["7-zip.org"]   # bare domain

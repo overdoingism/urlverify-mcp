@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Single-source Wikimedia rule (`identity.wikimedia_solo`): a domain whose only family is Wikimedia may be established by
+  it alone when Wikidata and the English Wikipedia infobox name it now and in a revision current at a random time 18–30
+  months ago (itself made in that window and not the current revision, on both), nothing changed recently, and the
+  article had at least 2000 human page views in every one of the last 24 months. Lowest-confidence path: TRUE capped at
+  0.6 with `WIKIMEDIA_ONLY` (tell the user first), kept in the identity cache. Thresholds are configurable. With an LLM
+  configured, such a TRUE does not skip the investigation (it may find a second family).
+- Wikipedia infobox parsing: a bare domain (`website = 7-zip.org`) is read; `{{Official URL}}` and an omitted website in
+  `Infobox software` (which shows the Wikidata value) are recorded as "from Wikidata". `wikimedia.org` (page-view API)
+  is part of the Wikimedia family.
+
 - SourceForge (narrow): a SourceForge project is treated as a mirror network, never as a voting source. Its REST record
   (name, homepage, creation date) is fetched and cited only for name matching; nothing from the SourceForge family
   votes. The project is established only through an independently established official site: a page there links the

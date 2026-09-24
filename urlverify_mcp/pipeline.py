@@ -208,14 +208,32 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             fixed_codes = list(pre.codes)
             det_dec = decide(cfg, l0, det_sub.model_copy(deep=True), inv.evidence_store, req.project, cached_identity,
                              {}, None, prov, registry_state)
+            # a candidate official domain whose only family is Wikimedia: collect the single-source samples (AGENTS §4.1)
+            solo_ok: list[str] = []
+            if det_dec.verdict != Verdict.TRUE and cfg.identity.wikimedia_solo.enabled:
+                from .identity.sources import family_of as _fam
+                from .rules import _wikimedia_solo
+                lone = [d for d, srcs in det_dec.supporting_sources.items()
+                        if d not in det_dec.established_domains and {_fam(x) for x in srcs} == {"wikimedia"}]
+                if lone:
+                    try:
+                        collected = await pre.wikimedia_solo(lone)
+                    except Exception as e:  # noqa: BLE001
+                        collected = []
+                        engine_notes.append(f"single-source Wikimedia lookup failed: {type(e).__name__}: {e}")
+                    solo_ok = [d for d in collected if _wikimedia_solo(d, inv.evidence_store, cfg.identity.wikimedia_solo)[0]]
+                    if collected:
+                        det_dec = decide(cfg, l0, det_sub.model_copy(deep=True), inv.evidence_store, req.project, cached_identity,
+                                         {}, None, prov, registry_state)
+            official = det_dec.established_domains + [d for d in solo_ok if d not in det_dec.established_domains]
             # website on a host that is not established while an official domain is (mirror / CDN), or a SourceForge
             # project: look at the official home page and its download page for a link to this exact file (or to the
             # SourceForge project) (AGENTS §6.4), then decide again
-            if det_dec.verdict != Verdict.TRUE and det_dec.established_domains and (
-                    (l0.platform_scope != "user_content" and l0.etld1 not in det_dec.established_domains)
+            if det_dec.verdict != Verdict.TRUE and official and (
+                    (l0.platform_scope != "user_content" and l0.etld1 not in official)
                     or (l0.platform == "sourceforge" and l0.platform_owner)):
                 try:
-                    if await pre.official_pages(fetcher, det_dec.established_domains, l0.etld1):
+                    if await pre.official_pages(fetcher, official, l0.etld1):
                         det_dec = decide(cfg, l0, det_sub.model_copy(deep=True), inv.evidence_store, req.project, cached_identity,
                                          {}, None, prov, registry_state)
                 except Exception as e:  # noqa: BLE001
@@ -224,6 +242,8 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             TRACE.log("fixed_lookups", notes=pre.notes, codes=pre.codes, verdict=det_dec.verdict.value,
                       established=det_dec.established_edges, missing=det_dec.missing_edges)
             decisive = det_dec.verdict in (Verdict.TRUE, Verdict.FALSE) and fp.mode != "full"
+            if decisive and "WIKIMEDIA_ONLY" in det_dec.notices and cfg.llm.enabled:
+                decisive = False       # lowest-confidence path: let the investigator look for a second family first
             if decisive:
                 sub = det_sub
                 engine_notes.append(f"decided from fixed lookups without the LLM ({det_dec.verdict.value})")
@@ -290,6 +310,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                 "official_domains": sorted(set(dec.established_domains)), "official_orgs": dec.established_orgs,
                 "evidence": [e.model_dump() for e in dec.evidence if e.verified_quote],
                 "established_at": time.time(), "policy_fingerprint": policy, "confidence_cap": dec.confidence,
+                "basis_notices": [n for n in dec.notices if n == "WIKIMEDIA_ONLY"],
             }, cfg.cache.identity_ttl_hours * 3600)
 
         await progress.report(f"decision {dec.verdict.value}; writing reason", 0.92)

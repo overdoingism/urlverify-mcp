@@ -51,6 +51,14 @@ class BudgetConfig(BaseModel):
     max_total_s: int = 900                # whole-verification deadline; past it the result is UNVERIFIABLE
 
 
+class WikimediaSoloConfig(BaseModel):
+    """An old, watched Wikimedia record may establish an official domain on its own (AGENTS §4.1). Lowest-confidence path."""
+    enabled: bool = True
+    min_monthly_views: int = 2000             # every one of the last 24 months (human traffic, en.wikipedia article)
+    sample_window_months: list[int] = Field(default_factory=lambda: [18, 30])   # random past revision taken from this window
+    max_confidence: float = 0.6               # TRUE reached through this path is capped here (WIKIMEDIA_ONLY)
+
+
 class IdentityConfig(BaseModel):
     min_sources: int = 2
     allow_tier3: bool = False
@@ -60,6 +68,7 @@ class IdentityConfig(BaseModel):
     github_token: str = ""
     homebrew_reverse_lookup: bool = True       # websites: look up Homebrew casks that download from the target domain
     homebrew_index_refresh_days: int = 7       # the ~2 MB cask catalogue is re-checked (ETag) at most this often
+    wikimedia_solo: WikimediaSoloConfig = WikimediaSoloConfig()
     # additive source tier lists (eTLD+1 or full host). Built-in lists live in identity/sources.py.
     extra_tier1: list[str] = Field(default_factory=list)
     extra_tier2: list[str] = Field(default_factory=list)

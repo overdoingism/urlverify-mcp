@@ -569,3 +569,70 @@ def test_sourceforge_mirror_is_not_the_project_unless_the_exact_file_is_linked()
     f = "https://sourceforge.net/projects/vlc.mirror/files/3.0.21/vlc-3.0.21-win64.exe/download"
     ok = _sf_case(slug="vlc.mirror", sf_rec=mirror, url=f, page=f"Download ({f})")
     assert ok.verdict == Verdict.TRUE and ok.notices == ["OFFICIAL_DOWNLOAD_HOST"], ok.notes
+
+
+def _solo_store(views=2500, wd_ts="2024-10-01T00:00:00Z", wd_domains=("keepass.info",), wd_revid=100, wp_from_wd=True,
+                months=24, recent=False, extra_media=False, with_solo=True):
+    """KeePass-like case: keepass.info named by an aged Wikidata record and a Wikipedia article using {{Official URL}}."""
+    import json
+    store = EvidenceStore()
+    wd = "https://www.wikidata.org/wiki/Q762660"
+    stab = {"ok": True, "stable": True, "recent_change": recent, "current": ["https://keepass.info/"],
+            "value_days_ago": ["https://keepass.info/"], "current_revid": 900}
+    store.record(wd, json.dumps({"qid": "Q762660", "label": "KeePass", "official_website": ["https://keepass.info/"], "stability": stab}), "wikidata")
+    if extra_media:
+        store["https://techcrunch.com/keepass"] = "KeePass is available from keepass.info."
+    if with_solo:
+        rec = {"domain": "keepass.info", "collected_at": "2026-09-24T00:00:00+00:00", "window_months": [18, 30],
+               "wikidata": {"qid": "Q762660", "sampled_at": "2024-10-05T00:00:00+00:00", "ok": True, "found": True, "revid": wd_revid,
+                            "timestamp": wd_ts, "domains": list(wd_domains), "current_domains": ["keepass.info"], "current_revid": 900,
+                            "recent_change": recent},
+               "wikipedia": {"title": "KeePass", "sampled_at": "2025-01-10T00:00:00+00:00", "ok": True, "found": True, "revid": 50,
+                             "timestamp": "2025-01-02T00:00:00Z", "domains": [], "from_wikidata": wp_from_wd, "current_domains": [],
+                             "current_from_wikidata": wp_from_wd, "current_revid": 70, "recent_change": False},
+               "views": {"ok": True, "months": [{"month": f"m{i}", "views": views} for i in range(months)]}}
+        store.record("https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/KeePass/monthly/x",
+                     json.dumps(rec), "wikimedia_solo")
+    ev = [Evidence(kind="wikidata", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == wd])]
+    if extra_media:
+        ev.append(_ev("https://techcrunch.com/keepass", "site", "KeePass is available from keepass.info"))
+    ident = IdentityGraph(product="KeePass", official_domains=["keepass.info"])
+    return decide(Config(), _l0(host="keepass.info"), LLMSubmission(identity=ident, evidence=ev), store, "KeePass")
+
+
+def test_old_widely_read_wikimedia_record_may_stand_alone_at_lowest_confidence():
+    d = _solo_store()
+    assert d.verdict == Verdict.TRUE and d.confidence <= 0.6 and d.notices == ["WIKIMEDIA_ONLY"], d.notes
+    assert "PROJECT_TO_DOMAIN:keepass.info" in d.established_edges
+    # two independent families: the normal path, no cap, no notice
+    two = _solo_store(extra_media=True)
+    assert two.verdict == Verdict.TRUE and two.confidence > 0.6 and "WIKIMEDIA_ONLY" not in two.notices
+    assert _solo_store(with_solo=False).verdict == Verdict.UNVERIFIABLE
+
+
+def test_single_source_rule_conditions():
+    assert _solo_store(views=1999).verdict == Verdict.UNVERIFIABLE                          # one month below the floor
+    assert _solo_store(months=23).verdict == Verdict.UNVERIFIABLE                           # article younger than 24 months
+    assert _solo_store(wd_ts="2023-12-01T00:00:00Z").verdict == Verdict.UNVERIFIABLE        # not edited inside the window
+    assert _solo_store(wd_revid=900).verdict == Verdict.UNVERIFIABLE                        # sampled revision is still current
+    assert _solo_store(wd_domains=("evil.example",)).verdict == Verdict.UNVERIFIABLE        # different domain back then
+    assert _solo_store(wp_from_wd=False).verdict == Verdict.UNVERIFIABLE                    # article states no website
+    d = _solo_store(views=1999)
+    assert any("page views below 2000" in n for n in d.notes), d.notes
+
+
+def test_single_source_threshold_is_configurable_and_record_never_votes():
+    from urlverify_mcp.identity.sources import family_of
+    assert family_of("wikimedia.org") == "wikimedia"
+    import json
+    store = EvidenceStore()
+    rec = {"domain": "evil.example", "views": {"ok": True, "months": []}}
+    src = "https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/X/monthly/x"
+    store.record(src, json.dumps(rec), "wikimedia_solo")
+    store["https://techcrunch.com/x"] = "X lives at evil.example"
+    ev = [Evidence(kind="media", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == src]),
+          _ev("https://techcrunch.com/x", "site", "X lives at evil.example")]
+    d = decide(Config(), _l0(host="evil.example"), LLMSubmission(identity=IdentityGraph(product="X", official_domains=["evil.example"]), evidence=ev), store, "X")
+    assert d.verdict == Verdict.UNVERIFIABLE and "evil.example" not in d.established_domains
+    cfg = Config(identity={"wikimedia_solo": {"min_monthly_views": 3000}})
+    assert cfg.identity.wikimedia_solo.min_monthly_views == 3000

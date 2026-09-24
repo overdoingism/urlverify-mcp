@@ -368,3 +368,40 @@ def test_wikidata_label_falls_back_to_mul():
     assert _label({"labels": {"mul": {"value": "7-Zip"}}}) == "7-Zip"
     assert _label({"labels": {"en": {"value": "VLC media player"}, "mul": {"value": "VLC"}}}) == "VLC media player"
     assert _label({}) is None
+
+
+async def test_single_source_samples_are_collected_inside_the_window():
+    import json as _json
+    import random
+    from datetime import datetime, timedelta, timezone
+    kp = {"qid": "Q762660", "label": "KeePass", "official_website": ["https://keepass.info/"], "enwiki": "KeePass",
+          "stability": {**aged("https://keepass.info/"), "current_revid": 900}, "source": "https://www.wikidata.org/wiki/Q762660"}
+
+    class FS(FakeStructured):
+        def __init__(self):
+            super().__init__(wikidata={"KeePass": [kp]}, wikipedia={"KeePass": {
+                "ok": True, "found": True, "title": "KeePass", "official_website": [], "official_website_from_wikidata": True,
+                "current_revid": 70, "stability": STABLE, "source": "https://en.wikipedia.org/wiki/KeePass"}})
+            self.at = []
+
+        async def revision_at(self, title, at, site="wikipedia"):
+            self.at.append(at)
+            return {"ok": True, "found": True, "revid": 1, "timestamp": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "domains": ["keepass.info"] if site == "wikidata" else [], "from_wikidata": site == "wikipedia"}
+
+        async def pageviews(self, title, now=None):
+            return {"ok": True, "months": [{"month": str(i), "views": 5000} for i in range(24)], "source": f"https://wikimedia.org/pv/{title}"}
+    fs = FS()
+    store = EvidenceStore()
+    pre = Prefetch(Config(identity={"homebrew_reverse_lookup": False}), fs, store)
+    pre.rng = random.Random(7)
+    await pre.run(l0_for("keepass.info"), "KeePass")
+    assert await pre.wikimedia_solo(["keepass.info", "other.example"]) == ["keepass.info"]
+    now = datetime.now(timezone.utc)
+    assert all(now - timedelta(days=30 * 30.44) <= t <= now - timedelta(days=18 * 30.43) for t in fs.at), fs.at
+    rec = next(_json.loads(store.get(k)) for k, v in store.kinds.items() if v == "wikimedia_solo")
+    assert rec["wikidata"]["current_revid"] == 900 and rec["wikipedia"]["current_from_wikidata"] is True
+    from urlverify_mcp.identity.prefetch import brief
+    from urlverify_mcp.rules import _wikimedia_solo
+    assert _wikimedia_solo("keepass.info", store, Config().identity.wikimedia_solo)[0]
+    assert "wikimedia_solo" not in brief(decide(Config(), l0_for("keepass.info"), pre.submission("KeePass"), store, "KeePass"), store)

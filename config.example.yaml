@@ -37,6 +37,13 @@ identity:
   allow_tier3: false        # forums / blogs / reddit
   history_days: 90          # Wikipedia / Wikidata stability window
   min_stable_revisions: 3
+  # An old, widely read Wikimedia record may establish an official domain on its own (lowest-confidence TRUE,
+  # notice WIKIMEDIA_ONLY). Checked only when the domain has Wikimedia as its single family. See document_for_config.md.
+  wikimedia_solo:
+    enabled: true
+    min_monthly_views: 2000        # human page views of the en.wikipedia article, every month of the last 24
+    sample_window_months: [18, 30] # a random past revision in this window must already carry the same domain
+    max_confidence: 0.6
   github_token: ""          # optional, no permissions needed: 60 -> 5000 GitHub API requests/hour (see document_for_config.md)
   new_domain_days: 180      # CT first-seen / org creation younger than this = risk signal
   github_token: ""          # optional, raises API rate limit

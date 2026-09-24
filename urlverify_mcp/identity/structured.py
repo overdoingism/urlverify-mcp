@@ -142,6 +142,7 @@ class Structured:
                 values = [{"ts": rev["timestamp"], "official": _claim_vals(rev.get("slots", {}).get("main", {}).get("content", ""), pid) or []} for rev in revs]
                 old_val = _claim_vals(old_content, pid) if old_content is not None else None
                 out[pid] = _stability_verdict(values, old_val, min_stable, history_days)
+                out[pid]["current_revid"] = revs[0].get("revid") if revs else None
             return out
         except Exception as ex:  # noqa: BLE001
             return {pid: {"ok": False, "error": f"{type(ex).__name__}: {ex}"} for pid in pids}
@@ -174,12 +175,67 @@ class Structured:
             devs = re.findall(r"^\s*\|\s*(?:developer|author|publisher|company)\s*=\s*([^\n|]+)", _strip_refs(latest_text), flags=re.I | re.M)
             devs = [d for d in devs if d.strip() and not d.strip().startswith(("{{", "<"))]
             return {"ok": True, "found": True, "title": page["title"], "official_website": current, "official_repos": current_repos,
+                    "official_website_from_wikidata": _infobox_uses_wikidata(latest_text),
+                    "current_revid": revs[0].get("revid") if revs else None,
                     "developer_fields": [re.sub(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", r"\1", d).strip() for d in devs][:5],
                     "stability": _stability_verdict(values, old_val, min_stable, history_days),
                     "repo_stability": _stability_verdict(repo_values, old_repo, min_stable, history_days) if current_repos else None,
                     "source": f"https://{lang}.wikipedia.org/wiki/{page['title'].replace(' ', '_')}"}
         except Exception as ex:  # noqa: BLE001
             return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+
+    # ---------------- revision in effect at a past time; page views (AGENTS §4.1, wikimedia_solo)
+    async def revision_at(self, *a, **k): return _obs("wikipedia" if k.get("site", "wikipedia") == "wikipedia" else "wikidata", await self._revision_at(*a, **k))
+
+    async def _revision_at(self, title: str, at: datetime, site: str = "wikipedia", lang: str = "en") -> dict[str, Any]:
+        """The revision of `title` (a Wikipedia article or a Wikidata QID) that was current at `at`, with the official
+        website it carried: Wikidata P856 as eTLD+1s, or the Wikipedia infobox website field (and whether that field
+        displays the Wikidata value through {{Official URL}})."""
+        api = WIKIDATA_API if site == "wikidata" else WIKI_API.format(lang=lang)
+        try:
+            r = await self._json(api, {"action": "query", "prop": "revisions", "titles": title, "rvprop": "ids|timestamp|content",
+                                       "rvslots": "main", "rvlimit": 1, "rvstart": at.strftime("%Y-%m-%dT%H:%M:%SZ"), "rvdir": "older",
+                                       "format": "json", "formatversion": 2})
+            revs = ((((r.get("query") or {}).get("pages") or [{}])[0]).get("revisions")) or []
+            if not revs:
+                return {"ok": True, "found": False}
+            rev = revs[0]
+            content = rev.get("slots", {}).get("main", {}).get("content", "")
+            out = {"ok": True, "found": True, "revid": rev.get("revid"), "timestamp": rev.get("timestamp")}
+            if site == "wikidata":
+                try:
+                    claims = json.loads(content).get("claims", {}).get("P856", [])
+                except ValueError:
+                    claims = []
+                vals = [c["mainsnak"]["datavalue"]["value"] for c in claims if "datavalue" in c.get("mainsnak", {})]
+                out["domains"] = sorted({etld1_of(host_of(v if "://" in v else "https://" + v)) for v in vals if isinstance(v, str)} - {""})
+            else:
+                out["domains"] = _infobox_sites(content)
+                out["from_wikidata"] = _infobox_uses_wikidata(content)
+            return out
+        except Exception as ex:  # noqa: BLE001
+            return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+
+    async def pageviews(self, *a, **k): return _obs("wikipedia", await self._pageviews(*a, **k))
+
+    async def _pageviews(self, title: str, months: int = 24, lang: str = "en", now: datetime | None = None) -> dict[str, Any]:
+        """Human (agent=user) monthly page views of an article over the last `months` complete months."""
+        from urllib.parse import quote
+        now = now or datetime.now(timezone.utc)
+        end = now.replace(day=1) - timedelta(days=1)                       # last day of the previous month
+        y, m = end.year, end.month - months + 1
+        while m <= 0:
+            y, m = y - 1, m + 12
+        url = (f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/{lang}.wikipedia/all-access/user/"
+               f"{quote(title.replace(' ', '_'), safe='')}/monthly/{y:04d}{m:02d}0100/{end:%Y%m%d}00")
+        try:
+            d = await self._json(url)
+        except Exception as ex:  # noqa: BLE001
+            if "HTTP 404" in str(ex):
+                return {"ok": True, "months": [], "source": url}
+            return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+        return {"ok": True, "months": [{"month": str(i.get("timestamp", ""))[:6], "views": i.get("views", 0)} for i in d.get("items", [])],
+                "source": url}
 
     # ---------------- Wayback
     async def _wayback_first_seen(self, domain: str) -> dict[str, Any]:
@@ -439,12 +495,31 @@ def _infobox_repos(wikitext: str) -> list[str]:
     return sorted(repos)
 
 
+# infoboxes whose template shows Wikidata P856 when the website parameter is omitted (template source checked 2026-09-24)
+_WIKIDATA_FALLBACK_INFOBOXES = ("infobox software",)
+
+
+def _infobox_uses_wikidata(wikitext: str) -> bool:
+    """The infobox shows the Wikidata official website instead of stating one: {{Official URL}} / {{Official website}}
+    without arguments, or a website parameter omitted from an infobox that falls back to Wikidata."""
+    text = _strip_refs(wikitext or "")
+    lines = re.findall(r"^\s*\|\s*(?:website|homepage)\s*=\s*([^\n]*)", text, flags=re.I | re.M)
+    if any(re.search(r"\{\{\s*official (?:url|website)\s*\}\}", line, flags=re.I) for line in lines):
+        return True
+    if lines or re.search(r"^\s*\|\s*qid\s*=\s*none", text, flags=re.I | re.M):
+        return False
+    return any(re.search(r"\{\{\s*" + t.replace(" ", r"[ _]") + r"\s*[|\n}]", text, flags=re.I) for t in _WIKIDATA_FALLBACK_INFOBOXES)
+
+
 def _infobox_sites(wikitext: str) -> list[str]:
     # only the infobox "website"/"homepage" field; strip cite templates so citation URLs on the same line are ignored
     text = _strip_refs(wikitext)
     m = re.findall(r"^\s*\|\s*(?:website|homepage)\s*=\s*([^\n]+)", text, flags=re.I | re.M)
     sites = set()
     for line in m:
+        bare = line.strip()
+        if re.fullmatch(r"(?i)(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/\S*)?", bare):     # "website = 7-zip.org"
+            sites.add(etld1_of(host_of("https://" + bare)))
         for u in URL_RE.findall(line):
             sites.add(etld1_of(host_of(u)))
         for u in re.findall(r"\{\{\s*URL\s*\|\s*([^|}]+)", line, flags=re.I):

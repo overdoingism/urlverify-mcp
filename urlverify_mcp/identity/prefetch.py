@@ -8,7 +8,9 @@ started; otherwise the LLM is told what is already known and which identity edge
 from __future__ import annotations
 
 import json
+import random
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..checks.urltools import etld1_of, host_of
@@ -65,6 +67,8 @@ class Prefetch:
         self.orgs: dict[str, list[str]] = {}
         self.developers: list[str] = []
         self.ambiguous: list[str] = []
+        self.accepted_entities: list[tuple[dict[str, Any], dict[str, Any] | None]] = []   # (Wikidata entity, enwiki record)
+        self.rng = random.SystemRandom()
 
     # ------------------------------------------------------------------ helpers
     def _cite(self, source: str, kind: str, claim: str) -> None:
@@ -140,11 +144,14 @@ class Prefetch:
                 if dev.get("label") and dev["label"] not in self.developers:
                     self.developers.append(dev["label"])
             title = ent.get("enwiki")
+            wp = None
             if title:
                 w = await self.structured.wikipedia_history(title, ic.history_days, ic.min_stable_revisions)
                 if w.get("ok") and w.get("found") and w.get("source"):
+                    wp = w
                     self._record("wikipedia_history", {"title": title}, w, "wikipedia", w["source"])
                     self._cite(w["source"], "wikipedia", f"Wikipedia '{w.get('title')}' (sitelink of {ent.get('qid')})")
+            self.accepted_entities.append((ent, wp))
         if not accepted:
             self.notes.append(f"fixed lookup: Wikidata '{name}': no entity matched by label, alias or link to the target")
         return accepted
@@ -251,6 +258,47 @@ class Prefetch:
             self.notes.append("fixed lookup: official pages fetched to look for a link to this exact file: " + ", ".join(fetched))
         return fetched
 
+    async def wikimedia_solo(self, domains: list[str]) -> list[str]:
+        """AGENTS §4.1 (wikimedia_solo): for a candidate official domain whose only family is Wikimedia, collect what the
+        rules need to decide whether that record may establish it alone: the revision current at a random time in the
+        sample window (Wikidata and the enwiki article, each its own draw) and 24 months of human page views of the
+        article. Stored as one `wikimedia_solo` record per domain (never cited, never listed to the LLM); the rules
+        apply the thresholds, so a replay reuses the same draw."""
+        sc = self.cfg.identity.wikimedia_solo
+        if not sc.enabled:
+            return []
+        now = datetime.now(timezone.utc)
+        lo, hi = sorted(sc.sample_window_months)[:2]
+        collected = []
+        for d in domains[:2]:
+            pair = next(((e, wp) for e, wp in self.accepted_entities if wp and d in _site_domains(e.get("official_website"))), None)
+            if not pair:
+                self.notes.append(f"fixed lookup: no accepted Wikidata entity with an English article names {d}; single-source rule not checked")
+                continue
+            ent, wp = pair
+            draw = lambda: now - timedelta(days=self.rng.uniform(lo * 30.4375, hi * 30.4375))   # noqa: E731
+            t_wd, t_wp = draw(), draw()
+            wd_rev = await self.structured.revision_at(ent["qid"], t_wd, site="wikidata")
+            wp_rev = await self.structured.revision_at(wp["title"], t_wp, site="wikipedia")
+            views = await self.structured.pageviews(wp["title"], now=now)
+            stab = ent.get("stability") or {}
+            rec = {"domain": d, "collected_at": now.isoformat(), "window_months": [lo, hi],
+                   "wikidata": {"qid": ent.get("qid"), "sampled_at": t_wd.isoformat(), **wd_rev,
+                                "current_domains": sorted(_site_domains(ent.get("official_website"))),
+                                "current_revid": stab.get("current_revid"), "recent_change": stab.get("recent_change")},
+                   "wikipedia": {"title": wp.get("title"), "sampled_at": t_wp.isoformat(), **wp_rev,
+                                 "current_domains": wp.get("official_website") or [],
+                                 "current_from_wikidata": bool(wp.get("official_website_from_wikidata")),
+                                 "current_revid": wp.get("current_revid"),
+                                 "recent_change": (wp.get("stability") or {}).get("recent_change")},
+                   "views": views}
+            src = views.get("source") or f"https://wikimedia.org/api/rest_v1/metrics/pageviews/per-article/en.wikipedia/all-access/user/{wp.get('title')}"
+            self._record("wikimedia_solo", {}, rec, "wikimedia_solo", src)
+            collected.append(d)
+            self.notes.append(f"fixed lookup: single-source check for {d}: Wikidata {ent.get('qid')} revision at {t_wd:%Y-%m-%d}, "
+                              f"Wikipedia '{wp.get('title')}' revision at {t_wp:%Y-%m-%d}, 24 months of page views")
+        return collected
+
     # ------------------------------------------------------------------ plan
     async def run(self, l0: L0Result, project: str) -> LLMSubmission:
         """The fixed plan: Wikimedia for the project name, then the package / repository name, then the developer of
@@ -294,6 +342,10 @@ class Prefetch:
         return LLMSubmission(identity=ident, evidence=list(self.evidence), proposed_verdict="UNVERIFIABLE")
 
 
+def _site_domains(urls) -> set[str]:
+    return {etld1_of(host_of(u if "://" in u else "https://" + u)) for u in urls or [] if isinstance(u, str)} - {""}
+
+
 def merge(det: LLMSubmission, llm: LLMSubmission) -> LLMSubmission:
     """LLM findings added to the fixed-lookup submission: evidence and candidate domains / orgs are unioned; the LLM's
     prose (developer, aliases, narrative, proposal) is kept."""
@@ -319,6 +371,8 @@ def brief(det_decision, store: EvidenceStore, ambiguous: list[str] | None = None
     for a in ambiguous or []:
         lines.append(f"- AMBIGUOUS NAME: {a}. Decide which one (if any) is this project and cite ITS facts by id; cite none if unsure.")
     for src, rid in store.record_ids.items():
+        if store.kinds.get(src) == "wikimedia_solo":
+            continue                        # the rules' own input, not evidence
         lines.append(f"- {rid} {store.kinds.get(src)} {src}")
     if det_decision.established_edges:
         lines.append("Already established: " + ", ".join(det_decision.established_edges))
