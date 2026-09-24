@@ -205,10 +205,20 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             except Exception as e:  # noqa: BLE001
                 det_sub = LLMSubmission(identity=IdentityGraph(product=req.project))
                 engine_notes.append(f"fixed lookups failed: {type(e).__name__}: {e}")
-            engine_notes.extend(pre.notes)
             fixed_codes = list(pre.codes)
             det_dec = decide(cfg, l0, det_sub.model_copy(deep=True), inv.evidence_store, req.project, cached_identity,
                              {}, None, prov, registry_state)
+            # website on a host that is not established while an official domain is (mirror / CDN): look at the official
+            # home page and its download page for a link to this exact file (AGENTS §6.4), then decide again
+            if (det_dec.verdict != Verdict.TRUE and l0.platform_scope != "user_content" and det_dec.established_domains
+                    and l0.etld1 not in det_dec.established_domains):
+                try:
+                    if await pre.official_pages(fetcher, det_dec.established_domains, l0.etld1):
+                        det_dec = decide(cfg, l0, det_sub.model_copy(deep=True), inv.evidence_store, req.project, cached_identity,
+                                         {}, None, prov, registry_state)
+                except Exception as e:  # noqa: BLE001
+                    engine_notes.append(f"official page lookup failed: {type(e).__name__}: {e}")
+            engine_notes.extend(pre.notes)
             TRACE.log("fixed_lookups", notes=pre.notes, codes=pre.codes, verdict=det_dec.verdict.value,
                       established=det_dec.established_edges, missing=det_dec.missing_edges)
             decisive = det_dec.verdict in (Verdict.TRUE, Verdict.FALSE) and fp.mode != "full"

@@ -263,3 +263,26 @@ def test_unverified_flathub_app_not_established_by_flathub_family_votes():
     d = decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev), store, "VLC", ages=ages)
     assert d.verdict == Verdict.UNVERIFIABLE, d.notes
     assert any("community packaging" in n for n in d.notes)
+
+
+async def test_official_pages_fetch_home_and_download_page():
+    import json as _json
+
+    class FakeFetcher:
+        def __init__(self):
+            self.urls = []
+
+        async def fetch(self, url):
+            self.urls.append(url)
+            if url == "https://www.videolan.org/vlc/":
+                return ("VLC media player. Download VLC (https://www.videolan.org/vlc/download-windows.html) "
+                        "Docs (https://wiki.videolan.org/) News (https://www.videolan.org/news.html)")
+            return "Get it (https://mirror.example.net/videolan/vlc-3.0.21-win64.exe)"
+    store = EvidenceStore()
+    store.record("https://www.wikidata.org/wiki/Q171477", _json.dumps({"label": "VLC", "official_website": ["https://www.videolan.org/vlc/"]}), "wikidata")
+    pre = Prefetch(Config(), FakeStructured(), store)
+    f = FakeFetcher()
+    got = await pre.official_pages(f, ["videolan.org"], "example.net")
+    assert f.urls == ["https://www.videolan.org/vlc/", "https://www.videolan.org/vlc/download-windows.html"] and got == f.urls
+    assert store.page_text("https://www.videolan.org/vlc/download-windows.html").endswith("vlc-3.0.21-win64.exe)")
+    assert "https://www.videolan.org/vlc/" not in store.kinds                 # pages only, never records / evidence

@@ -180,6 +180,37 @@ class Prefetch:
                                           claim=f"[fixed lookup] Homebrew cask {c['token']} downloads from {l0.etld1}"))
             self.notes.append(f"fixed lookup: Homebrew cask '{c['token']}' downloads from {l0.etld1}")
 
+    async def official_pages(self, fetcher, established: list[str], target_etld1: str) -> list[str]:
+        """Website target on a host that is not established while an official domain is: fetch that domain's home page
+        and the first same-domain "download" page it links, so the exact-file-link rule (AGENTS §6.4) can see whether
+        the official site points at this file. Pages are stored as pages only: never cited, never shown to the LLM."""
+        fetched: list[str] = []
+        for d in established[:2]:
+            if d == target_etld1:
+                continue
+            home = next((u for src, k in self.store.kinds.items() if k == "wikidata"
+                         for u in re.findall(r'"official_website":\s*\[([^\]]*)\]', self.store.get(src) or "")[:1]
+                         for u in re.findall(r'"(https?://[^"]+)"', u) if etld1_of(host_of(u)) == d), None) or f"https://{d}/"
+            try:
+                text = await fetcher.fetch(home)
+            except Exception as e:  # noqa: BLE001
+                self.notes.append(f"fixed lookup: official home page {home} unavailable ({type(e).__name__})")
+                continue
+            self.store[home] = text
+            fetched.append(home)
+            link = next((u for label, u in re.findall(r"([^()\n]{0,60})\((https?://[^)\s]+)\)", text)
+                         if etld1_of(host_of(u)) == d and u.rstrip("/") != home.rstrip("/")
+                         and re.search(r"download", u + " " + label, re.I)), None)
+            if link:
+                try:
+                    self.store[link] = await fetcher.fetch(link)
+                    fetched.append(link)
+                except Exception as e:  # noqa: BLE001
+                    self.notes.append(f"fixed lookup: official download page {link} unavailable ({type(e).__name__})")
+        if fetched:
+            self.notes.append("fixed lookup: official pages fetched to look for a link to this exact file: " + ", ".join(fetched))
+        return fetched
+
     # ------------------------------------------------------------------ plan
     async def run(self, l0: L0Result, project: str) -> LLMSubmission:
         """The fixed plan: Wikimedia for the project name, then the package / repository name, then the developer of
