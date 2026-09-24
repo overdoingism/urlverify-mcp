@@ -292,3 +292,26 @@ async def test_official_pages_fetch_home_and_download_page():
     assert f.urls == ["https://www.videolan.org/vlc/", "https://www.videolan.org/vlc/download-windows.html"] and got == f.urls
     assert store.page_text("https://www.videolan.org/vlc/download-windows.html").endswith("vlc-3.0.21-win64.exe)")
     assert "https://www.videolan.org/vlc/" not in store.kinds                 # pages only, never records / evidence
+
+
+async def test_same_name_entities_are_left_to_the_llm():
+    a = {"qid": "Q18719004", "label": "Audacity", "description": "audio editor", "official_website": ["https://www.audacityteam.org"],
+         "stability": aged("https://www.audacityteam.org"), "source": "https://www.wikidata.org/wiki/Q18719004"}
+    b = {"qid": "Q135060012", "label": "Audacity", "description": "something else", "official_website": ["https://other.example"],
+         "stability": aged("https://other.example"), "source": "https://www.wikidata.org/wiki/Q135060012"}
+    store = EvidenceStore()
+    pre = Prefetch(Config(identity={"homebrew_reverse_lookup": False}), FakeStructured(wikidata={"Audacity": [a, b]}), store)
+    sub = await pre.run(l0_for("muse-cdn.com"), "Audacity")
+    assert "WIKIMEDIA_AMBIGUOUS" in pre.codes and not sub.evidence and "other.example" not in sub.identity.official_domains
+    assert len(store.kinds) == 2 and "Q135060012" in pre.ambiguous[0]              # kept for the LLM to cite
+    from urlverify_mcp.identity.prefetch import brief
+    from urlverify_mcp.rules import decide
+    text = brief(decide(Config(), l0_for("muse-cdn.com"), sub, store, "Audacity"), store, pre.ambiguous)
+    assert "AMBIGUOUS NAME" in text and "Q18719004" in text
+    # a link to the target wins over name-only matches, and a single name-only match is still taken
+    pre2 = Prefetch(Config(identity={"homebrew_reverse_lookup": False}), FakeStructured(wikidata={"Audacity": [a, b]}), EvidenceStore())
+    sub2 = await pre2.run(l0_for("www.audacityteam.org"), "Audacity")
+    assert [e.source for e in sub2.evidence] == [a["source"]]
+    pre3 = Prefetch(Config(identity={"homebrew_reverse_lookup": False}), FakeStructured(wikidata={"Audacity": [a]}), EvidenceStore())
+    sub3 = await pre3.run(l0_for("muse-cdn.com"), "Audacity")
+    assert [e.source for e in sub3.evidence] == [a["source"]]

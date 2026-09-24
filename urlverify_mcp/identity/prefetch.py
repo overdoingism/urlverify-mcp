@@ -26,21 +26,27 @@ def _norm(x: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (x or "").lower())
 
 
-def entity_accepted(ent: dict[str, Any], name: str, l0: L0Result) -> str | None:
-    """Why a Wikidata search hit is accepted as the project / developer, or None. Exact rules only: the label or an
-    alias equals the searched name, or the entity's official website / source repository points at the target."""
-    n = _norm(name)
-    if n and (_norm(ent.get("label") or "") == n or any(_norm(a) == n for a in ent.get("aliases") or [])):
-        return "label or alias equals the searched name"
+def entity_match(ent: dict[str, Any], name: str, l0: L0Result) -> tuple[str, str] | None:
+    """(kind, why) for a Wikidata search hit, or None. kind "link": the entity's official website / source repository
+    points at the target (deterministic evidence). kind "label": only its label or an alias equals the searched name
+    (a name can belong to several things; see Prefetch.wikimedia)."""
     sites = {etld1_of(host_of(u if "://" in u else "https://" + u)) for u in ent.get("official_website") or [] if isinstance(u, str)}
     if l0.etld1 and l0.etld1 in sites and not (l0.platform_scope == "user_content"):
-        return f"official website is the target domain {l0.etld1}"
+        return "link", f"official website is the target domain {l0.etld1}"
     host = _PLATFORM_HOST.get(l0.platform or "")
     if host and l0.platform_owner:
         prefix = f"{host}/{l0.platform_owner.lower()}"
         if any(str(r).lower() == prefix or str(r).lower().startswith(prefix + "/") for r in ent.get("official_repos") or []):
-            return f"source repository is under the target owner {l0.platform_owner}"
+            return "link", f"source repository is under the target owner {l0.platform_owner}"
+    n = _norm(name)
+    if n and (_norm(ent.get("label") or "") == n or any(_norm(a) == n for a in ent.get("aliases") or [])):
+        return "label", "label or alias equals the searched name"
     return None
+
+
+def entity_accepted(ent: dict[str, Any], name: str, l0: L0Result) -> str | None:
+    m = entity_match(ent, name, l0)
+    return m[1] if m else None
 
 
 class Prefetch:
@@ -56,6 +62,7 @@ class Prefetch:
         self.domains: list[str] = []
         self.orgs: dict[str, list[str]] = {}
         self.developers: list[str] = []
+        self.ambiguous: list[str] = []
 
     # ------------------------------------------------------------------ helpers
     def _cite(self, source: str, kind: str, claim: str) -> None:
@@ -94,11 +101,24 @@ class Prefetch:
         if not r.get("ok"):
             self.notes.append(f"fixed lookup: Wikidata unavailable for '{name}' ({r.get('error')})")
             return False
+        matches = [(ent, *m) for ent in r.get("entities") or [] if (m := entity_match(ent, name, l0))]
+        link = [x for x in matches if x[1] == "link"]
+        label = [x for x in matches if x[1] == "label"]
+        if not link and len(label) > 1:
+            # several things carry this name: which one is the project is a semantic question for the LLM. The records
+            # are kept (citable by fact id) but nothing is cited and no candidate domain / org is taken from them.
+            cands = []
+            for ent, _, _ in label:
+                self._record("wikidata_lookup", {"name": name}, ent, "wikidata", ent["source"])
+                cands.append(f"{self.store.record_ids.get(ent['source'])} {ent.get('qid')} '{ent.get('label')}'"
+                             f" ({(ent.get('description') or 'no description')[:80]})")
+            self.ambiguous.append(f"Wikidata has several entities named '{name}': " + "; ".join(cands))
+            if "WIKIMEDIA_AMBIGUOUS" not in self.codes:
+                self.codes.append("WIKIMEDIA_AMBIGUOUS")
+            self.notes.append(f"fixed lookup: Wikidata '{name}' matches {len(label)} entities by name only; left to the investigator")
+            return False
         accepted = False
-        for ent in r.get("entities") or []:
-            why = entity_accepted(ent, name, l0)
-            if not why:
-                continue
+        for ent, _, why in (link or label):
             accepted = True
             src = ent["source"]
             self._record("wikidata_lookup", {"name": name}, ent, "wikidata", src)
@@ -230,7 +250,7 @@ class Prefetch:
             if self.wikimedia_queries >= MAX_WIKIMEDIA_QUERIES:
                 break
             await self.wikimedia(dev, l0)
-        if not hit:
+        if not hit and "WIKIMEDIA_AMBIGUOUS" not in self.codes:
             self.codes.append("WIKIMEDIA_NO_MATCH")
         if l0.platform in ("github", "huggingface", "flathub") and l0.platform_scope == "user_content" and l0.platform_owner:
             self._add_org(l0.platform, l0.platform_owner)
@@ -273,9 +293,11 @@ def merge(det: LLMSubmission, llm: LLMSubmission) -> LLMSubmission:
                          proposed_reason=llm.proposed_reason, risk_notes=llm.risk_notes)
 
 
-def brief(det_decision, store: EvidenceStore) -> str:
+def brief(det_decision, store: EvidenceStore, ambiguous: list[str] | None = None) -> str:
     """What the LLM is told before it starts: records already fetched (facts citable by id) and the missing edges."""
     lines = ["Fixed lookups already ran (do not repeat them; cite their facts by id if they support something):"]
+    for a in ambiguous or []:
+        lines.append(f"- AMBIGUOUS NAME: {a}. Decide which one (if any) is this project and cite ITS facts by id; cite none if unsure.")
     for src, rid in store.record_ids.items():
         lines.append(f"- {rid} {store.kinds.get(src)} {src}")
     if det_decision.established_edges:

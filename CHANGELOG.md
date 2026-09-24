@@ -6,6 +6,9 @@
   value that already existed before the history window and has not changed since. Brand-new Wikidata entities,
   changed values, other domains mentioned in a record (e.g. a developer's site) and fetched Wikipedia HTML pages no
   longer vote (a new entity used to pass as "no recent change").
+- Fixed lookups: when several Wikidata entities match the project only by name, none is taken; their records are kept
+  and listed to the investigator, which decides which one (if any) is the project (`WIKIMEDIA_AMBIGUOUS`). An entity
+  linking to the target is still taken directly; a single name-only match too.
 
 - Fix (regression from the address fallback): when no resolved address accepts a TLS connection the error keeps the
   "connection error" prefix, so L0 treats it as unconfirmed (UNVERIFIABLE) instead of a fatal certificate failure

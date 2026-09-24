@@ -232,7 +232,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                 await progress.report("L1: identity investigation (LLM + tools) on the missing edges", 0.15)
                 try:
                     llm_sub = await inv.investigate(req.project, req.url, req.description, l0, cached_identity,
-                                                    gap_brief=brief(det_dec, inv.evidence_store))
+                                                    gap_brief=brief(det_dec, inv.evidence_store, pre.ambiguous))
                     sub = merge(det_sub, llm_sub)
                     # third fixed candidate: the developer the LLM resolved, if Wikimedia has not been asked about it yet
                     dev = (llm_sub.identity.developer or "").strip()

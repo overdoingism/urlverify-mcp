@@ -190,6 +190,9 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
    - 缺 `PROJECT_TO_DOMAIN`／`PROJECT_TO_ORG` → Wikimedia 固定查詢，候選名稱依序最多 3 個：呼叫方 project → 套件／repo 名稱 →
      第一個被接受的 Wikidata 條目所記的開發者（P178）。條目接受條件是確定性的：標籤或別名與候選名稱正規化後相同，或其官網／原始碼庫
      指向目標。Wikipedia 只經該條目的 enwiki 連結取得，不猜標題。查不到記 `WIKIMEDIA_NO_MATCH`，不重試換標題。
+     接受分級（2026-09-24）：官網／原始碼庫指向目標的條目直接採用；只有名稱相同時，唯一一個才採用；**多個同名條目一個都不採用**，
+     紀錄保留（可用 fact ID 引用），候選清單放進給 LLM 的說明，由 LLM 判定哪一個是本專案並引用（`WIKIMEDIA_AMBIGUOUS`）。
+     LLM 選擇本身不產生票，票仍依 §4.1 的時間條件由紀錄內容決定。
    - 平台目標缺 `PROJECT_TO_ORG` → 取 owner（與 repo）的平台紀錄。
    - 套件目標缺 `PACKAGE_TO_REPOSITORY` → registry metadata 與 provenance（既有）。
    預查得到的紀錄轉為以 fact 引用的確定性證據；候選網域／org 由紀錄推出（官網、原始碼庫 owner、目標本身）。

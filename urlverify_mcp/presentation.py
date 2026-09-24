@@ -147,6 +147,8 @@ CODE_TEXT = {
                                        "官方連結轉址到另一個無法確認的主機（常見於鏡像站或下載 CDN）；請用官方公布的檢查碼比對檔案。"),
     "CERT_ORG_MISMATCH": ("The certificate's organisation does not match the developer.", "憑證上的組織與開發者不符。"),
     "L0_FATAL": ("A deterministic security check failed (see checks).", "確定性安全檢查失敗（見 checks）。"),
+    "WIKIMEDIA_AMBIGUOUS": ("Several Wikidata entities carry this name; none was taken without deciding which one is the project.",
+                            "Wikidata 有多個同名條目；在判定哪一個是本專案之前，一個都不採用。"),
     "WIKIMEDIA_NO_MATCH": ("Wikidata / Wikipedia have no entry that matches the project.", "Wikidata／Wikipedia 沒有符合此專案的條目。"),
     "OFFICIAL_CHANNEL_CONTRADICTED": ("The evidence shows the official channel is elsewhere; see details.", "證據顯示官方管道在別處，詳見 details。"),
     "VERSION_NOT_ENFORCED": ("`version` could not be enforced for this kind of source.", "此類來源無法強制 `version`。"),
