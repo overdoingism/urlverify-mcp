@@ -59,7 +59,8 @@ def test_llama_cpp_org_established_from_facts():
     """The regression that motivated typed facts: Wikidata P1324 + GitHub record = two families for ggml-org."""
     st = _store()
     wd = {"qid": "Q125998452", "label": "llama.cpp", "official_repos": ["github.com/ggml-org/llama.cpp"],
-          "repo_stability": {"stable": True, "recent_change": False}, "source": "https://www.wikidata.org/wiki/Q125998452"}
+          "repo_stability": {"stable": True, "recent_change": False, "current": ["github.com/ggml-org/llama.cpp"],
+                             "value_days_ago": ["github.com/ggml-org/llama.cpp"]}, "source": "https://www.wikidata.org/wiki/Q125998452"}
     st.record(wd["source"], json.dumps(wd), "wikidata")
     f_login = next(f for f, (_, p, _) in st.facts.items() if p == "github.owner_info.login")
     f_repo = next(f for f, (_, p, _) in st.facts.items() if p.startswith("wikidata.official_repos"))

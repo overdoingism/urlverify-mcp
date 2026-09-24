@@ -21,7 +21,7 @@ def _ev(source, claim, quote, kind="media", tier=2, supports=True):
 
 
 STORE = EvidenceStore({
-    "https://www.wikidata.org/wiki/Q123": '{"label": "LM Studio", "official_website": ["https://lmstudio.ai"], "developer": [{"label": "Element Labs"}], "stability": {"stable": true, "recent_change": false}}',
+    "https://www.wikidata.org/wiki/Q123": '{"label": "LM Studio", "official_website": ["https://lmstudio.ai"], "developer": [{"label": "Element Labs"}], "stability": {"ok": true, "stable": true, "recent_change": false, "current": ["https://lmstudio.ai"], "value_days_ago": ["https://lmstudio.ai"]}}',
     "https://techcrunch.com/x": "LM Studio, built by Element Labs, is available at lmstudio.ai for Mac, Windows and Linux.",
     "https://someforum.example/thread/1": "lmstudio.ai is legit trust me",
     "https://github.com/lmstudio-ai": '{"owner_info": {"login": "lmstudio-ai", "blog": "https://lmstudio.ai", "is_verified": true}}',
@@ -196,7 +196,10 @@ def test_wikimedia_repo_record_establishes_platform_org():
     def _store(stable: bool):
         wd = {"ok": True, "found": True, "entities": [
             {"qid": "Q125998452", "label": "llama.cpp", "official_website": [], "official_repos": ["github.com/ggml-org/llama.cpp"],
-             "stability": None, "repo_stability": {"ok": True, "stable": stable, "recent_change": not stable}, "source": wd_src}]}
+             "stability": None, "repo_stability": {"ok": True, "stable": stable, "recent_change": not stable,
+                                                        "current": ["github.com/ggml-org/llama.cpp"],
+                                                        "value_days_ago": ["github.com/ggml-org/llama.cpp"] if stable else ["github.com/other/x"]},
+             "source": wd_src}]}
         records = EvidenceStore({wd_src: json.dumps(wd),
                 gh_src: '{"owner_info": {"login": "ggml-org", "is_verified": true, "blog": "https://ggml.ai"}, "fork": false}'})
         records.kinds.update({wd_src: "wikidata", gh_src: "github"})
@@ -325,7 +328,7 @@ def test_self_published_project_true_is_capped():
     ident2 = IdentityGraph(product="flash-next-strix-halo", developer="drluoto", aliases=[], official_domains=["qwen.ai"],
                            official_orgs={"github": ["drluoto"], "huggingface": ["drluoto"]})
     wd = "https://www.wikidata.org/wiki/Q130234299"; qhf = "https://huggingface.co/Qwen/Qwen3.8-Flash-Next"
-    store[wd] = json.dumps({"label": "Qwen", "official_website": ["https://qwen.ai"], "stability": {"stable": True, "recent_change": False}})
+    store[wd] = json.dumps({"label": "Qwen", "official_website": ["https://qwen.ai"], "stability": {"ok": True, "stable": True, "recent_change": False, "current": ["https://qwen.ai"], "value_days_ago": ["https://qwen.ai"]}})
     store = EvidenceStore(store)
     store.kinds.update({gh: "github", hf: "huggingface", wb: "wayback", wd: "wikidata", qhf: "huggingface"})
     store.record(qhf, json.dumps({"id": "Qwen/Qwen3.8-Flash-Next", "author": "Qwen", "homepage": "https://qwen.ai"}), "huggingface")
@@ -349,8 +352,8 @@ def test_platform_company_own_site_keeps_its_domain():
     for host, dom, org in (("desktop.docker.com", "docker.com", "docker"), ("desktop.github.com", "github.com", "desktop")):
         ident = IdentityGraph(product="Desktop", developer="Co", aliases=[], official_domains=[dom], official_orgs={"github": [org]})
         wd = "https://www.wikidata.org/wiki/Q1"; media = "https://techcrunch.com/y"
-        store = {wd: json.dumps({"label": "Co", "official_website": [f"https://www.{dom}"], "stability": {"stable": True, "recent_change": False}}),
-                 media: f"Desktop, made by Co, is available from {dom} for Windows and Mac."}
+        store = EvidenceStore({media: f"Desktop, made by Co, is available from {dom} for Windows and Mac."})
+        store.record(wd, json.dumps({"label": "Co", "official_website": [f"https://www.{dom}"], "stability": {"ok": True, "stable": True, "recent_change": False, "current": [f"https://www.{dom}"], "value_days_ago": [f"https://www.{dom}"]}}), "wikidata")
         ev = [_ev(wd, f"official website is {dom}", f'"official_website": ["https://www.{dom}"]', kind="wikidata", tier=1),
               _ev(media, f"Desktop is distributed from {dom}", f"Desktop, made by Co, is available from {dom}")]
         l0 = _l0(host=host, platform=("dockerhub" if "docker" in host else "github"), scope="company_site")   # what L0 now reports
@@ -441,7 +444,8 @@ def _mirror_case(final_url=None, chain=None, page=None):
     store = EvidenceStore()
     wd = "https://www.wikidata.org/wiki/Q171477"
     store.record(wd, json.dumps({"label": "VLC media player", "official_website": ["https://www.videolan.org/vlc/"],
-                                 "stability": {"stable": True, "recent_change": False}}), "wikidata")
+                                 "stability": {"ok": True, "stable": True, "recent_change": False,
+                                               "current": ["https://www.videolan.org/vlc/"], "value_days_ago": ["https://www.videolan.org/vlc/"]}}), "wikidata")
     store["https://techcrunch.com/vlc"] = "VLC media player is available from videolan.org for every platform."
     if page:
         store["https://www.videolan.org/vlc/download-windows.html"] = page
@@ -478,3 +482,32 @@ def test_delegated_download_host_by_same_file_redirect():
                                  chain=[{"url": "https://get.videolan.org/out?to=https%3A%2F%2Fevil.example%2Fvlc-3.0.21-win64.exe"},
                                         {"url": "https://evil.example/vlc-3.0.21-win64.exe"}])
     assert open_redirect.verdict == Verdict.UNVERIFIABLE, open_redirect.notes
+
+
+
+def test_wikimedia_votes_only_for_aged_unchanged_official_website():
+    """A brand-new entity, a changed value, a developer's site mentioned in the record, or a fetched Wikipedia HTML page
+    never vote; only an official-website value that predates the history window unchanged does."""
+    import json
+
+    def run(stab, extra_quote_domain=None, as_page=False):
+        store = EvidenceStore({"https://techcrunch.com/x": "LM Studio is available at lmstudio.ai"})
+        rec = {"label": "LM Studio", "official_website": ["https://lmstudio.ai"],
+               "developer": [{"label": "Element Labs", "official_website": ["https://elementlabs.example"]}], "stability": stab}
+        wd = "https://www.wikidata.org/wiki/Q9"
+        if as_page:
+            store["https://en.wikipedia.org/wiki/LM_Studio"] = "LM Studio ... Website lmstudio.ai"
+            ev0 = _ev("https://en.wikipedia.org/wiki/LM_Studio", "site", "Website lmstudio.ai", kind="page", tier=1)
+        else:
+            store.record(wd, json.dumps(rec), "wikidata")
+            ev0 = Evidence(kind="wikidata", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == wd])
+        ident = IdentityGraph(product="LM Studio", official_domains=["lmstudio.ai"] + ([extra_quote_domain] if extra_quote_domain else []))
+        ev = [ev0, _ev("https://techcrunch.com/x", "c", "LM Studio is available at lmstudio.ai")]
+        return decide(Config(), _l0(), LLMSubmission(identity=ident, evidence=ev), store, "LM Studio")
+    ok = {"ok": True, "current": ["https://lmstudio.ai"], "value_days_ago": ["https://lmstudio.ai"], "recent_change": False}
+    assert run(ok).verdict == Verdict.TRUE
+    assert run({**ok, "value_days_ago": None}).verdict == Verdict.UNVERIFIABLE                       # entity younger than the window
+    assert run({**ok, "value_days_ago": ["https://other.example"], "recent_change": True}).verdict == Verdict.UNVERIFIABLE
+    assert run(ok, as_page=True).verdict == Verdict.UNVERIFIABLE                                     # HTML page of Wikipedia
+    d = run(ok, extra_quote_domain="elementlabs.example")
+    assert "elementlabs.example" not in {k for k, v in d.supporting_sources.items() if "wikidata.org" in v}   # developer's site: no vote

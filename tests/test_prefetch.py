@@ -9,6 +9,11 @@ from urlverify_mcp.rules import decide
 STABLE = {"ok": True, "stable": True, "recent_change": False}
 
 
+def aged(*values):
+    """A Wikimedia stability verdict for a value that predates the history window unchanged."""
+    return {"ok": True, "stable": True, "recent_change": False, "current": list(values), "value_days_ago": list(values)}
+
+
 class FakeStructured:
     def __init__(self, wikidata=None, github=None, wikipedia=None):
         self.wd, self.gh, self.wp = wikidata or {}, github or {}, wikipedia or {}
@@ -41,7 +46,8 @@ def l0_for(host, platform=None, owner=None, repo=None, scope=None):
 
 LLAMA_WD = {"qid": "Q125998452", "label": "llama.cpp", "aliases": [], "official_website": [],
             "official_repos": ["github.com/ggerganov/llama.cpp", "github.com/ggml-org/llama.cpp"],
-            "repo_stability": STABLE, "developer": [], "enwiki": None, "source": "https://www.wikidata.org/wiki/Q125998452"}
+            "repo_stability": aged("github.com/ggerganov/llama.cpp", "github.com/ggml-org/llama.cpp"), "developer": [], "enwiki": None,
+            "source": "https://www.wikidata.org/wiki/Q125998452"}
 GH_GGML = {"ok": True, "owner": "ggml-org", "owner_info": {"login": "ggml-org", "type": "Organization", "blog": "https://ggml.ai", "is_verified": True},
            "repo_info": {"full_name": "ggml-org/llama.cpp", "fork": False}, "source": "https://github.com/ggml-org/llama.cpp"}
 
@@ -189,7 +195,7 @@ def _fh(app_id, verified, website=None, name=None):
 
 async def test_flathub_verified_app_is_established_by_its_verified_domain():
     obs_wd = {"qid": "Q1", "label": "OBS Studio", "official_website": ["https://obsproject.com"],
-              "stability": STABLE, "source": "https://www.wikidata.org/wiki/Q1"}
+              "stability": aged("https://obsproject.com"), "source": "https://www.wikidata.org/wiki/Q1"}
     fs = FakeFlathub({"com.obsproject.Studio": _fh("com.obsproject.Studio", True, "https://obsproject.com", name="OBS Studio")},
                      wikidata={"OBS Studio": [obs_wd]})
     store = EvidenceStore()
@@ -202,7 +208,7 @@ async def test_flathub_verified_app_is_established_by_its_verified_domain():
 
 async def test_flathub_unverified_app_is_not_true_and_says_why():
     vlc_wd = {"qid": "Q2", "label": "VLC media player", "aliases": ["VLC"], "official_website": ["https://www.videolan.org/vlc/"],
-              "stability": STABLE, "source": "https://www.wikidata.org/wiki/Q2"}
+              "stability": aged("https://www.videolan.org/vlc/"), "source": "https://www.wikidata.org/wiki/Q2"}
     fs = FakeFlathub({"org.videolan.VLC": _fh("org.videolan.VLC", False)}, wikidata={"VLC": [vlc_wd]})
     store = EvidenceStore()
     l0 = l0_for("flathub.org", "flathub", "org.videolan.VLC")

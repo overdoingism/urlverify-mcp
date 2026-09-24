@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Hardening: Wikimedia votes only through its structured records and only for an official-website (or repository)
+  value that already existed before the history window and has not changed since. Brand-new Wikidata entities,
+  changed values, other domains mentioned in a record (e.g. a developer's site) and fetched Wikipedia HTML pages no
+  longer vote (a new entity used to pass as "no recent change").
+
 - Fix (regression from the address fallback): when no resolved address accepts a TLS connection the error keeps the
   "connection error" prefix, so L0 treats it as unconfirmed (UNVERIFIABLE) instead of a fatal certificate failure
   (a slow get.videolan.org came back VERIFIED_FALSE). In the DNS cross-check an unreachable address (system or DoH

@@ -42,7 +42,7 @@ def _squash(s: str) -> str:
 
 # Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
 # established under older rules are re-verified instead of being trusted from the cache.
-RULES_VERSION = "2026-09-24.4"
+RULES_VERSION = "2026-09-24.5"
 SELF_PUBLISHED_MAX_CONFIDENCE = 0.75
 DELEGATED_MAX_CONFIDENCE = 0.8     # mirror / CDN host delegated by the official site: verify the checksum   # TRUE for an owner established only by cross-platform consistency
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub"}
@@ -264,6 +264,19 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
         src_e1 = source_key(ev.source)
         if ev.kind == "wayback" or src_e1 == "archive.org":
             continue   # an archive snapshot proves age, not identity: no domain or org vote (temporal use is elsewhere)
+        if family_of(src_e1) == "wikimedia":
+            # Wikimedia is editable by anyone: it votes only through its structured record, and only for an official
+            # website value that already existed before the history window and has not changed since (AGENTS §4.1).
+            # Brand-new entities / articles, changed values, other domains mentioned in the record (a developer's site,
+            # the description) and fetched Wikipedia HTML pages do not vote. Organisations: see the repository rule below.
+            validated = _wikimedia_validated_domains(ev.source, store) if ev.kind in ("wikidata", "wikipedia") else set()
+            for d in official_domains:
+                de1 = etld1_of(d)
+                if de1 and de1 in validated:
+                    support.setdefault(de1, set()).add(src_e1)
+            if not validated:
+                ev.notes.append("no official-website value that predates the history window unchanged: not counted as a vote")
+            continue
         # votes come from the verified QUOTE only: the claim is the LLM's own text and may well say "not <x>"
         quote_text = _norm_ws(ev.quote)
         for d in official_domains:
@@ -641,6 +654,36 @@ def _bidirectional(org: str, platform: str, established: list[str], store: dict[
 _PLATFORM_HOSTS = {"github": "github.com", "huggingface": "huggingface.co", "gitlab": "gitlab.com"}
 
 
+def _aged_and_unchanged(stab: dict | None) -> bool:
+    """A Wikimedia value counts only if a revision from before the history window already had it (so the entity /
+    article is at least that old) and it has not changed since. Consistent recent revisions alone are not enough: a
+    brand-new entity with three quick edits is still brand-new."""
+    if not isinstance(stab, dict) or not stab.get("ok", True):
+        return False
+    old, cur = stab.get("value_days_ago"), stab.get("current")
+    return old is not None and bool(cur) and sorted(old) == sorted(cur) and not stab.get("recent_change")
+
+
+def _wikimedia_validated_domains(source: str, store: dict[str, str]) -> set[str]:
+    """eTLD+1s of the official-website value of the Wikimedia record at `source` that pass _aged_and_unchanged."""
+    raw = store.get(source)
+    if not raw or record_kind(store, source) not in ("wikipedia", "wikidata"):
+        return set()
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return set()
+    recs = [e for e in data.get("entities", []) if e.get("source") == source] if isinstance(data.get("entities"), list) else [data]
+    out: set[str] = set()
+    for rec in recs:
+        stab = rec.get("stability")
+        if _aged_and_unchanged(stab):
+            for v in stab.get("current") or []:
+                v = str(v)
+                out.add(etld1_of(host_of(v if "://" in v else "https://" + v)))
+    return out
+
+
 def _wikimedia_repo_names_org(org: str, platform: str, source: str, store: dict[str, str]) -> bool:
     """True when the Wikidata entity / Wikipedia article at `source` lists an official repository under `org` on
     `platform` and that repository value has been stable across the history window."""
@@ -656,7 +699,7 @@ def _wikimedia_repo_names_org(org: str, platform: str, source: str, store: dict[
     prefix = f"{host}/{org.lower()}"
     for rec in records:
         stab = rec.get("repo_stability") or {}
-        if not stab.get("stable") or stab.get("recent_change"):
+        if not _aged_and_unchanged(stab):
             continue
         for repo in rec.get("official_repos") or []:
             r = str(repo).lower()
