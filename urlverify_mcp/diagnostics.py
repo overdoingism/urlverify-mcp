@@ -51,7 +51,10 @@ async def probe_all(cfg: Config) -> list[dict[str, Any]]:
             r.raise_for_status()
             return "example.com reachable" if "Example Domain" in r.text else "unexpected body"
 
-        await run("llm", cfg.llm.base_url, llm())
+        if cfg.llm.enabled:
+            await run("llm", cfg.llm.base_url, llm())
+        else:
+            out.append({"name": "llm", "target": cfg.llm.base_url, "ok": True, "detail": "disabled (no-LLM mode)", "ms": 0})
         await run("search", cfg.search.provider, searxng())
         await run("fetch", cfg.fetch.provider, fetch())
     return out

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- No-LLM mode: `llm.enabled: false` (or `options.mode: "fast"` per call) stops after the fixed lookups; undecided cases
+  are `UNVERIFIABLE` with the missing edges and `NO_LLM_MODE`; the explanation is template text; `check-env` reports
+  the LLM as disabled.
+
 - Fix: an official link that redirects to a host we cannot establish (mirror networks, download CDNs) is
   `UNVERIFIABLE` with `REDIRECT_TO_UNESTABLISHED_HOST`, no longer `VERIFIED_FALSE` (mirrors redirect by design).
 

@@ -13,6 +13,7 @@ Environment overrides: `URLVERIFY_LLM_BASE_URL`, `URLVERIFY_LLM_API_KEY`, `URLVE
 
 | Field | Type / default | Meaning |
 |---|---|---|
+| `enabled` | bool · `true` | `false` = **no-LLM mode**: L0, the fixed lookups (Wikimedia, platform records, manifests, registries) and the rules only. Cases the fixed lookups can decide get their normal verdict; the rest come back `UNVERIFIABLE` with the missing edges and the notice `NO_LLM_MODE`. No LLM endpoint is needed. A single call can ask for the same with `options.mode: "fast"`. |
 | `base_url` | str · `http://127.0.0.1:8080/v1` | Chat-completions base URL. llama-server, LM Studio, vLLM, Ollama, OpenAI… |
 | `api_key` | str · `not-needed` | Sent as bearer token. Local servers ignore it but the field must not be empty. |
 | `model` | str · `default` | Model id sent in requests. llama-server ignores it; LM Studio / OpenAI require a real id. |

@@ -16,6 +16,7 @@ Args:
     version: optional exact version to pin; leave empty to use the registry's default (latest). Must not contradict a
         version already pinned in `source`.
     options: optional overrides: {"min_sources": 2, "allow_tier3": false, "history_days": 90, "mode": "auto"}.
+        mode "fast" = no LLM investigation (fixed lookups only: seconds instead of minutes; more UNVERIFIABLE).
 
 Returns YAML text. `machine_readable` comes first and holds the fixed values to act on:
     verdict: VERIFIED_TRUE | VERIFIED_FALSE | UNVERIFIABLE

@@ -117,6 +117,11 @@ agent must use it is policy, which belongs in the host's system prompt. Suggeste
 > Package installs (pip, npm, NuGet, winget, docker, git clone, curl | sh …) download and run code too: pass the exact command
 > you intend to run as `source`, and follow `machine_readable.next_action` in the reply.
 
+**No-LLM mode.** `llm.enabled: false` in config.yaml (or `options.mode: "fast"` for one call) runs L0, the fixed
+lookups and the rules only: no LLM endpoint is needed and a verdict takes seconds. The LLM never decides a verdict, so a
+no-LLM `VERIFIED_TRUE` is as strong as any other; what changes is coverage: cases that need aliases, renames or media
+coverage come back `UNVERIFIABLE` with the missing edges and `NO_LLM_MODE`.
+
 ### The `verify_source` tool (v0.2)
 
 ```

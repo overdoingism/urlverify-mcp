@@ -122,6 +122,8 @@ CODE_TEXT = {
                            "此 app 在 Flathub 上沒有經開發者驗證：是社群打包的，不是專案自己發佈的。"),
     "FLATHUB_APP_NOT_FOUND": ("Flathub has no app with that id.", "Flathub 沒有這個 app ID。"),
     "FLATPAK_REMOTE_ASSUMED_FLATHUB": ("No remote was named; Flathub was assumed.", "指令未指定 remote，視為 Flathub。"),
+    "NO_LLM_MODE": ("No-LLM mode: only the fixed lookups ran. A full verification (options.mode \"full\" or an LLM configured) may establish what is missing.",
+                    "no LLM 模式：只跑了固定查詢。完整驗證（options.mode \"full\" 或啟用 LLM）可能補上缺少的部分。"),
     "LOW_CONFIDENCE": ("The official channel is established, but only just (few independent sources or a cached identity); confidence is below 0.8.",
                        "已確立為官方管道，但依據偏少（獨立來源少或沿用快取身分），信心低於 0.8。"),
     "OWNER_NOT_OFFICIAL": ("The owner in the URL is not the project's established official account (the official one is named in details).",

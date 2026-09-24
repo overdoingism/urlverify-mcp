@@ -1,5 +1,6 @@
 # URLVerify_MCP configuration. Copy to config.yaml (or set URLVERIFY_CONFIG=/path/to/file).
 llm:
+  enabled: true              # false = no-LLM mode (fixed lookups + rules only; see document_for_config.md)
   base_url: "http://127.0.0.1:8080/v1"   # any OpenAI-compatible endpoint (llama-server, LM Studio, vLLM, OpenAI, ...)
   api_key: "not-needed"
   model: "halogen-qwen3.8-flash-next"   # llama-server ignores this; halogen reports this id

@@ -215,6 +215,9 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             if decisive:
                 sub = det_sub
                 engine_notes.append(f"decided from fixed lookups without the LLM ({det_dec.verdict.value})")
+            elif not cfg.llm.enabled:
+                sub = det_sub
+                engine_notes.append("no-LLM mode: stopped after the fixed lookups; the missing edges were not investigated")
             else:
                 await progress.report("L1: identity investigation (LLM + tools) on the missing edges", 0.15)
                 try:
@@ -278,7 +281,10 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             }, cfg.cache.identity_ttl_hours * 3600)
 
         await progress.report(f"decision {dec.verdict.value}; writing reason", 0.92)
-        reason = await _write_reason(llm, req, dec.verdict, dec.confidence, engine_notes, l0, sub)
+        if cfg.llm.enabled:
+            reason = await _write_reason(llm, req, dec.verdict, dec.confidence, engine_notes, l0, sub)
+        else:
+            reason = f"{dec.verdict.value}: " + "; ".join(n for n in dec.notes[:6])
         await progress.report("done", 1.0)
         result = VerifyResult(
             verdict=dec.verdict, confidence=round(dec.confidence, 2), reason=reason,

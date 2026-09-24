@@ -12,6 +12,7 @@ DEFAULT_CONFIG_NAMES = ("config.yaml", "config.yml")
 
 
 class LLMConfig(BaseModel):
+    enabled: bool = True                           # false = no-LLM mode: L0 + fixed lookups + rules only (AGENTS §6.3)
     base_url: str = "http://127.0.0.1:8080/v1"
     api_key: str = "not-needed"
     model: str = "default"
@@ -227,6 +228,8 @@ class Config(BaseModel):
                 data["identity"][k] = options[k]
         if options.get("mode") in ("quick", "full", "auto"):
             data["package_registry_fast_path"]["mode"] = options["mode"]
+        if options.get("mode") == "fast":
+            data["llm"]["enabled"] = False      # this call only: stop after the fixed lookups (a caller may only reduce, never add)
         cfg = Config.model_validate(data)
         cfg.source_path = self.source_path
         return cfg

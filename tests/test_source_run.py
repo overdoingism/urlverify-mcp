@@ -125,3 +125,10 @@ async def test_low_confidence_true_is_explained(env, monkeypatch):
     r = await verify_source(req(), Config(), store)
     assert r.next_action == "INFORM_USER_AND_CONFIRM" and "LOW_CONFIDENCE" in r.notices
     assert "confidence is below 0.8" in to_yaml(r)
+
+
+def test_mode_fast_disables_the_llm_for_one_call():
+    from urlverify_mcp.config import Config
+    c = Config()
+    assert c.llm.enabled and not c.with_overrides({"mode": "fast"}).llm.enabled
+    assert c.with_overrides({"mode": "full"}).llm.enabled
