@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fix (regression from the address fallback): when no resolved address accepts a TLS connection the error keeps the
+  "connection error" prefix, so L0 treats it as unconfirmed (UNVERIFIABLE) instead of a fatal certificate failure
+  (a slow get.videolan.org came back VERIFIED_FALSE). In the DNS cross-check an unreachable address (system or DoH
+  side) is "unknown", never a bad certificate or suspected DNS spoofing.
+
 - Mirrors and download CDNs: a download host is accepted as delegated by the official site (`OFFICIAL_DELEGATION`
   edge, TRUE capped at 0.8 with `OFFICIAL_DOWNLOAD_HOST`: compare the published checksum) when a page from an
   established official domain links the EXACT file URL, or when the official URL redirects to the same file name with

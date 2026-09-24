@@ -33,4 +33,15 @@ async def test_all_unreachable(monkeypatch):
         return {"trusted": False, "error": "timeout: timed out"}
     monkeypatch.setattr(tls, "fetch_cert", fake)
     r = await tls.fetch_cert_any("h", 443, 5, ["1.1.1.1", "2.2.2.2"])
-    assert r["error"].startswith("no resolved address accepted a connection")
+    # L0 classifies by this prefix: a connection failure is transient (UNVERIFIABLE), never a certificate failure (FALSE)
+    assert r["error"].startswith("connection error: no resolved address accepted a connection")
+
+
+
+def test_unreachable_is_unknown_for_dns_cross_check():
+    from urlverify_mcp.checks.doh import assess
+    unreachable = {"trusted": False, "error": "connection error: no resolved address accepted a connection: 1.2.3.4: timeout"}
+    assert tls.tls_state(unreachable) is None
+    assert tls.tls_state({"trusted": False, "error": "cert verification failed: self-signed"}) is False
+    status, fatal, _ = assess(["1.2.3.4"], ["5.6.7.8"], tls.tls_state(unreachable), True)
+    assert not fatal and status == "skip"                # a slow server is not DNS spoofing

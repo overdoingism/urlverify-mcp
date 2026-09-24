@@ -147,6 +147,15 @@ async def fetch_cert(host: str, port: int = 443, timeout: float = 10.0, connect_
 MAX_CONNECT_ATTEMPTS = 4
 
 
+def tls_state(r: dict[str, Any]) -> bool | None:
+    """True = a trusted certificate; False = a TLS answer that is not trusted; None = no TLS answer at all
+    (unreachable / timed out). Unreachable is unknown, never evidence of a bad certificate or of DNS spoofing."""
+    if r.get("trusted"):
+        return True
+    err = r.get("error") or ""
+    return None if err.startswith(("connection error", "timeout")) else False
+
+
 def _interleave(ips: list[str]) -> list[str]:
     """Alternate address families (keeping the resolver's order within each) so a family this machine cannot reach
     (e.g. IPv6 without a route) does not use up every attempt."""
@@ -174,5 +183,6 @@ async def fetch_cert_any(host: str, port: int, timeout: float, connect_ips: list
     if tried and (r.get("trusted") or len(tried) < len(ips)):
         r["unreachable_addresses"] = tried
     elif tried:
-        r["error"] = "no resolved address accepted a connection: " + "; ".join(tried)
+        # keep the "connection error" prefix: L0 treats it as transient (unconfirmed), never as a certificate failure
+        r["error"] = "connection error: no resolved address accepted a connection: " + "; ".join(tried)
     return r

@@ -183,11 +183,11 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
             res.checks.append(CheckResult(name="dns_cross_check", status="skip", message="DoH lookup failed"))
         else:
             sys_ips = dns_r.get("addresses", []) if isinstance(dns_r, dict) else []
-            sys_tls_ok = None if isinstance(tls_r, Exception) else bool(tls_r.get("trusted"))
+            sys_tls_ok = None if isinstance(tls_r, Exception) else tls_mod.tls_state(tls_r)
             doh_tls_ok = None
             if doh_r["addresses"] and not non_public(doh_r["addresses"]) and not (set(sys_ips) & set(doh_r["addresses"])):
                 alt = await tls_mod.fetch_cert_any(host, urlsplit(norm).port or 443, cfg.net.timeout_s, doh_r["addresses"])
-                doh_tls_ok = bool(alt.get("trusted"))
+                doh_tls_ok = tls_mod.tls_state(alt)
             status, fatal, msg = doh_mod.assess(sys_ips, doh_r["addresses"], sys_tls_ok, doh_tls_ok)
             detail = {"system": sys_ips, "doh": doh_r["addresses"], "resolvers": doh_r["resolvers"], "dnssec_ad": doh_r["dnssec_ad"],
                       "system_tls_ok": sys_tls_ok, "doh_tls_ok": doh_tls_ok}
