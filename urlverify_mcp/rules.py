@@ -40,7 +40,7 @@ def _squash(s: str) -> str:
 
 # Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
 # established under older rules are re-verified instead of being trusted from the cache.
-RULES_VERSION = "2026-09-24.2"
+RULES_VERSION = "2026-09-24.3"
 SELF_PUBLISHED_MAX_CONFIDENCE = 0.75   # TRUE for an owner established only by cross-platform consistency
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub"}
 _DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b")
@@ -414,8 +414,12 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
     anchor = anchor_for(target_e1)
     in_official = target_e1 in established or (final_e1 in established and final_e1 == target_e1)
     if l0.final_etld1 and l0.final_etld1 != target_e1 and target_e1 in established and l0.final_etld1 not in established and not anchor_for(l0.final_etld1):
-        notes.append(f"redirect leaves the official domain ({target_e1} -> {l0.final_etld1})")
-        return Decision(Verdict.FALSE, 0.8, notes, evidence, support, established, est_orgs, codes=["REDIRECT_LEAVES_OFFICIAL_DOMAIN"])
+        # Mirror networks and download CDNs (SourceForge, get.videolan.org, Apache closer.lua, ftpmirror.gnu.org ...)
+        # redirect away from the official domain by design: a host we cannot establish is "not confirmed", not a
+        # counterfeit. (Was VERIFIED_FALSE before 2026-09-24.)
+        notes.append(f"redirect leaves the official domain for a host that is not established ({target_e1} -> {l0.final_etld1}); "
+                     "mirror networks do this by design, so the final host is unconfirmed rather than counterfeit")
+        return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs, codes=["REDIRECT_TO_UNESTABLISHED_HOST"])
 
     # A known hosting platform does not authenticate the redirect's path owner.
     if l0.final_url and l0.final_url != l0.normalized_url:

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fix: an official link that redirects to a host we cannot establish (mirror networks, download CDNs) is
+  `UNVERIFIABLE` with `REDIRECT_TO_UNESTABLISHED_HOST`, no longer `VERIFIED_FALSE` (mirrors redirect by design).
+
 - Fix (found live with VLC): a distribution's manifest repository (Flathub, Homebrew, Scoop, F-Droid, nixpkgs, ...)
   is the same independence family as the distribution itself; and an unverified Flathub app gets no support from the
   Flathub family at all (Flathub states such apps are not affiliated with the developer). An unverified app plus

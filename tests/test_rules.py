@@ -424,3 +424,12 @@ def test_manifest_repositories_are_their_own_family():
     assert family_of(source_key("https://raw.githubusercontent.com/someone/repo/main/README.md")) == "github"
     # a commit-SHA reference is user content (tier 3), not the manifest family
     assert family_of(source_key("https://raw.githubusercontent.com/microsoft/winget-pkgs/0123456789abcdef0123/m/x.yaml")) == "github"
+
+
+def test_official_redirect_to_a_mirror_is_unconfirmed_not_counterfeit():
+    ev = [_ev("https://www.wikidata.org/wiki/Q123", "official domain is lmstudio.ai", '"official_website": ["https://lmstudio.ai"]', kind="wikidata", tier=1),
+          _ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac")]
+    l0 = _l0(host="lmstudio.ai")
+    l0.final_url, l0.final_etld1 = "https://mirror.example.net/x.exe", "example.net"
+    d = decide(Config(), l0, LLMSubmission(identity=IDENT, evidence=ev, proposed_verdict="VERIFIED_TRUE"), STORE, "LM Studio")
+    assert d.verdict == Verdict.UNVERIFIABLE and d.codes == ["REDIRECT_TO_UNESTABLISHED_HOST"], d.notes
