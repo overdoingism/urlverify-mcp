@@ -433,3 +433,48 @@ def test_official_redirect_to_a_mirror_is_unconfirmed_not_counterfeit():
     l0.final_url, l0.final_etld1 = "https://mirror.example.net/x.exe", "example.net"
     d = decide(Config(), l0, LLMSubmission(identity=IDENT, evidence=ev, proposed_verdict="VERIFIED_TRUE"), STORE, "LM Studio")
     assert d.verdict == Verdict.UNVERIFIABLE and d.codes == ["REDIRECT_TO_UNESTABLISHED_HOST"], d.notes
+
+
+def _mirror_case(final_url=None, chain=None, page=None):
+    import json
+    from urlverify_mcp.evidence import EvidenceStore
+    store = EvidenceStore()
+    wd = "https://www.wikidata.org/wiki/Q171477"
+    store.record(wd, json.dumps({"label": "VLC media player", "official_website": ["https://www.videolan.org/vlc/"],
+                                 "stability": {"stable": True, "recent_change": False}}), "wikidata")
+    store["https://techcrunch.com/vlc"] = "VLC media player is available from videolan.org for every platform."
+    if page:
+        store["https://www.videolan.org/vlc/download-windows.html"] = page
+    ident = IdentityGraph(product="VLC media player", developer="VideoLAN", official_domains=["videolan.org"])
+    ev = [Evidence(kind="wikidata", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == wd]),
+          _ev("https://techcrunch.com/vlc", "official domain videolan.org", "VLC media player is available from videolan.org")]
+    host = "get.videolan.org" if final_url else "mirror.example.net"
+    url = "https://get.videolan.org/vlc/3.0.21/win64/vlc-3.0.21-win64.exe" if final_url else "https://mirror.example.net/videolan/vlc-3.0.21-win64.exe"
+    l0 = _l0(host=host)
+    l0.normalized_url = url
+    if final_url:
+        from urlverify_mcp.checks.urltools import etld1_of, host_of
+        l0.final_url, l0.final_etld1 = final_url, etld1_of(host_of(final_url))
+        l0.checks.append(CheckResult(name="redirects", status="warn", detail={"chain": chain or [{"url": url}, {"url": final_url}]}))
+    return decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev, proposed_verdict="VERIFIED_TRUE"), store, "VLC media player")
+
+
+def test_delegated_download_host_by_exact_file_link():
+    link = "Download VLC (https://mirror.example.net/videolan/vlc-3.0.21-win64.exe)"
+    d = _mirror_case(page=link)
+    assert d.verdict == Verdict.TRUE and d.confidence <= 0.8 and d.notices == ["OFFICIAL_DOWNLOAD_HOST"], d.notes
+    assert "OFFICIAL_DELEGATION:mirror.example.net" in d.established_edges
+    # host-level mention or a different file on that host does not count
+    assert _mirror_case(page="Mirrors: https://mirror.example.net/ (mirror.example.net)").verdict == Verdict.UNVERIFIABLE
+    assert _mirror_case(page="Other (https://mirror.example.net/videolan/vlc-3.0.20-win64.exe)").verdict == Verdict.UNVERIFIABLE
+
+
+def test_delegated_download_host_by_same_file_redirect():
+    ok = _mirror_case(final_url="https://ftp.example.org/pub/videolan/vlc/3.0.21/win64/vlc-3.0.21-win64.exe")
+    assert ok.verdict == Verdict.TRUE and ok.notices == ["OFFICIAL_DOWNLOAD_HOST"], ok.notes
+    other_file = _mirror_case(final_url="https://ftp.example.org/pub/evil.exe")
+    assert other_file.verdict == Verdict.UNVERIFIABLE and other_file.codes == ["REDIRECT_TO_UNESTABLISHED_HOST"]
+    open_redirect = _mirror_case(final_url="https://evil.example/vlc-3.0.21-win64.exe",
+                                 chain=[{"url": "https://get.videolan.org/out?to=https%3A%2F%2Fevil.example%2Fvlc-3.0.21-win64.exe"},
+                                        {"url": "https://evil.example/vlc-3.0.21-win64.exe"}])
+    assert open_redirect.verdict == Verdict.UNVERIFIABLE, open_redirect.notes

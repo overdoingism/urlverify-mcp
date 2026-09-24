@@ -256,4 +256,8 @@ def brief(det_decision, store: EvidenceStore) -> str:
             lines.append(f"- {m['edge']}{extra}")
         lines.append("Independent sources that count: reputable media, distribution / package-manager manifests, a different platform "
                      "than the one already cited. The target's own pages never count.")
+        if any(m["edge"].startswith("PROJECT_TO_DOMAIN:") for m in det_decision.missing_edges):
+            lines.append("If the target file is hosted on a mirror or download CDN, fetch the OFFICIAL download page that links this "
+                         "exact file (fetch_url on the official site); a link to the exact file from an established official "
+                         "domain is checked by the rules.")
     return "\n".join(lines)

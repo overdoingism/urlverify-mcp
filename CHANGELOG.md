@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Mirrors and download CDNs: a download host is accepted as delegated by the official site (`OFFICIAL_DELEGATION`
+  edge, TRUE capped at 0.8 with `OFFICIAL_DOWNLOAD_HOST`: compare the published checksum) when a page from an
+  established official domain links the EXACT file URL, or when the official URL redirects to the same file name with
+  no URL embedded in any hop (open-redirect guard). Host-level mentions never count.
+
 - Distribution packages (`apt`/`apt-get`, `dnf`/`yum`, `pacman -S`): verified from the package manager's own origin
   report passed in `options.origin`; official archive / repositories → `VERIFIED_TRUE` + `DISTRO_PACKAGE`, third-party
   apt repositories verified like download sites, no report → `FIX_INPUT_AND_RETRY` with the command to run.

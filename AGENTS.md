@@ -198,6 +198,15 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - **身分快取與規則版本**：`rules.RULES_VERSION` 屬於快取指紋的一部分。規則改變「會確立什麼」時必須遞增，舊規則下確立的身分因而失效並重新驗證
   （2026-09-24：VLC 在修正前被錯誤確立並寫入快取，修正後仍從快取讀回，因此加入此機制）。
 
+## 6.4 鏡像與下載 CDN（官方委託的下載主機，2026-09-24 定案）
+目標網址在鏡像／CDN 上時，只在官方「親自」指向**這個檔案**時放行（`OFFICIAL_DELEGATION` 邊，TRUE 信心上限 0.8，附 `OFFICIAL_DOWNLOAD_HOST`：請比對官方檢查碼）：
+- **完全相同的檔案連結**：從已確立官方網域抓回的**頁面**（工具抓的，非 LLM 轉述）中，有 `<a href>` 指向與目標**逐字相同**的檔案網址。
+  只提到主機、或連到同主機的其他檔案都不算——以擋「官網順帶連到第三方元件」的誤判；專案名稱比對邊仍須成立。
+- **同名檔案轉址**：官方網址轉址到其他主機時，需同時滿足 (1) 轉址前後檔名相同、(2) 轉址鏈任一跳的 query 或 path 都沒有夾帶另一個網址
+  （防開放轉址 `/out?url=https://evil`）。不滿足者維持 UNVERIFIABLE（`REDIRECT_TO_UNESTABLISHED_HOST`），不判 FALSE（鏡像本來就會轉址）。
+- 只列鏡像主機的官方鏡像清單不讓整個主機過關。我們不下載檔案、不驗雜湊；雜湊比對留給使用者。
+- 待決：固定預查是否主動抓官網首頁與其同網域 download 頁以尋找上述連結（每次多兩次抓取）；目前靠 LLM 依缺口提示去抓。
+
 ## 6.1 規則寫死 vs. LLM 自主：責任分工
 原則：**密碼學與結構性事實、安全不變量歸規則；語意推理歸 LLM。LLM 提議，規則驗證。**
 最低目標模型：Qwen3.8 27B 等級（能力足以做實體解析與證據判讀）。
@@ -358,3 +367,19 @@ config.example.yaml
 - v0.2 的結果代碼部分由 checks／risk_signals／engine_notes 推導（`source/run.py: result_codes`）；v0.3 的身分圖重寫改由規則直接產生。
 - 開發工具：設 `URLVERIFY_CAPTURE_DIR` 時，每次規則裁決的完整輸入寫成 `*.json.gz`；`tests/test_replay.py` 以手寫的 `expect` 重播，
   改規則時先跑重播，不必每次實跑四分鐘。本地 LLM 實測只打本機 `127.0.0.1:8080`。
+
+## 14. 未來小項目：尋找官方下載來源（`find_official_source`，建議獨立 repo）
+2026-09-24 討論結論，尚未實作。roger 判斷「找出官方下載」本身步驟多、需要逐步研究與固化，值得拆成獨立 repo；
+URLVerify 維持「驗證」單一職責，找來源的一方呼叫 URLVerify 當守門員。之後要做時，把本節摘出成新專案的起點。
+
+- **輸入**：project、artifact（形式／平台），可選 platform。**輸出只回一個**：已通過 URLVerify `VERIFIED_TRUE` 的來源
+  （可直接執行的安裝指令或下載網址），附依據；找不到就明說找不到，不回半成品。
+- **流程**：
+  1. **先鎖定管道（不經 LLM）**：依 artifact 決定優先序，例如 Windows 安裝檔 → winget → 官網；macOS → Homebrew cask；
+     Linux 桌面 → Flathub → 發行版套件；Python／JS 函式庫 → PyPI／npm；容器 → 官方 registry。
+  2. **產生候選，便宜的先做**：能確定性查的先查（Homebrew cask 索引、Flathub 搜尋 API、Scoop bucket manifest、PyPI／npm 精確名稱、
+     winget 可用 GitHub code search 查 winget-pkgs）；不足時才讓 LLM 搜尋與列舉（名稱對應、改名、產品與公司關係是它的強項）。
+  3. **驗證只取前兩名、依序**：第一個 `VERIFIED_TRUE` 就停；第一個驗不過才驗第二個。兩個都不過 → 回報找不到。
+  4. 候選清單與搜尋結果一律視為不可信；可信與否只由 URLVerify 裁決，因此不需要為各平台另寫信任規則。
+- **已知取捨**：winget 無公開名稱索引；官網下載頁只能給頁面、不自行挑按鈕連結（交給 LLM 找後再驗）；最壞情況約 5–10 分鐘。
+- **與 URLVerify 的介面**：只透過 `verify_source`（YAML `machine_readable`），不共用內部模組，避免兩邊互相牽制。

@@ -276,6 +276,10 @@ domains of one platform count as one source; other users' READMEs, issues and di
 content and never a second vote). Such a `VERIFIED_TRUE` is capped at confidence 0.75 and says so in `engine_notes`; a
 project known from one platform only comes back `UNVERIFIABLE` by design.
 
+Mirrors and download CDNs: a file on a mirror is accepted only when the official site itself points at that exact
+file (a link on an official page, or a same-file redirect from the official URL); the result says so and asks you to
+compare the published checksum. A mirror host that the official site merely lists is not enough.
+
 Known weak spots: very new projects and projects without a Wikipedia / Wikidata presence tend to come back `UNVERIFIABLE`
 (a design choice: absence of independent evidence is not evidence); dynamic download pages may show a different OS's link
 than the one described; tier-3 sources only count when their age can be proven, so a project known only from forums stays

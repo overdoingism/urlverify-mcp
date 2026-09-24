@@ -154,6 +154,7 @@ def result_codes(res: VerifyResult) -> tuple[list[str], list[str]]:
         notices.append("SELF_PUBLISHED_CAP")
     if "no-LLM mode" in notes:
         notices.append("NO_LLM_MODE")
+    notices.extend(n for n in res.rule_notices if n not in notices)
     if res.verdict == Verdict.FALSE and not codes:
         codes.append("OFFICIAL_CHANNEL_CONTRADICTED")
     if res.verdict == Verdict.UNVERIFIABLE and not codes:

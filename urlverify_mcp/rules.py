@@ -25,6 +25,8 @@ class Decision:
     established_domains: list[str] = field(default_factory=list)
     established_orgs: dict[str, list[str]] = field(default_factory=dict)
     codes: list[str] = field(default_factory=list)            # fixed reason codes for a FALSE (what contradicts)
+    notices: list[str] = field(default_factory=list)          # fixed informational codes (e.g. OFFICIAL_DOWNLOAD_HOST)
+    delegation: str | None = None                             # host the official domain delegated the download to
     established_edges: list[str] = field(default_factory=list)
     missing_edges: list[dict] = field(default_factory=list)
 
@@ -40,8 +42,9 @@ def _squash(s: str) -> str:
 
 # Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
 # established under older rules are re-verified instead of being trusted from the cache.
-RULES_VERSION = "2026-09-24.3"
-SELF_PUBLISHED_MAX_CONFIDENCE = 0.75   # TRUE for an owner established only by cross-platform consistency
+RULES_VERSION = "2026-09-24.4"
+SELF_PUBLISHED_MAX_CONFIDENCE = 0.75
+DELEGATED_MAX_CONFIDENCE = 0.8     # mirror / CDN host delegated by the official site: verify the checksum   # TRUE for an owner established only by cross-platform consistency
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub"}
 _DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b")
 
@@ -166,7 +169,12 @@ def identity_edges(cfg: Config, l0: L0Result, d: "Decision", ctx: dict, provenan
     kind = target_kind(l0)
     if kind == "website":
         e1 = l0.etld1
-        add(f"PROJECT_TO_DOMAIN:{e1}", e1 in d.established_domains, fam(d.supporting_sources.get(e1, set())))
+        if d.delegation and e1 not in d.established_domains:
+            est.append(f"OFFICIAL_DELEGATION:{d.delegation}")      # the official site sent this exact file here
+        else:
+            add(f"PROJECT_TO_DOMAIN:{e1}", e1 in d.established_domains, fam(d.supporting_sources.get(e1, set())))
+            if d.delegation:
+                est.append(f"OFFICIAL_DELEGATION:{d.delegation}")
     else:
         owner = (l0.platform_owner or "").lower()
         org_support = ctx.get("org_support", {})
@@ -413,7 +421,13 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
     final_e1 = l0.final_etld1 or target_e1
     anchor = anchor_for(target_e1)
     in_official = target_e1 in established or (final_e1 in established and final_e1 == target_e1)
-    if l0.final_etld1 and l0.final_etld1 != target_e1 and target_e1 in established and l0.final_etld1 not in established and not anchor_for(l0.final_etld1):
+    delegation: tuple[str, str] | None = None
+    if l0.final_etld1 and l0.final_etld1 != target_e1 and target_e1 in established and l0.final_etld1 not in established \
+            and not anchor_for(l0.final_etld1) and _same_file_redirect(l0):
+        # the official server itself sent us to this host for the same file: a delegated download host (mirror / CDN)
+        delegation = ("redirect", host_of(l0.final_url or ""))
+        notes.append(f"official {target_e1} redirects the same file to {host_of(l0.final_url or '')} (mirror / download CDN)")
+    elif l0.final_etld1 and l0.final_etld1 != target_e1 and target_e1 in established and l0.final_etld1 not in established and not anchor_for(l0.final_etld1):
         # Mirror networks and download CDNs (SourceForge, get.videolan.org, Apache closer.lua, ftpmirror.gnu.org ...)
         # redirect away from the official domain by design: a host we cannot establish is "not confirmed", not a
         # counterfeit. (Was VERIFIED_FALSE before 2026-09-24.)
@@ -432,6 +446,15 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
             if scope == "user_content" and owner and not same_owner and owner.lower() not in [o.lower() for o in est_orgs.get(fa.platform, [])]:
                 notes.append(f"redirect owner '{owner}' on {fa.platform} has not been established")
                 return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
+    # a page fetched from an established official domain links this EXACT file URL: the official site delegates the
+    # download to this host (mirror / CDN). Host-level mentions never count; the file must match exactly.
+    if not in_official and delegation is None and established and not (anchor and l0.platform_owner):
+        src = _official_page_links_file(l0, established, store)
+        if src:
+            delegation = ("link", l0.host)
+            notes.append(f"official page {src} links this exact file on {l0.host} (mirror / download CDN)")
+    if delegation:
+        in_official = True
     source_count = len({family_of(source_key(e.source)) for e in usable if e.supports})
     risk_penalty = 0.05 * len(l0.risk_signals)
     if anchor and l0.platform_owner:
@@ -470,10 +493,17 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
             notes.append("OV/EV certificate organisation mismatch overrides domain evidence")
             return Decision(Verdict.FALSE, 0.75, notes, evidence, support, established, est_orgs, codes=["CERT_ORG_MISMATCH"])
         conf = min(conf, (cached or {}).get("confidence_cap", 1.0))
-        notes.append(f"target domain {target_e1} is an established official domain")
+        dnotes: list[str] = []
+        if delegation:
+            conf = min(conf, DELEGATED_MAX_CONFIDENCE)
+            dnotes = ["OFFICIAL_DOWNLOAD_HOST"]
+        else:
+            notes.append(f"target domain {target_e1} is an established official domain")
         if not project_ok:
-            return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
-        return Decision(Verdict.TRUE, max(0.5, conf), notes, evidence, support, established, est_orgs)
+            return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs,
+                            notices=dnotes, delegation=delegation[1] if delegation else None)
+        return Decision(Verdict.TRUE, max(0.5, conf), notes, evidence, support, established, est_orgs,
+                        notices=dnotes, delegation=delegation[1] if delegation else None)
 
     if established:
         # we know the official domain(s), and the target is not one of them
@@ -646,6 +676,45 @@ def _platform_verified_link(org: str, platform: str, established: list[str], sto
         if m and etld1_of(host_of(m.group(1))) in established:
             return True
     return False
+
+
+_EMBEDDED_URL = re.compile(r"(?i)https?(?::|%3a)(?://|%2f%2f)")
+
+
+def _filename(url: str) -> str:
+    from urllib.parse import unquote
+    return unquote(urlsplit(url).path.rstrip("/").rsplit("/", 1)[-1])
+
+
+def _same_file_redirect(l0: L0Result) -> bool:
+    """An official URL redirecting to another host is a delegated download only when it is the SAME file (same file
+    name) and no hop carries another URL in its query or path (open redirects: /out?url=https://evil)."""
+    if not l0.final_url:
+        return False
+    a, b = _filename(l0.normalized_url), _filename(l0.final_url)
+    if not a or "." not in a or a != b:
+        return False
+    chain = next((c.detail["chain"] for c in l0.checks
+                  if c.name == "redirects" and isinstance(c.detail, dict) and c.detail.get("chain")), None) or []
+    hops = [h.get("url", "") for h in chain[:-1]] or [l0.normalized_url]
+    for h in hops:
+        u = urlsplit(h)
+        if _EMBEDDED_URL.search(u.query) or _EMBEDDED_URL.search(u.path[1:]):
+            return False
+    return True
+
+
+def _official_page_links_file(l0: L0Result, established: list[str], store: dict[str, str]) -> str | None:
+    """A PAGE fetched from an established official domain containing a link (rendered as "(url)") to this exact file."""
+    from urllib.parse import unquote
+    forms = {l0.normalized_url, unquote(l0.normalized_url)}
+    pages = store.pages if isinstance(store, EvidenceStore) else store
+    for src, text in pages.items():
+        if not isinstance(text, str) or etld1_of(host_of(src)) not in established:
+            continue
+        if any(f"({f})" in text for f in forms if f):
+            return src
+    return None
 
 
 def _flathub_verified(app_id: str, store: dict[str, str]) -> bool:

@@ -292,7 +292,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             identity=sub.identity, risk_signals=l0.risk_signals + sub.risk_notes, cache_hits=sorted(set(cache_hits)),
             engine_notes=engine_notes, trace_id=trace_id, duration_s=round(time.time() - t0, 1),
             path="l0_fatal" if l0.fatal_failures else "full",
-            established_edges=dec.established_edges, missing_edges=dec.missing_edges,
+            established_edges=dec.established_edges, missing_edges=dec.missing_edges, rule_notices=dec.notices,
             rule_codes=dec.codes + ([c for c in fixed_codes if c not in dec.codes] if dec.verdict != Verdict.TRUE else []),
         )
     finally:

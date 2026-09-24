@@ -136,6 +136,8 @@ CODE_TEXT = {
     "THIRD_PARTY_REPOSITORY": ("The package comes from a third-party repository; that repository's URL was verified.",
                                "套件來自第三方倉庫；驗證的是該倉庫網址。"),
     "SIGNATURE_CHECK_DISABLED": ("The command disables package signature checks.", "指令關閉了套件簽章檢查。"),
+    "OFFICIAL_DOWNLOAD_HOST": ("The file is on a mirror / download CDN that the official site itself points to (exact file link or same-file redirect). Compare the file's checksum with the one the official site publishes.",
+                               "檔案位於官方網站自己指向的鏡像／下載 CDN（完全相同的檔案連結或同名轉址）。請用官方公布的檢查碼比對檔案。"),
     "LOW_CONFIDENCE": ("The official channel is established, but only just (few independent sources or a cached identity); confidence is below 0.8.",
                        "已確立為官方管道，但依據偏少（獨立來源少或沿用快取身分），信心低於 0.8。"),
     "OWNER_NOT_OFFICIAL": ("The owner in the URL is not the project's established official account (the official one is named in details).",
