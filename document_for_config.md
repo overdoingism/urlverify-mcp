@@ -123,7 +123,7 @@ Callers may override `min_sources`, `allow_tier3`, `history_days` and the `ident
 
 | Field | Type / default | Meaning |
 |---|---|---|
-| `dir` | str · `log` | Root of everything log-like: `full/` (full data log), `history/` (one JSON per verification + `index.jsonl`), `health.json` (observed dependency health), `server/server.log`, `admin/admin.log`. Records of what this installation did, possibly private: safe to delete at any time. |
+| `dir` | str · `log` | Root of everything log-like: `history/` (one JSON per verification + `index.jsonl`), `health.json` (observed dependency health), `server/server.log`, `admin/admin.log`. Records of what this installation did, possibly private: safe to delete at any time. |
 | `process_max_bytes` / `process_backups` | int · `1048576` / `5` | Rotation of the server / admin process logs. |
 
 ## `lists`
@@ -167,14 +167,6 @@ typosquat ratio. Packages without provenance are never trusted on metadata alone
 unknown or suspicious signal makes the fast path inconclusive and hands the case to the full pipeline with the suspicion
 attached as a risk signal. The fast path can therefore only speed things up, never decide wrongly.
 
-## `full_log` — full data log
-
-| Field | Type / default | Meaning |
-|---|---|---|
-| `enabled` | bool · `false` | Record, in order, every MCP request/response, LLM turn (messages, response, reasoning), search exchange, structured API result, L0 result, aging result and rules decision as JSONL. Toggle in the admin Config tab; applies immediately. |
-| `dir` | str · `log/full` | Full-log directory (relative to the config folder). Each process writes its own `full-YYYYMMDDHHMMSS.log`. |
-| `max_bytes` | int · `1048576` | Start a new file once the current one exceeds this size. |
-
 ## `prompts`
 
 | Field | Type / default | Meaning |
@@ -206,7 +198,7 @@ attached as a risk signal. The fast path can therefore only speed things up, nev
 
 | Change | Takes effect |
 |---|---|
-| Anything under `llm`, `search`, `fetch`, `budget`, `identity`, `net`, `cache`, `lists`, `injection_patterns`, `full_log`, `package_registry_fast_path` | Next `verify_source` call (the server re-reads the file per call) |
+| Anything under `llm`, `search`, `fetch`, `budget`, `identity`, `net`, `cache`, `lists`, `injection_patterns`, `package_registry_fast_path` | Next `verify_source` call (the server re-reads the file per call) |
 | `agent_*` prompts | Next verification |
 | `mcp_*` prompts, `server.*` (incl. `max_concurrent`, `auth_token`), `admin.*`, `storage.path`, `prompts.dir` | Restart the affected process |
 

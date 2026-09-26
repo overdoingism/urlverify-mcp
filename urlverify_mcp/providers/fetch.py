@@ -14,7 +14,6 @@ from ..providers.public_http import public_client
 
 from ..config import Config
 from ..health import observe
-from ..tracelog import TRACE
 
 MAX_FETCH_BYTES = 2_000_000
 ACCEPT = "text/html,application/xhtml+xml,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.1"
@@ -64,7 +63,6 @@ class BuiltinFetcher:
                                         headers={"User-Agent": cfg.net.user_agent, "Accept": ACCEPT, "Accept-Language": "en,*;q=0.5"})
 
     async def fetch(self, url: str) -> str:
-        TRACE.log("fetch_request", provider="builtin", url=url)
         try:
             return await self._fetch(url)
         except httpx.HTTPError as e:
@@ -77,7 +75,6 @@ class BuiltinFetcher:
             ct = r.headers.get("content-type", "")
             if not any(t in ct for t in ("text", "json", "xml", "javascript")):
                 text = f"(binary content-type {ct}, {r.headers.get('content-length')} bytes; body not downloaded)"
-                TRACE.log("fetch_response", provider="builtin", url=url, status=r.status_code, content_type=ct, chars=len(text), text=text)
                 return text
             chunks, size = [], 0
             async for chunk in r.aiter_bytes():
@@ -92,7 +89,6 @@ class BuiltinFetcher:
         observe("fetch:builtin", True)
         if status >= 400:
             text = f"(HTTP {status})\n" + text
-        TRACE.log("fetch_response", provider="builtin", url=url, final_url=final_url, status=status, content_type=ct, chars=len(text), text=text)
         return text
 
     async def close(self) -> None:

@@ -94,11 +94,6 @@ injection_patterns:         # regex, case-insensitive; a hit on the target site 
   - "\\b(system|developer) (prompt|instruction|override)\\b"
   - "\\bplease (report|respond|answer|mark|classify)[^.\\n]{0,60}\\b(verified|official|true|legitimate|safe)\\b"
 
-full_log:                   # full data log: MCP in/out, every LLM turn (incl. reasoning), search requests/responses, L0, decisions
-  enabled: false            # toggle here or in the admin UI (Config tab); applies immediately
-  dir: "log/full"
-  max_bytes: 1048576        # new full-YYYYMMDDHHMMSS.log once the current file exceeds this
-
 prompts:
   dir: "state/prompts"          # edited prompts are stored here (admin UI > Prompts); defaults live in the package
 

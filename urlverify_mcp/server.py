@@ -13,7 +13,6 @@ from .source.run import SourceRequest, SourceResult
 from .source.run import verify_source as run_source
 from .promptstore import get_store
 from .storage import Storage
-from .tracelog import TRACE, configure_from
 
 _cfg: Config | None = None
 _store: Storage | None = None
@@ -29,16 +28,13 @@ def _init(config_path: str | None = None) -> tuple[Config, Storage]:
 
 def _reload(current: Config) -> Config:
     try:
-        fresh = load_config(str(current.source_path) if current.source_path else None)
-        configure_from(fresh)
-        return fresh
+        return load_config(str(current.source_path) if current.source_path else None)
     except Exception:  # noqa: BLE001  (a half-saved config must not take the server down)
         return current
 
 
 def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: int = 8766) -> FastMCP:
     cfg, store = _init(config_path)
-    configure_from(cfg)
     prompts = get_store(cfg.prompts.dir)
     import asyncio
     slots = asyncio.Semaphore(max(1, cfg.server.max_concurrent))
@@ -48,11 +44,10 @@ def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: 
     @mcp.tool(description=prompts.get("mcp_tool_verify_source"), structured_output=False)
     async def verify_source(project: str, source: str, artifact: str = "", description: str = "", version: str = "",
                             options: dict[str, Any] | None = None, ctx: Context | None = None) -> str:
-        # Re-read config.yaml on every call so edits made in the admin UI (endpoints, thresholds, lists,
-        # full_log toggle) apply to a running server. MCP-facing prompts stay fixed until restart.
+        # Re-read config.yaml on every call so edits made in the admin UI (endpoints, thresholds, lists)
+        # apply to a running server. MCP-facing prompts stay fixed until restart.
         live_cfg = _reload(cfg)
         args = {"project": project, "source": source, "artifact": artifact, "description": description, "version": version, "options": options}
-        TRACE.log("mcp_request", tool="verify_source", args=args)
         # Progress notifications + heartbeat: FastMCP's report_progress is a no-op when the client sent no progressToken.
         reporter = (lambda p, t, m: ctx.report_progress(p, t, m)) if ctx is not None else None
         prog = progress_mod.Progress(reporter, events=live_cfg.server.progress_events, heartbeat_s=live_cfg.server.heartbeat_s)
@@ -66,14 +61,11 @@ def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: 
         finally:
             await prog.stop()
             progress_mod.unbind(tok)
-        TRACE.log("progress_summary", notifications_sent=prog.sent, heartbeat_s=prog.heartbeat_s, events=prog.events)
         out = to_yaml(res)
-        TRACE.log("mcp_response", tool="verify_source", trace_id_result=res.trace_id, verdict=res.verdict.value, response=out)
         return out
 
     @mcp.tool(description=prompts.get("mcp_tool_get_verification"), structured_output=False)
     async def get_verification(trace_id: str) -> str:
-        TRACE.log("mcp_request", tool="get_verification", args={"trace_id": trace_id})
         h = store.get_history(trace_id)
         if not h:
             out = dump_yaml({"error": "not found", "trace_id": trace_id})
@@ -81,14 +73,11 @@ def build_server(config_path: str | None = None, host: str = "127.0.0.1", port: 
             out = to_yaml(SourceResult(**h["result"]))
         else:
             out = dump_yaml(h["result"])
-        TRACE.log("mcp_response", tool="get_verification", response=out)
         return out
 
     @mcp.tool(description=prompts.get("mcp_tool_list_known_identities"), structured_output=False)
     async def list_known_identities() -> str:
-        TRACE.log("mcp_request", tool="list_known_identities", args={})
         out = dump_yaml({"identities": [{"project": r["project"], **r["data"]} for r in store.dump_table("identity_cache")]})
-        TRACE.log("mcp_response", tool="list_known_identities", response=out)
         return out
 
     return mcp

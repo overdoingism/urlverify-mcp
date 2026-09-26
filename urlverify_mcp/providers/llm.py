@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-import time
 from typing import Any
 
 from openai import AsyncOpenAI
 
 from ..config import Config
 from ..health import observe
-from ..tracelog import TRACE
 
 JSON_FENCE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.S)
 
@@ -27,9 +25,6 @@ class LLM:
                    json_mode: bool = False, temperature: float | None = None) -> Any:
         kwargs: dict[str, Any] = {"model": self.model, "messages": messages,
                                   "temperature": self.cfg.llm.temperature if temperature is None else temperature}
-        TRACE.log("llm_request", model=self.model, messages=messages, tools=[t["function"]["name"] for t in tools] if tools else None,
-                  json_mode=json_mode, temperature=kwargs["temperature"])
-        t0 = time.time()
         if tools and self.supports_tools is not False:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -54,19 +49,7 @@ class LLM:
             if resp.choices and resp.choices[0].message.tool_calls:
                 self.supports_tools = True
         observe("llm", True)
-        msg = resp.choices[0].message
-        try:
-            dumped = msg.model_dump()          # includes reasoning_content / reasoning when the backend returns them
-        except Exception:  # noqa: BLE001
-            dumped = {"content": msg.content}
-        thinking = dumped.get("reasoning_content") or dumped.get("reasoning")
-        if not thinking and msg.content and "<think>" in msg.content:
-            m = re.search(r"<think>(.*?)</think>", msg.content, flags=re.S)
-            thinking = m.group(1).strip() if m else None
-        TRACE.log("llm_response", model=self.model, elapsed_s=round(time.time() - t0, 2), thinking=thinking,
-                  content=msg.content, tool_calls=dumped.get("tool_calls"),
-                  usage=(resp.usage.model_dump() if getattr(resp, "usage", None) else None), finish_reason=resp.choices[0].finish_reason)
-        return msg
+        return resp.choices[0].message
 
     @staticmethod
     def extract_json(text: str) -> dict[str, Any] | None:

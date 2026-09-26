@@ -18,21 +18,12 @@ def _client(tmp_path, monkeypatch):
     return c, cfg_path
 
 
-def test_fulllog_toggle_persists_and_applies(tmp_path, monkeypatch):
-    c, cfg_path = _client(tmp_path, monkeypatch)
-    assert c.get("/api/fulllog").json()["enabled"] is False
-    r = c.put("/api/fulllog", json={"enabled": True}).json()
-    assert r["ok"] and r["enabled"] is True
-    assert "enabled: true" in cfg_path.read_text()
-    from urlverify_mcp.tracelog import TRACE
-    TRACE.log("probe", x=1)
-    files = c.get("/api/fulllog").json()["files"]
-    assert files and files[0]["name"].startswith("full-")
-    body = c.get(f"/api/fulllog/{files[0]['name']}").json()["text"]
-    assert '"kind": "probe"' in body
-    assert c.get("/api/fulllog/../../etc/passwd").status_code in (404, 422)
-    c.put("/api/fulllog", json={"enabled": False})
-    assert TRACE.enabled is False
+def test_full_log_is_gone_and_old_config_still_loads(tmp_path, monkeypatch):
+    """The full data log was removed (History is the record). A config.yaml that still has a full_log section loads."""
+    c, _ = _client(tmp_path, monkeypatch)                       # the fixture config still carries full_log:
+    assert c.get("/api/fulllog").status_code == 404
+    assert "full_log" not in c.get("/api/config").json()
+    assert "full_log" not in c.get("/api/status").json()
 
 
 def test_prompt_endpoints(tmp_path, monkeypatch):

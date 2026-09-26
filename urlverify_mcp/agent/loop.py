@@ -13,7 +13,6 @@ from ..models import L0Result, LLMSubmission
 from ..providers.llm import LLM
 from ..providers.search import SearchProvider
 from .. import progress
-from ..tracelog import TRACE
 from .prompts import fallback_action_instructions, submission_schema_text, system_prompt
 
 
@@ -105,9 +104,7 @@ class Investigator:
     async def run_tool(self, name: str, args: dict[str, Any]) -> str:
         args = args or {}
         await progress.report(f"L1: {name} {_short(args)}")
-        TRACE.log("agent_tool_call", tool=name, args=args, budget=self.budget.summary())
         out = await self._run_tool_inner(name, args)
-        TRACE.log("agent_tool_result", tool=name, chars=len(out), text=out)
         return out
 
     async def _run_tool_inner(self, name: str, args: dict[str, Any]) -> str:
@@ -215,7 +212,6 @@ class Investigator:
                     except json.JSONDecodeError:
                         args = LLM.extract_json(tc.function.arguments or "") or {}
                     if tc.function.name == "submit_verdict":
-                        TRACE.log("agent_submission", raw=args)
                         return self._parse_submission(args, project)
                     out = await self.run_tool(tc.function.name, args)
                     self.tool_log.append({"tool": tc.function.name, "args": args, "chars": len(out)})
@@ -228,7 +224,6 @@ class Investigator:
                 name, args = action["action"], action.get("args") or {}
                 messages.append({"role": "assistant", "content": content})
                 if name == "submit_verdict":
-                    TRACE.log("agent_submission", raw=args)
                     return self._parse_submission(args, project)
                 out = await self.run_tool(name, args)
                 self.tool_log.append({"tool": name, "args": args, "chars": len(out)})

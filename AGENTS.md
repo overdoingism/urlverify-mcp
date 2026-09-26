@@ -159,8 +159,8 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
 - `allowlist / denylist`
 - `cache.cert_ttl_hours`、`cache.identity_ttl_hours`、`cache.anchor_refresh_days`
 - `net.timeout_s`
-- `full_log.enabled / dir / max_bytes`：完整資料日誌（預設關閉；MCP 進出、LLM 每輪含 reasoning、搜尋往返、L0、裁決；
-  `full-YYYYMMDDHHMMSS.log`，超過 1MB 換檔；管理介面 Config 分頁可即時切換）
+- （2026-09-26 移除）完整資料日誌 `full_log` 與管理介面 Logs 分頁已刪除：History 的每筆驗證紀錄已足以交付判斷問題，也分得較清楚。
+  舊 config.yaml 留著 `full_log:` 區段不會報錯（未知欄位忽略）。
 - `prompts.dir`：prompt 覆寫檔目錄。預設在 `prompt_defaults/*.md`；`agent_*` 下次驗證即生效，`mcp_*` 需重啟 server
 - `search.call_timeout_s`（單次搜尋/抓取上限）、`budget.max_total_s`（整次驗證總時限，到期回 UNVERIFIABLE）
 - `server.progress_events / heartbeat_s`：MCP progress 通知與心跳，讓支援 resetTimeoutOnProgress 的 client 不會 -32001；
@@ -352,7 +352,7 @@ config.example.yaml
   定案：`providers/search.py` 把 transport 的 context manager 放進專屬 worker task，呼叫端經 Future 取得 session
   或普通的 `SearchUnavailable`（2026-09-15，來自另一套 LLM 的 bug 報告，已核實並修復）。
 - **探測 vs 觀察**（2026-09-17 定案）：外部依賴不做自動探測；每次真實呼叫回報成敗到 `health.py`（持久化於 `log/health.json`），失敗在 stderr 印
-  `!! DEPENDENCY …`、full log 記 `dependency_failure`、結果帶 `degraded`。健康表**只是報告，永遠不是啟用與否的判準**。
+  `!! DEPENDENCY …`、結果帶 `degraded`。健康表**只是報告，永遠不是啟用與否的判準**。
   `check-env` 只在使用者手動觸發時跑，且只用各服務最輕的端點；管理頁載入時不打任何外部服務。
 - **Wikidata 的 `mul` 標籤**（2026-09-24）：Wikidata 2024–25 起把許多條目的標籤／別名移到語言無關的 `mul`（例：7-Zip Q215051 沒有 `en` 標籤），
   只讀 `en` 會拿到空標籤、名稱比對失敗（`WIKIMEDIA_NO_MATCH`）。現在讀 `en|mul`，標籤以 `en` 優先；別名原本根本沒有要（props 漏了 `aliases`），一併修正。

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Removed the full data log (`full_log` config section, the admin Logs tab and its `/api/fulllog` endpoints, and the
+  JSONL writer). The History tab's per-verification records are what problems are diagnosed from. An old config.yaml
+  that still has a `full_log:` section loads unchanged (the section is ignored); existing log files are left on disk.
+
 - Single-source Wikimedia rule (`identity.wikimedia_solo`): a domain whose only family is Wikimedia may be established by
   it alone when Wikidata and the English Wikipedia infobox name it now and in a revision current at a random time 18–30
   months ago (not the current revision, on both; an older revision is fine — the value stood longer), nothing changed recently, and the

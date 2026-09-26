@@ -48,7 +48,6 @@
     <button data-tab="lists">Allow / Deny</button>
     <button data-tab="cache">Caches</button>
     <button data-tab="prompts">Prompts</button>
-    <button data-tab="logs">Logs</button>
     <span class="sep"></span>
     <button class="action" id="pw-btn" title="change admin password">Password</button>
     <button class="action" id="logout">Sign out</button>
@@ -160,30 +159,6 @@
     </div>
   </section>
 
-  <section id="tab-logs">
-    <div class="card">
-      <label style="display:flex;align-items:center;gap:10px;font-size:14px;color:var(--fg)">
-        <input type="checkbox" id="fl-enabled" style="width:auto"> <b>Full data log</b>
-        <span class="muted">records every MCP request/response, LLM turn (incl. reasoning), search exchange, L0 result and decision as JSONL; rotates at 1 MB. Applies immediately.</span>
-      </label>
-      <div class="muted" id="fl-status" style="margin-top:6px"></div>
-      <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
-        <input id="fl-dir" readonly style="flex:1;font-family:ui-monospace,monospace;font-size:12px">
-        <button class="small" id="fl-open">Open log folder</button>
-        <button class="small" id="fl-copy">Copy path</button>
-      </div>
-    </div>
-    <div class="card"><h3>Full data log files</h3>
-      <p class="muted">These files contain the complete content of every page fetched and every LLM message, including the model's reasoning. Review before sharing.</p>
-      <div class="muted" id="l-status"></div>
-      <table id="l-table"><thead><tr><th>File</th><th>Size</th><th>Modified</th><th></th></tr></thead><tbody></tbody></table></div>
-    <div class="card" id="l-view" style="display:none">
-      <div><b id="l-name"></b> <span class="muted">(last 256 KB; one JSON record per line)</span>
-        <label style="display:inline-block;margin-left:12px;font-size:12px"><input type="checkbox" id="l-pretty" checked style="width:auto"> pretty</label></div>
-      <pre id="l-text" style="max-height:600px"></pre>
-    </div>
-  </section>
-
   <section id="tab-cache">
     <div class="card"><h3>Identity graph cache <button class="small" data-clear="identity_cache">clear</button></h3><table id="ic-table"><tbody></tbody></table></div>
     <div class="card"><h3>Certificate cache <button class="small" data-clear="cert_cache">clear</button></h3><table id="cc-table"><tbody></tbody></table></div>
@@ -202,7 +177,7 @@ let cfg = null;
 document.querySelectorAll('nav button[data-tab]').forEach(b => b.onclick = () => {
   document.querySelectorAll('nav button[data-tab]').forEach(x => x.classList.remove('active')); b.classList.add('active');
   document.querySelectorAll('section').forEach(s => s.classList.remove('active')); $('#tab-'+b.dataset.tab).classList.add('active');
-  ({status: loadStatus, history: loadHistory, config: loadConfig, lists: loadLists, cache: loadCaches, prompts: loadPrompts, logs: loadLogs})[b.dataset.tab]?.();
+  ({status: loadStatus, history: loadHistory, config: loadConfig, lists: loadLists, cache: loadCaches, prompts: loadPrompts})[b.dataset.tab]?.();
 });
 
 async function loadEnv(){ try { const h = await api('/api/health'); const rows = h.rows || [];
@@ -236,23 +211,15 @@ $('#h-clear').onclick = async () => { if(confirm('Delete all verification histor
 async function loadHistory(){ const rows = await api('/api/history'); $('#h-table tbody').innerHTML = rows.map(h => `<tr><td>${new Date(h.ts*1000).toLocaleString()}</td><td>${esc(h.project)}</td><td class="muted">${esc(h.url).slice(0,70)}</td><td class="${h.verdict}">${h.verdict}</td><td>${h.confidence}</td><td><button class="small" data-trace="${h.trace_id}">view</button></td></tr>`).join('');
   $('#h-table').querySelectorAll('button').forEach(b => b.onclick = async () => { const d = await api('/api/history/'+b.dataset.trace); $('#h-detail').style.display='block'; $('#h-raw').textContent = JSON.stringify(d.result, null, 2); }); }
 
-async function loadFullLog(){ const f = await api('/api/fulllog'); $('#fl-enabled').checked = f.enabled; $('#fl-dir').value = f.dir; $('#fl-status').textContent = `current file: ${f.current || '(none yet)'} · ${f.files.length} file(s)`; }
-// The checkbox writes config.yaml immediately; the JSON editor below is another view of the same file, so refresh it
-// afterwards — otherwise a later "Save" would write the stale JSON (enabled:false) back over the toggle.
-$('#fl-enabled').onchange = async () => { const r = await api('/api/fulllog', {method:'PUT', body: JSON.stringify({enabled: $('#fl-enabled').checked})}); await loadConfig(); $('#fl-status').textContent = `saved to ${r.path} · enabled=${r.enabled}`; };
-$('#fl-open').onclick = async () => { try { const r = await api('/api/fulllog/open', {method:'POST'}); $('#fl-status').textContent = r.ok ? `opened ${r.dir}` : `could not open: ${r.error}`; } catch(e){ $('#fl-status').textContent = 'error: ' + e.message; } };
-$('#fl-copy').onclick = async () => { try { await navigator.clipboard.writeText($('#fl-dir').value); $('#fl-status').textContent = 'path copied'; } catch(e){ $('#fl-dir').select(); } };
 
 async function loadGithubToken(){ const t = await api('/api/github_token'); $('#gt-status').textContent = t.set ? `token stored (${t.hint})` : 'no token stored (60 requests/hour)'; }
 $('#gt-save').onclick = async () => { const v = $('#gt-input').value.trim(); if(!v) return; await api('/api/github_token', {method:'PUT', body: JSON.stringify({token: v})}); $('#gt-input').value=''; await loadConfig(); };
 $('#gt-clear').onclick = async () => { if(confirm('Remove the stored GitHub token?')){ await api('/api/github_token', {method:'PUT', body: JSON.stringify({token: ''})}); await loadConfig(); } };
 $('#gt-check').onclick = async () => { $('#gt-status').textContent = 'asking GitHub…'; const r = await api('/api/github_token/check', {method:'POST'});
   $('#gt-status').textContent = r.ok ? `${r.authenticated ? 'token works' : 'no token'}: ${r.remaining}/${r.limit} requests left this hour` : 'error: ' + r.error; };
-async function loadConfig(){ await loadGithubToken(); await loadFullLog(); cfg = await api('/api/config'); $('#c-path').textContent = cfg._source_path || '(defaults; save will create ~/.urlverify_mcp/config.yaml)'; const c = {...cfg}; delete c._source_path; $('#c-json').value = JSON.stringify(c, null, 2); }
+async function loadConfig(){ await loadGithubToken(); cfg = await api('/api/config'); $('#c-path').textContent = cfg._source_path || '(defaults; save will create ~/.urlverify_mcp/config.yaml)'; const c = {...cfg}; delete c._source_path; $('#c-json').value = JSON.stringify(c, null, 2); }
 $('#c-save').onclick = async () => { try {
     const body = JSON.parse($('#c-json').value);
-    // full_log.enabled is edited on the Logs tab; the JSON here is the same file, so a Save writes whatever the JSON says
-    // and the switch is re-read from the file afterwards (loadConfig -> loadFullLog). Both views stay in step.
     const r = await api('/api/config', {method:'PUT', body: JSON.stringify(body)}); $('#c-status').textContent = 'saved to ' + r.path; await loadConfig(); loadEnv(); }
   catch(e){ $('#c-status').textContent = 'error: ' + e.message; } };
 
@@ -294,13 +261,6 @@ $('#p-save').onclick = async () => { try { const r = await api('/api/prompts/'+c
 $('#p-reset').onclick = async () => { if(!confirm('Remove override and return to the built-in default?')) return; await api('/api/prompts/'+curPrompt, {method:'DELETE'}); loadPrompts(); openPrompt(curPrompt); };
 $('#p-showdef').onclick = () => { const d = $('#p-default'); d.style.display = d.style.display === 'none' ? 'block' : 'none'; };
 
-async function loadLogs(){ await loadFullLog(); const f = await api('/api/fulllog'); $('#l-status').textContent = `enabled=${f.enabled} · dir ${f.dir} · rotate at ${Math.round(f.max_bytes/1024)} KB`;
-  $('#l-table tbody').innerHTML = f.files.map(x => `<tr><td>${esc(x.name)}${x.current?' <span class="pill">current</span>':''}</td><td>${Math.round(x.size/1024)} KB</td><td>${new Date(x.mtime*1000).toLocaleString()}</td><td><button class="small" data-f="${esc(x.name)}">view</button></td></tr>`).join('') || '<tr><td class="muted">no log files yet</td></tr>';
-  $('#l-table').querySelectorAll('button').forEach(b => b.onclick = () => viewLog(b.dataset.f)); }
-async function viewLog(name){ const r = await api('/api/fulllog/'+name); $('#l-view').style.display = 'block'; $('#l-name').textContent = name;
-  const render = () => { if(!$('#l-pretty').checked){ $('#l-text').textContent = r.text; return; }
-    $('#l-text').textContent = r.text.split('\n').filter(Boolean).map(l => { try { const j = JSON.parse(l); const {ts, trace_id, kind, ...rest} = j; return `${ts}  [${trace_id}]  ${kind}\n` + JSON.stringify(rest, null, 1).split('\n').map(x=>'    '+x).join('\n'); } catch(e){ return l; } }).join('\n\n'); };
-  $('#l-pretty').onchange = render; render(); }
 async function loadAuth(){ try { const a = await api('/api/auth'); $('#pw-banner').style.display = a.default_password ? 'block' : 'none'; } catch(e){} }
 $('#logout').onclick = async () => { await api('/api/logout', {method:'POST'}); location.href = '/login'; };
 $('#pw-btn').onclick = () => { $('#pw-status').textContent=''; $('#pw-dialog').showModal(); };
@@ -324,7 +284,7 @@ async function loadHealth(){ try { const h = await api('/api/health'); const fmt
 $('#hl-refresh').onclick = loadHealth;
 $('#hl-clear').onclick = async () => { if(confirm('Forget all observed dependency health (log/health.json)?')){ await api('/api/health', {method:'DELETE'}); loadHealth(); } };
 async function loadStatus(){ loadHealth(); try { const st = await api('/api/status'); $('#s-version').textContent = 'v' + st.version;
-    $('#s-paths').innerHTML = `config: <code>${esc(st.config_path||'(defaults)')}</code> · state: <code>${esc(st.state_dir)}</code> · logs: <code>${esc(st.log_dir)}</code> · full log: <b>${st.full_log ? 'ON' : 'off'}</b> · search: ${esc(st.search_provider)} · fetch: ${esc(st.fetch_provider)} · LLM: ${esc(st.llm_model)} @ ${esc(st.llm_base_url)}`; } catch(e){} }
+    $('#s-paths').innerHTML = `config: <code>${esc(st.config_path||'(defaults)')}</code> · state: <code>${esc(st.state_dir)}</code> · logs: <code>${esc(st.log_dir)}</code> · search: ${esc(st.search_provider)} · fetch: ${esc(st.fetch_provider)} · LLM: ${esc(st.llm_model)} @ ${esc(st.llm_base_url)}`; } catch(e){} }
 loadStatus();
 loadAuth();
 loadEnv();

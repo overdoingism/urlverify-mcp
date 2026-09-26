@@ -140,12 +140,6 @@ class ListsConfig(BaseModel):
     denylist: list[str] = Field(default_factory=list)
 
 
-class FullLogConfig(BaseModel):
-    enabled: bool = False
-    dir: str = "log/full"
-    max_bytes: int = 1_048_576          # rotate to a new full-YYYYMMDDHHMMSS.log beyond this size
-
-
 class PromptsConfig(BaseModel):
     dir: str = "state/prompts"        # user overrides; defaults ship inside the package
 
@@ -219,7 +213,6 @@ class Config(BaseModel):
     source: SourceConfig = SourceConfig()
     package_registry_fast_path: PackageRegistryFastPathConfig = PackageRegistryFastPathConfig()
     release_cooldown: ReleaseCooldownConfig = ReleaseCooldownConfig()
-    full_log: FullLogConfig = FullLogConfig()
     prompts: PromptsConfig = PromptsConfig()
     server: ServerConfig = ServerConfig()
     admin: AdminConfig = AdminConfig()

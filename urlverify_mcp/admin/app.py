@@ -13,7 +13,6 @@ from pydantic import BaseModel
 from ..config import Config, load_config, save_config
 from ..health import HEALTH
 from ..promptstore import PROMPTS, get_store
-from ..tracelog import TRACE, configure_from
 from ..models import VerifyRequest
 from ..pipeline import verify
 from ..storage import Storage
@@ -37,10 +36,6 @@ class TokenBody(BaseModel):
     token: str = ""
 
 
-class FullLogBody(BaseModel):
-    enabled: bool
-
-
 class PromptBody(BaseModel):
     text: str
 
@@ -59,14 +54,12 @@ class State:
         self.config_path = config_path
         self.cfg: Config = load_config(config_path)
         self.store = Storage(self.cfg.storage.resolved(), self.cfg.log.resolved())
-        configure_from(self.cfg)
         self.prompts = get_store(self.cfg.prompts.dir)
         self.auth = AdminAuth(self.cfg.admin.auth_file, self.cfg.admin.session_days)
         HEALTH.attach(self.store)
 
     def reload(self):
         self.cfg = load_config(self.config_path)
-        configure_from(self.cfg)
         self.prompts = get_store(self.cfg.prompts.dir)
 
 
@@ -237,27 +230,6 @@ def create_app(config_path: str | None = None) -> FastAPI:
         res = await verify_source(SourceRequest(**body.model_dump()), st.cfg, st.store)
         return {"result": res.model_dump(mode="json"), "yaml": to_yaml(res)}
 
-    # ---- full data log
-    @app.get("/api/fulllog")
-    async def fulllog_status():
-        return {"enabled": TRACE.enabled, "dir": str(TRACE.dir), "max_bytes": TRACE.max_bytes,
-                "current": TRACE.current_path(), "files": TRACE.files()}
-
-    @app.put("/api/fulllog")
-    async def fulllog_toggle(body: FullLogBody):
-        """Persist the toggle to config.yaml and apply it immediately (no restart)."""
-        st.cfg.full_log.enabled = body.enabled
-        save_config(st.cfg)
-        st.reload()
-        return {"ok": True, "enabled": TRACE.enabled, "path": str(st.cfg.source_path)}
-
-    @app.post("/api/fulllog/open")
-    async def fulllog_open():
-        """Open the log folder in the OS file manager (admin UI is local-only by default)."""
-        d = TRACE.dir
-        d.mkdir(parents=True, exist_ok=True)
-        return _os_open(d)
-
     @app.get("/api/tier1paths")
     async def tier1paths():
         from ..identity.sources import tier1_paths_status
@@ -268,13 +240,6 @@ def create_app(config_path: str | None = None) -> FastAPI:
         """Open data/tier1_paths.yaml in the local default editor."""
         from ..identity.sources import TIER1_PATHS_FILE
         return _os_open(TIER1_PATHS_FILE)
-
-    @app.get("/api/fulllog/{name}")
-    async def fulllog_read(name: str, tail: int = 262144):
-        try:
-            return {"name": name, "text": TRACE.read(name, tail)}
-        except FileNotFoundError:
-            raise HTTPException(404)
 
     # ---- prompts
     @app.get("/api/prompts")
@@ -310,7 +275,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         from .. import __version__
         c = st.cfg
         return {"version": __version__, "config_path": str(c.source_path) if c.source_path else None,
-                "state_dir": str(c.storage.resolved()), "log_dir": str(c.log.resolved()), "full_log": c.full_log.enabled,
+                "state_dir": str(c.storage.resolved()), "log_dir": str(c.log.resolved()),
                 "search_provider": c.search.provider, "fetch_provider": c.fetch.provider, "llm_model": c.llm.model, "llm_base_url": c.llm.base_url}
 
     @app.get("/api/health")

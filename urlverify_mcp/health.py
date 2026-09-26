@@ -9,7 +9,6 @@ import threading
 import time
 from typing import Any
 
-from .tracelog import TRACE
 
 ESCALATE_AT = 3   # consecutive failures that trigger the louder log line
 log = logging.getLogger("urlverify")
@@ -48,14 +47,12 @@ class Health:
                 st.update(last_ok=now, consecutive_fail=0, ok_count=st["ok_count"] + 1)
                 if was_down:
                     log.warning("!! DEPENDENCY %s: recovered", dep)
-                    TRACE.log("dependency_recovered", dep=dep)
             else:
                 st.update(last_fail=now, last_error=(error or "")[:300], consecutive_fail=st["consecutive_fail"] + 1,
                           fail_count=st["fail_count"] + 1)
                 n = st["consecutive_fail"]
                 tag = "!! DEPENDENCY" if n < ESCALATE_AT else "!!! DEPENDENCY DOWN"
                 log.warning("%s %s: %s (%d consecutive)", tag, dep, st["last_error"], n)
-                TRACE.log("dependency_failure", dep=dep, error=st["last_error"], consecutive=n)
                 bag = _degraded.get()
                 if bag is not None:
                     bag.add(dep)

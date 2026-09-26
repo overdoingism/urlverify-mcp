@@ -15,7 +15,6 @@ from .. import progress
 from ..config import Config
 from ..models import Verdict, VerifyRequest, VerifyResult
 from ..storage import Storage
-from ..tracelog import TRACE
 from .model import Subject
 from .parse import parse_source
 from .resolve import Resolver
@@ -200,13 +199,11 @@ async def verify_source(req: SourceRequest, cfg: Config, store: Storage) -> Sour
     from ..pipeline import verify
     t0 = time.time()
     trace_id = uuid.uuid4().hex[:12]
-    TRACE.log("source_request", trace_id=trace_id, request=req.model_dump())
 
     def finish(out: SourceResult) -> SourceResult:
         out.duration_s = round(time.time() - t0, 1)
         store.add_history(trace_id, req.project, req.source, req.artifact or req.description, out.verdict.value,
                           out.confidence, out.model_dump(mode="json"))
-        TRACE.log("source_result", result=out.model_dump(mode="json"))
         return out
 
     bad = _validation_codes(req)
@@ -241,7 +238,6 @@ async def verify_source(req: SourceRequest, cfg: Config, store: Storage) -> Sour
             s.codes.append("INPUT_VERSION_CONFLICT")
         if not s.codes and not s.url and s.ecosystem != "distro":
             s.codes.append("SOURCE_UNPARSABLE")
-    TRACE.log("source_resolved", subjects=[s.model_dump() for s in resolved])
 
     results: list[SubjectResult] = []
     for i, s in enumerate(resolved, 1):

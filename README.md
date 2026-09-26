@@ -184,11 +184,10 @@ details:                            # evidence, checks, identity, engine notes
 Everything after `machine_readable` may quote untrusted web pages; verdict words inside it are neutralised
 (`VERIFIED TRUE`), so a grep for `verdict: VERIFIED_TRUE` or `next_action: PROCEED` only ever hits the real keys.
 
-### Full data log & editable prompts
+### Editable prompts
 
 | Feature | Where | Notes |
 |---|---|---|
-| **Full data log** | `full_log.enabled` in `config.yaml`, or the switch at the top of the admin **Config** tab | Off by default. Records, in order, every MCP request/response, every LLM turn (request messages, response, and the model's reasoning when the backend returns it), every search/fetch exchange, structured API results, L0 results and the rules decision, as one JSON record per line. Files are `full-YYYYMMDDHHMMSS.log` in `full_log.dir`; a new file starts once the current one exceeds `max_bytes` (1 MB). Browse them in the admin **Logs** tab. |
 | **Agent prompts** | admin **Prompts** tab → `agent_*` | The investigator's system prompt, the submit_verdict schema text, the fallback JSON-action instructions and the final reason-writing prompt. Edits are saved as overrides in `prompts.dir` and take effect on the next verification. |
 | **MCP-facing prompts** | admin **Prompts** tab → `mcp_*` | The server instructions and the three tool descriptions shown to the agent that calls this MCP server. Registered at startup, so restart `serve` after editing. |
 
@@ -238,8 +237,8 @@ inherit the standing of an established GitHub organisation. `options.mode` = `au
   config.yaml            machine-specific settings (relative paths below resolve against this file's folder)
   state/                 rebuildable caches and settings: cert_cache.json, identity_cache.json, pypi_top.json,
                          admin.auth, prompts/ (edited prompts). Safe to copy to another machine or hand to someone.
-  log/                   records of what this installation did: full/ (full data log), history/ (one JSON per
-                         verification + index.jsonl), health.json (observed dependency health), server/ and admin/
+  log/                   records of what this installation did: history/ (one JSON per verification +
+                         index.jsonl), health.json (observed dependency health), server/ and admin/
                          (process output incl. "!! DEPENDENCY" lines, rotated). May be private; delete freely.
 ```
 No database, no files outside the project folder. Both folders are git-ignored.
@@ -316,8 +315,7 @@ scraping; Reddit requests are serialized; and `net.user_agent` identifies the to
 configured — LLM `/models`, SearXNG `/healthz` (or the MCP handshake), the fetcher — and is never run automatically.
 Public third-party services are not probed at all: for a service that stays up for days a probe is only a snapshot, so
 their state is the **observed dependency health** table (admin Status tab, `/api/health`):
-every real call records its outcome, failures print a prominent `!! DEPENDENCY …` line on stderr and a
-`dependency_failure` record in the full log, and each result lists the dependencies that failed during that run in
+every real call records its outcome, failures print a prominent `!! DEPENDENCY …` line on stderr, and each result lists the dependencies that failed during that run in
 `degraded`. The table is a report, never a gate: networks flap, and the next call is always attempted. Results carry `schema_version` (currently 2: the v0.2 `verify_source` YAML / JSON with `subjects`); a breaking change
 to the result shape bumps it. History entries written before v0.2 are schema 1 and are still readable.
 

@@ -18,7 +18,6 @@ import httpx
 from ..checks.urltools import levenshtein
 from ..config import Config
 from ..models import Evidence, IdentityGraph, L0Result, Verdict, VerifyResult
-from ..tracelog import TRACE
 from .provenance import Provenance, _owner_repo
 from .structured import Structured
 from .releases import target_from_url
@@ -145,7 +144,6 @@ class RegistryFastPath:
             cache.write_text(json.dumps({"rows": rows, "fetched": time.time(), "etag": etag, "url": fp.toplist_url}), encoding="utf-8")
             return {a: b for a, b in rows}
         except Exception as e:  # noqa: BLE001
-            TRACE.log("pypi_toplist", error=f"{type(e).__name__}: {e}", cached_rows=len(cached["rows"]) if cached else 0)
             if cached and cached.get("rows"):
                 return {r[0]: r[1] for r in cached["rows"][: fp.toplist_size]}   # stale beats nothing
             return None
@@ -302,14 +300,11 @@ class RegistryFastPath:
         notes: list[str] = []
         if sig.get("exists") is None:
             notes.append(f"registry API unavailable ({sig.get('error')}); fast path inconclusive")
-            TRACE.log("registry_fast_path", signals=sig, outcome="inconclusive")
             return None
         if sig.get("exists") is False:
-            TRACE.log("registry_fast_path", signals=sig, outcome="not_found")
             return self._result(Verdict.FALSE, 0.9, l0, sig, {}, [f"package '{name}' does not exist on {l0.platform}"], t0, trace_id)
         if sig.get("security_holding"):
             # the registry's own verdict on the name; no investigation can overturn it
-            TRACE.log("registry_fast_path", signals=sig, outcome="security_holding")
             l0.risk_signals.append("npm_security_holding_package")
             return self._result(Verdict.FALSE, 0.95, l0, sig, {},
                                 [f"'{name}' is an npm security holding package (version 0.0.1-security): the name was taken over by the npm "
@@ -320,7 +315,6 @@ class RegistryFastPath:
             return None
         # only now the caller's project name: the facts above are about the target itself
         if fp.require_project_match and project and not _names_match(project, name):
-            TRACE.log("registry_fast_path", outcome="inconclusive", note=f"project '{project}' does not match package '{name}'")
             l0.risk_signals.append(f"project_package_mismatch:{project}!={name}")
             return None
         repo = await self.repo_signal(sig)
@@ -330,7 +324,6 @@ class RegistryFastPath:
         if hits:
             notes.append(f"name is one edit away from a far more popular package: {hits[0]['popular']} ({hits[0]['downloads']:,} downloads)")
             l0.risk_signals.append(f"registry_typosquat:{hits[0]['popular']}")
-            TRACE.log("registry_fast_path", signals=sig, repo=repo, outcome="suspicious")
             return None                                   # let the full pipeline judge, with the hint attached
         unknowns = []
         if hits is None:
@@ -373,7 +366,6 @@ class RegistryFastPath:
                 if fp.require_project_match and project and not (_names_match(project, powner) or _names_match(project, name)):
                     notes.append(f"project '{project}' matches neither the package nor the provenance owner")
         if notes or unknowns:
-            TRACE.log("registry_fast_path", signals=sig, repo=repo, provenance=prov, outcome="inconclusive", notes=notes + unknowns)
             return None
         why = [f"{l0.platform} package '{sig.get('canonical') or name}' exists for {age} days with {rel} releases",
                ("no more-popular near-name package on the PyPI popularity list" if l0.platform == "pypi" else "npm: no near-name reference; provenance required instead"),
@@ -383,7 +375,6 @@ class RegistryFastPath:
                + (f" ({prov['workflow']})" if prov.get("workflow") else "") + f"; owner '{prov['repo'][0]}' is a domain-verified GitHub organisation"
                + (f" ({prov.get('owner_blog')})" if prov.get("owner_blog") else "")
                + ("; independently verified by deps.dev" if prov.get("depsdev_verified") else "")]
-        TRACE.log("registry_fast_path", signals=sig, repo=repo, provenance=prov, outcome="verified")
         return self._result(Verdict.TRUE, fp.confidence, l0, sig, repo, why, t0, trace_id, prov)
 
     async def target_signals(self, l0: L0Result) -> dict[str, Any]:
