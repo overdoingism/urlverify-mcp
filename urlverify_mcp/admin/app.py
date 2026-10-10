@@ -13,8 +13,6 @@ from pydantic import BaseModel
 from ..config import Config, load_config, save_config
 from ..health import HEALTH
 from ..promptstore import PROMPTS, get_store
-from ..models import VerifyRequest
-from ..pipeline import verify
 from ..storage import Storage
 
 STATIC = Path(__file__).parent / "static"

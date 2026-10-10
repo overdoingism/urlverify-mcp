@@ -5,15 +5,11 @@ never decide in the wrong direction."""
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 from urllib.parse import quote
-
-import httpx
 
 from ..checks.urltools import levenshtein
 from ..config import Config
