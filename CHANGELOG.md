@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Replay tests: nine new cases captured from the 2026-10-11 live run (LM Studio site / repo / homoglyph / missing
+  domain, Qwen3 official and community repos, pypdf, VLC https / http); 21 replay cases in total.
 - Known malware and registry holds (`package_security`, AGENTS §6.5), for PyPI / npm / NuGet / Go packages before any
   TRUE path: OSV.dev `MAL-` records covering every version → `VERIFIED_FALSE` with `PACKAGE_KNOWN_MALICIOUS:<id>`; a
   record for the exact version to install (a compromised release of an official package) keeps the verdict but sets
