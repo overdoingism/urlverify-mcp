@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Docs: README rewritten and shortened (bilingual introduction, the rest in English); the quick start moved to
+  [docs/quickstart.en.md](docs/quickstart.en.md) and [docs/quickstart.zh-TW.md](docs/quickstart.zh-TW.md).
+- Removed five unused imports.
+
 - Removed the full data log (`full_log` config section, the admin Logs tab and its `/api/fulllog` endpoints, and the
   JSONL writer). The History tab's per-verification records are what problems are diagnosed from. An old config.yaml
   that still has a `full_log:` section loads unchanged (the section is ignored); existing log files are left on disk.
