@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from .cache.anchors import anchor_for, resolve as resolve_anchor
 from .evidence import EvidenceStore, record_kind
-from .checks.urltools import etld1_of, host_of
+from .checks.urltools import etld1_of, host_of, icann_etld1_of
 from .config import Config
 from .cache.anchors import SEED
 from .identity.sources import PLATFORM_FAMILIES, classify, family_of, source_key
@@ -42,7 +42,7 @@ def _squash(s: str) -> str:
 
 # Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
 # established under older rules are re-verified instead of being trusted from the cache.
-RULES_VERSION = "2026-09-24.8"
+RULES_VERSION = "2026-10-11.1"
 SELF_PUBLISHED_MAX_CONFIDENCE = 0.75
 DELEGATED_MAX_CONFIDENCE = 0.8     # mirror / CDN host delegated by the official site: verify the checksum   # TRUE for an owner established only by cross-platform consistency
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub", "sourceforge", "snapcraft"}
@@ -226,7 +226,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
         platform_roots.discard(l0.etld1)
     official_domains: list[str] = []
     for d in sub.identity.official_domains:
-        if etld1_of(d) in platform_roots:
+        if etld1_of(d) in platform_roots or icann_etld1_of(d) in platform_roots:     # foo.github.io is GitHub content
             if f"'{d}' is a hosting platform, not an identity; ignored as official domain (owners go in official_orgs)" not in notes:
                 notes.append(f"'{d}' is a hosting platform, not an identity; ignored as official domain (owners go in official_orgs)")
         elif d not in official_domains:

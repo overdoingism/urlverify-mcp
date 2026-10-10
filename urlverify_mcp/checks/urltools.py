@@ -8,7 +8,11 @@ from urllib.parse import urlsplit, urlunsplit
 import idna
 import tldextract
 
-_extract = tldextract.TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True)  # offline PSL snapshot
+# offline PSL snapshot. The PRIVATE section is included: shared-hosting suffixes (readthedocs.io, netlify.app, github.io,
+# vercel.app, pages.dev, herokuapp.com ...) are where each customer gets a subdomain of their own, so
+# pypdf.readthedocs.io and evil.readthedocs.io are different registrable domains (different owners).
+_extract = tldextract.TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True, include_psl_private_domains=True)
+_icann = tldextract.TLDExtract(suffix_list_urls=(), fallback_to_snapshot=True)
 
 SHORTENERS = {
     "bit.ly", "t.co", "tinyurl.com", "goo.gl", "ow.ly", "is.gd", "buff.ly", "cutt.ly", "rb.gy",
@@ -47,8 +51,19 @@ def host_of(url: str) -> str:
 
 
 def etld1_of(host_or_url: str) -> str:
+    """Registrable domain = the unit of ownership (identity). Shared-hosting customers are their own domain."""
     host = host_of(host_or_url) if "://" in host_or_url else host_or_url.lower()
     ext = _extract(host)
+    if ext.domain and ext.suffix:
+        return f"{ext.domain}.{ext.suffix}"
+    return host
+
+
+def icann_etld1_of(host_or_url: str) -> str:
+    """Registrable domain under the ICANN section only: the hosting PROVIDER for a shared-hosting site (readthedocs.io for
+    pypdf.readthedocs.io). For platform anchors, tier-3 / deny lists and other "who runs the service" questions."""
+    host = host_of(host_or_url) if "://" in host_or_url else host_or_url.lower()
+    ext = _icann(host)
     if ext.domain and ext.suffix:
         return f"{ext.domain}.{ext.suffix}"
     return host

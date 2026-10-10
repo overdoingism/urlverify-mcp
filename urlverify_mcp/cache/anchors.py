@@ -89,7 +89,13 @@ _BY_ETLD1: dict[str, Anchor] = {d: a for a in SEED for d in a.etld1s}
 
 
 def anchor_for(etld1: str) -> Anchor | None:
-    return _BY_ETLD1.get(etld1.lower())
+    """Platform owning this registrable domain. A shared-hosting customer domain (foo.github.io, x.gitlab.io) belongs to
+    the provider's platform: fall back to the provider's ICANN-level domain."""
+    a = _BY_ETLD1.get(etld1.lower())
+    if a is None and "." in etld1:
+        from ..checks.urltools import icann_etld1_of
+        a = _BY_ETLD1.get(icann_etld1_of(etld1))
+    return a
 
 
 def resolve(anchor: Anchor, host: str, path: str) -> tuple[str, str | None, str | None]:

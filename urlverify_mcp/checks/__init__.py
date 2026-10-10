@@ -16,7 +16,7 @@ from . import doh as doh_mod
 from . import tls as tls_mod
 from .injection import find_injection
 from .private import looks_local_hostname, non_public
-from .urltools import analyse_host, etld1_of, host_of, normalize_url
+from .urltools import analyse_host, etld1_of, host_of, icann_etld1_of, normalize_url
 
 
 async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str] | None = None,
@@ -30,7 +30,7 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
 
     # --- denylist
     deny = {d.lower() for d in cfg.lists.denylist}
-    if host in deny or e1 in deny:
+    if host in deny or e1 in deny or icann_etld1_of(host) in deny:
         res.checks.append(CheckResult(name="denylist", status="fail", fatal=True, message=f"{host} is on the denylist"))
     else:
         res.checks.append(CheckResult(name="denylist", status="pass"))

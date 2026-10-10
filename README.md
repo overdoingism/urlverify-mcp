@@ -105,6 +105,8 @@ extra indexes, chained commands (`&&`, `;`). Unknown flags are reported, never i
   installed is a listed malicious release of an official package, the verdict stands but `next_action` is
   `DO_NOT_PROCEED`. PyPI quarantine is `DO_NOT_PROCEED` too.
 - A URL whose host does not exist is `UNVERIFIABLE` with `TARGET_DOMAIN_DOES_NOT_EXIST` (`FIX_INPUT_AND_RETRY`).
+- **Shared hosting**: each customer of a shared host (`x.readthedocs.io`, `x.netlify.app`, `x.github.io` …) is its own
+  domain (Public Suffix List, private section included); the provider's domain is never anyone's official domain.
 - `UNVERIFIABLE` means "not enough independent evidence", not "dangerous".
 
 Every threshold is configurable; see [document_for_config.md](document_for_config.md).

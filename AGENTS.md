@@ -377,6 +377,11 @@ config.example.yaml
 - **探測 vs 觀察**（2026-09-17 定案）：外部依賴不做自動探測；每次真實呼叫回報成敗到 `health.py`（持久化於 `log/health.json`），失敗在 stderr 印
   `!! DEPENDENCY …`、結果帶 `degraded`。健康表**只是報告，永遠不是啟用與否的判準**。
   `check-env` 只在使用者手動觸發時跑，且只用各服務最輕的端點；管理頁載入時不打任何外部服務。
+- **共用主機網域被當成官網（2026-10-11 發現並修正，安全性）**：eTLD+1 原本只用公共後綴清單的 ICANN 段，`pypdf.readthedocs.io` 被併成
+  `readthedocs.io` 並確立為 pypdf 官網；任何人開一個 `*.readthedocs.io` 專案（萬用 DNS＋萬用憑證）拿 pypdf 驗證就會 TRUE（離線 0.9、實測 0.75）。
+  netlify.app、vercel.app、pages.dev、herokuapp.com、blogspot.com、azurewebsites.net 等同理。修正：`etld1_of` 納入 PSL **私有段**（每個客戶
+  子網域是獨立擁有者）；`icann_etld1_of` 給「服務商是誰」的問題用：平台錨點查找（github.io、raw.githubusercontent.com、gitlab.io 退回平台）、
+  第三級名單與黑名單（降級／封鎖可放寬到服務商）。第一、二級名單只認確切網域，共用主機客戶不得繼承信任。RULES_VERSION 升號使舊身分失效。
 - **Wikidata 的 `mul` 標籤**（2026-09-24）：Wikidata 2024–25 起把許多條目的標籤／別名移到語言無關的 `mul`（例：7-Zip Q215051 沒有 `en` 標籤），
   只讀 `en` 會拿到空標籤、名稱比對失敗（`WIKIMEDIA_NO_MATCH`）。現在讀 `en|mul`，標籤以 `en` 優先；別名原本根本沒有要（props 漏了 `aliases`），一併修正。
 - **待議：專案名稱比對可否採用已成立網域自己的頁面**（2026-09-19 記錄，尚未動）：Vulkan SDK 案例中 lunarg.com 由 3 個獨立來源成立、

@@ -636,3 +636,27 @@ def test_single_source_threshold_is_configurable_and_record_never_votes():
     assert d.verdict == Verdict.UNVERIFIABLE and "evil.example" not in d.established_domains
     cfg = Config(identity={"wikimedia_solo": {"min_monthly_views": 3000}})
     assert cfg.identity.wikimedia_solo.min_monthly_views == 3000
+
+
+def test_shared_hosting_subdomain_is_not_the_projects_domain():
+    """Regression (2026-10-11): pypdf's docs at pypdf.readthedocs.io made "readthedocs.io" an official domain, so any
+    attacker-registered *.readthedocs.io project verified as pypdf. Each shared-hosting customer is its own domain."""
+    import json
+    store = EvidenceStore()
+    wd = "https://www.wikidata.org/wiki/Q120549688"
+    stab = {"ok": True, "stable": True, "recent_change": False, "current": ["https://pypdf.readthedocs.io/"],
+            "value_days_ago": ["https://pypdf.readthedocs.io/"]}
+    store.record(wd, json.dumps({"label": "pypdf", "official_website": ["https://pypdf.readthedocs.io/"], "stability": stab}), "wikidata")
+    store["https://pypi.org/project/pypdf/"] = "Documentation: https://pypdf.readthedocs.io/en/stable/"
+    ev = [Evidence(kind="wikidata", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == wd]),
+          _ev("https://pypi.org/project/pypdf/", "docs", "Documentation: https://pypdf.readthedocs.io/en/stable/", kind="page", tier=1)]
+    ident = IdentityGraph(product="pypdf", official_domains=["pypdf.readthedocs.io"])
+
+    def run(host):
+        l0 = _l0(host=host)
+        l0.normalized_url = f"https://{host}/pypdf-setup.exe"
+        return decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev), store, "pypdf")
+    evil = run("evil-attacker.readthedocs.io")
+    assert evil.verdict != Verdict.TRUE and "readthedocs.io" not in evil.established_domains, evil.notes
+    own = run("pypdf.readthedocs.io")
+    assert own.verdict == Verdict.TRUE and "pypdf.readthedocs.io" in own.established_domains, own.notes

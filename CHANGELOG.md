@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Security fix**: registrable domains now include the Public Suffix List's private section. A shared-hosting customer
+  (`pypdf.readthedocs.io`) used to collapse to the provider (`readthedocs.io`), which could then be established as a
+  project's official domain, so any attacker-registered `*.readthedocs.io` (or `*.netlify.app`, `*.vercel.app`,
+  `*.pages.dev`, …) site verified as that project (reproduced: VERIFIED_TRUE 0.75–0.9). Platform anchors (GitHub
+  Pages, raw.githubusercontent.com, GitLab Pages …) fall back to the provider and behave as before; tier-3 and deny
+  lists also match the provider; tier-1/2 lists never pass to a provider's customers. `RULES_VERSION` bumped, so
+  cached identities are re-verified; the Homebrew domain index is rebuilt.
+
 - New verified ecosystems: zypper and apk (origin report in `options.origin`, judged by repository URI / URL like apt);
   snap (`snap install`: Snap Store publisher verification, like Flathub; `SNAP_PUBLISHER_UNVERIFIED`,
   `SNAP_CLASSIC_CONFINEMENT`, `SNAP_DEVMODE`); composer (`composer [global] require`: the Packagist source repository is

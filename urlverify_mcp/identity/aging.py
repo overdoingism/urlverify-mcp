@@ -50,9 +50,10 @@ def _age(ts: float | None) -> int | None:
 
 
 def method_for(url: str, aging_sources: dict[str, str]) -> str:
+    from ..checks.urltools import icann_etld1_of
     host = host_of(url)
     e1 = etld1_of(host)
-    for key in (host, e1):
+    for key in (host, e1, icann_etld1_of(host)):     # raw.githubusercontent.com -> githubusercontent.com
         if key in aging_sources:
             return aging_sources[key]
     # Discourse detection is structural (any self-hosted forum): /t/<slug>/<id>

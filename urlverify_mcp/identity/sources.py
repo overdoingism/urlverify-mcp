@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import yaml
 
 from ..cache.anchors import anchor_for
-from ..checks.urltools import etld1_of, host_of
+from ..checks.urltools import etld1_of, host_of, icann_etld1_of
 
 if TYPE_CHECKING:
     from ..config import IdentityConfig
@@ -158,7 +158,8 @@ def classify(source_url: str, llm_proposed: int | None = None, extra: "IdentityC
         return 3, f"user content on {fam} (repository page, README, issue or discussion): anyone can publish it; counts only with proven age"
     if e1 in t1 or host in t1:
         return 1, f"{e1} is a tier-1 structured source"
-    if e1 in t3 or host in t3:
+    # tier 3 also by the hosting provider (x.blogspot.com is a blog); tiers 1 / 2 never pass to a provider's customers
+    if e1 in t3 or host in t3 or icann_etld1_of(host) in t3:
         return 3, f"{e1} is a forum / social / blog source"
     if e1 in t2 or host in t2:
         return 2, f"{e1} is a known tier-2 source"

@@ -53,11 +53,14 @@ class BrewCaskIndex:
         self.path = Path(state_dir) / "brew_cask_index.json"
         self.ua, self.timeout, self.refresh_s = user_agent, timeout, refresh_days * 86400
 
+    INDEX_VERSION = 2          # 2: keys are registrable domains including the PSL private section (2026-10-11)
+
     def _load(self) -> dict[str, Any] | None:
         try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
+            data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return None
+        return data if data.get("index_version") == self.INDEX_VERSION else None
 
     async def index(self) -> dict[str, list[dict[str, Any]]] | None:
         cached = self._load()
@@ -80,7 +83,7 @@ class BrewCaskIndex:
         except Exception as e:  # noqa: BLE001
             observe("homebrew", False, f"{type(e).__name__}: {e}")
             return cached.get("by_domain") if cached else None     # stale index is better than none
-        self._save({"fetched_at": time.time(), "etag": r.headers.get("etag"), "by_domain": by_domain})
+        self._save({"fetched_at": time.time(), "etag": r.headers.get("etag"), "by_domain": by_domain, "index_version": self.INDEX_VERSION})
         return by_domain
 
     def _save(self, data: dict[str, Any]) -> None:

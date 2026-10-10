@@ -3,8 +3,20 @@ from urlverify_mcp.checks.urltools import analyse_host, etld1_of, normalize_url,
 
 def test_normalize_and_etld1():
     assert normalize_url("LMStudio.ai/download") == "https://lmstudio.ai/download"
-    assert etld1_of("objects.githubusercontent.com") == "githubusercontent.com"
     assert etld1_of("foo.bar.co.uk") == "bar.co.uk"
+
+
+def test_shared_hosting_customers_are_their_own_domain():
+    """PSL private section: each customer of a shared host is a separate owner; the provider is icann_etld1_of."""
+    from urlverify_mcp.cache.anchors import anchor_for
+    from urlverify_mcp.checks.urltools import icann_etld1_of
+    assert etld1_of("pypdf.readthedocs.io") == "pypdf.readthedocs.io" != etld1_of("evil.readthedocs.io")
+    assert icann_etld1_of("pypdf.readthedocs.io") == "readthedocs.io"
+    assert etld1_of("objects.githubusercontent.com") == "objects.githubusercontent.com"
+    assert anchor_for(etld1_of("objects.githubusercontent.com")).platform == "github"      # platforms still found
+    assert anchor_for(etld1_of("foo.github.io")).platform == "github"
+    assert anchor_for(etld1_of("x.gitlab.io")).platform == "gitlab"
+    assert anchor_for(etld1_of("x.netlify.app")) is None
 
 
 def test_homoglyph_cyrillic_i():
