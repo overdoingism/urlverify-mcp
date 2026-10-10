@@ -62,8 +62,7 @@
   project: lodash
   url: https://www.npmjs.com/package/lodahs
   description: one edit away from lodash
-  expect: VERIFIED_FALSE               # npm's security team has taken the name over (0.0.1-security), decided at once
-  expect_path: registry_fast_path
+  expect: VERIFIED_FALSE               # OSV MAL- record (package_security) or npm's security holding (registry_fast_path)
 - id: npm-scoped-electron-asar
   project: "@electron/asar"
   url: https://www.npmjs.com/package/@electron/asar

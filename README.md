@@ -99,6 +99,10 @@ extra indexes, chained commands (`&&`, `;`). Unknown flags are reported, never i
 - **Packages** with signed build provenance from an established GitHub organisation take a fast path; packages without
   it need independent evidence like any website. A recently published version carries `RELEASE_COOLDOWN_*`
   (`release_cooldown.hours`, default 72).
+- **Known malware**: a package OSV.dev lists as malware in every version is `VERIFIED_FALSE`; if only the version to be
+  installed is a listed malicious release of an official package, the verdict stands but `next_action` is
+  `DO_NOT_PROCEED`. PyPI quarantine is `DO_NOT_PROCEED` too.
+- A URL whose host does not exist is `UNVERIFIABLE` with `TARGET_DOMAIN_DOES_NOT_EXIST` (`FIX_INPUT_AND_RETRY`).
 - `UNVERIFIABLE` means "not enough independent evidence", not "dangerous".
 
 Every threshold is configurable; see [document_for_config.md](document_for_config.md).
@@ -111,7 +115,7 @@ Every threshold is configurable; see [document_for_config.md](document_for_confi
 - **Admin UI**: password login (default `admin`; change it in the UI). Keep it on `127.0.0.1`.
 - **HTTP transport**: set `server.auth_token` to require `Authorization: Bearer <token>`; default bind `127.0.0.1`.
 - **What leaves your machine**: project names, URLs and host names go to the public services that are looked up
-  (Wikimedia, archive.org, crt.sh, DoH resolvers, GitHub, Hugging Face, package registries, Flathub, SourceForge,
+  (Wikimedia, archive.org, crt.sh, DoH resolvers, GitHub, Hugging Face, package registries, OSV.dev, Flathub, SourceForge,
   Homebrew, your SearXNG, and Reddit / HN / Stack Exchange for dating forum posts). Page text and the investigator's
   messages go to the LLM endpoint you configure. No telemetry.
 - **Footprint**: documents only (no images, scripts or files under verification), per-run request budgets, caches for

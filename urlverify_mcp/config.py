@@ -161,6 +161,12 @@ class AdminConfig(BaseModel):
     session_days: int = 7
 
 
+class PackageSecurityConfig(BaseModel):
+    """Known-malware and registry-hold checks for PyPI / npm / NuGet / Go packages (identity/package_security.py)."""
+    osv: bool = True             # OSV.dev MAL- records (sends the package name and version to api.osv.dev)
+    pypi_status: bool = True     # PyPI project-status: quarantined / archived / deprecated
+
+
 class PackageRegistryFastPathConfig(BaseModel):
     """PyPI / npm shortcut: structured registry checks first, LLM only when inconclusive."""
     enabled: bool = True
@@ -212,6 +218,7 @@ class Config(BaseModel):
     ])
     source: SourceConfig = SourceConfig()
     package_registry_fast_path: PackageRegistryFastPathConfig = PackageRegistryFastPathConfig()
+    package_security: PackageSecurityConfig = PackageSecurityConfig()
     release_cooldown: ReleaseCooldownConfig = ReleaseCooldownConfig()
     prompts: PromptsConfig = PromptsConfig()
     server: ServerConfig = ServerConfig()

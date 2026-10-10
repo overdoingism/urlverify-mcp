@@ -164,8 +164,12 @@ def result_codes(res: VerifyResult) -> tuple[list[str], list[str]]:
     return list(dict.fromkeys(codes)), list(dict.fromkeys(notices))
 
 
+# known malware / a registry hold: do not install, whatever the verdict says about who publishes it
+_BLOCKING = ("PACKAGE_KNOWN_MALICIOUS", "MALICIOUS_VERSION_REPORTED", "PACKAGE_QUARANTINED")
+
+
 def _next_action(verdict: Verdict, confidence: float, codes: list[str], notices: list[str]) -> str:
-    if verdict == Verdict.FALSE:
+    if verdict == Verdict.FALSE or any(x.startswith(_BLOCKING) for x in codes + notices):
         return "DO_NOT_PROCEED"
     if codes and all(_is_fixable(c) for c in codes) and verdict != Verdict.TRUE:
         return "FIX_INPUT_AND_RETRY"
@@ -257,8 +261,10 @@ async def verify_source(req: SourceRequest, cfg: Config, store: Storage) -> Sour
             results.append(_blocked_result(i, s))
             continue
         await progress.report(f"verifying {i}/{len(resolved)}: {s.url}", 0.02)
+        pkg = ({"ecosystem": s.ecosystem, "name": s.name, "version": s.version}
+               if s.ecosystem in ("pypi", "npm", "nuget", "go") and s.name else None)
         vr = VerifyRequest(project=req.project, url=s.url or "", description=_llm_description(req, s), options=req.options,
-                           seeds=[x.model_dump() for x in s.seeds])
+                           seeds=[x.model_dump() for x in s.seeds], package=pkg)
         res = await verify(vr, cfg, store, record=False)
         codes, notices = result_codes(res)
         notices = list(dict.fromkeys(s.notes + notices))

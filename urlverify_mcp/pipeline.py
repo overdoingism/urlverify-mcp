@@ -65,6 +65,18 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage, record: b
             progress.unbind(ptoken)
 
 
+def _package_from_l0(l0) -> dict | None:
+    """A registry URL target (pypi.org/project/x, npmjs.com/package/x, nuget.org/packages/x, files.pythonhosted.org ...):
+    the release-cooldown lookup already resolved registry, package and version; else the anchor owner, version unknown."""
+    rc = next((c for c in l0.checks if c.name == "release_cooldown"), None)
+    d = rc.detail if rc is not None and isinstance(rc.detail, dict) else {}
+    if d.get("registry") in ("pypi", "npm", "nuget") and d.get("package"):
+        return {"ecosystem": d["registry"], "name": d["package"], "version": d.get("version")}
+    if l0.platform in ("pypi", "npm", "nuget") and l0.platform_owner and l0.platform_scope == "user_content":
+        return {"ecosystem": l0.platform, "name": l0.platform_owner, "version": None}
+    return None
+
+
 def identity_policy(cfg: Config) -> str:
     """Changing the evidence policy invalidates identities established under a different policy."""
     from .rules import RULES_VERSION
@@ -104,6 +116,20 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                 cooldown = await check_release(l0.final_url, cfg, structured.client)
             if cooldown is not None:
                 l0.checks.append(cooldown)
+        # known malware / registry holds (AGENTS §6.5): before any path that could say TRUE
+        pkg_sec = None
+        pkg = req.package or _package_from_l0(l0)
+        ps_cfg = cfg.package_security
+        if pkg and not l0.fatal_failures and (ps_cfg.osv or ps_cfg.pypi_status):
+            await progress.report("checking known-malware lists and registry status", 0.115)
+            try:
+                from .identity import package_security
+                pkg_sec = await package_security.check(structured.client, pkg, ps_cfg.osv, ps_cfg.pypi_status)
+                engine_notes.extend(pkg_sec["notes"])
+            except Exception as e:  # noqa: BLE001
+                engine_notes.append(f"package security lookup failed: {type(e).__name__}: {e}")
+        pkg_block = (pkg_sec or {}).get("block")
+        pkg_notices = list((pkg_sec or {}).get("notices") or [])
         # Always fetch the target page ourselves for injection screening (does not consume the LLM's budget).
         page = None
         page_source = l0.final_url or l0.normalized_url
@@ -134,7 +160,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         apply_injection_check(l0, inv.target_page_text, cfg.injection_patterns)
 
         fp = cfg.package_registry_fast_path
-        if not l0.fatal_failures and fp.enabled and fp.mode != "full" and l0.platform in ("pypi", "npm"):
+        if not l0.fatal_failures and not pkg_block and fp.enabled and fp.mode != "full" and l0.platform in ("pypi", "npm"):
             await progress.report(f"registry fast path ({l0.platform})", 0.12)
             try:
                 fast = await registry.run(l0, t0, trace_id, req.project)
@@ -142,6 +168,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                 fast = None
                 engine_notes.append(f"registry fast path error: {type(e).__name__}: {e}")
             if fast is not None:
+                fast.rule_notices = list(dict.fromkeys(fast.rule_notices + pkg_notices))
                 fast.cache_hits = sorted(set(cache_hits))
                 fast.engine_notes = engine_notes + fast.engine_notes
                 await progress.report("done (registry fast path)", 1.0)
@@ -153,13 +180,15 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                                           + "; ".join(engine_notes[-3:]),
                                    checks={c.name: {"status": c.status, "fatal": c.fatal, "message": c.message, "detail": c.detail} for c in l0.checks},
                                    risk_signals=l0.risk_signals, cache_hits=sorted(set(cache_hits)), engine_notes=engine_notes,
-                                   trace_id=trace_id, duration_s=round(time.time() - t0, 1))
+                                   trace_id=trace_id, duration_s=round(time.time() - t0, 1), rule_notices=pkg_notices)
                 return res
 
         # provenance / registry state do not depend on the LLM: computed first so the fixed lookups can use them
         prov = None
         registry_state = None
-        if not l0.fatal_failures and l0.platform in ("pypi", "npm") and l0.platform_owner:
+        if pkg_block:
+            registry_state = {"state": pkg_block, "codes": pkg_sec["codes"], "notes": pkg_sec["notes"], "ids": pkg_sec["ids"]}
+        elif not l0.fatal_failures and l0.platform in ("pypi", "npm") and l0.platform_owner:
             try:
                 registry_state = await registry.registry_state(l0)
                 sig = (registry_state or {}).get("signals")
@@ -178,10 +207,12 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
 
         from .models import LLMSubmission
         fixed_codes: list[str] = []
-        if l0.fatal_failures or l0.target_missing:
+        if l0.fatal_failures or l0.target_missing or pkg_block:
             # No need to spend LLM budget: deterministic failure is final / there is nothing at the target to verify.
             sub = LLMSubmission(identity=IdentityGraph(product=req.project))
-            engine_notes.append("L1 skipped: " + ("fatal L0 failure" if l0.fatal_failures else "the target host does not exist"))
+            engine_notes.append("L1 skipped: " + ("fatal L0 failure" if l0.fatal_failures else
+                                                  "the target host does not exist" if l0.target_missing else
+                                                  "the package is known malware / held by its registry"))
         else:
             # ---- fixed, gap-driven lookups (AGENTS.md §6.3): no LLM involved
             from .identity.prefetch import Prefetch, brief, merge
@@ -295,8 +326,10 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             }, cfg.cache.identity_ttl_hours * 3600)
 
         await progress.report(f"decision {dec.verdict.value}; writing reason", 0.92)
-        if cfg.llm.enabled:
+        if cfg.llm.enabled and not (pkg_block or l0.target_missing):     # those are fully stated by their codes
             reason = await _write_reason(llm, req, dec.verdict, dec.confidence, engine_notes, l0, sub)
+        elif (pkg_block or l0.target_missing) and dec.notes:
+            reason = f"{dec.verdict.value}: {dec.notes[-1]}"          # the deciding note is the last one written
         else:
             reason = f"{dec.verdict.value}: " + "; ".join(n for n in dec.notes[:6])
         await progress.report("done", 1.0)
@@ -305,8 +338,9 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             evidence=dec.evidence, checks={c.name: {"status": c.status, "fatal": c.fatal, "message": c.message, "detail": c.detail} for c in l0.checks},
             identity=sub.identity, risk_signals=l0.risk_signals + sub.risk_notes, cache_hits=sorted(set(cache_hits)),
             engine_notes=engine_notes, trace_id=trace_id, duration_s=round(time.time() - t0, 1),
-            path="l0_fatal" if l0.fatal_failures else "full",
-            established_edges=dec.established_edges, missing_edges=dec.missing_edges, rule_notices=dec.notices,
+            path="l0_fatal" if l0.fatal_failures else "package_security" if pkg_block else "full",
+            established_edges=dec.established_edges, missing_edges=dec.missing_edges,
+            rule_notices=list(dict.fromkeys(dec.notices + pkg_notices)),
             rule_codes=dec.codes + ([c for c in fixed_codes if c not in dec.codes] if dec.verdict != Verdict.TRUE else []),
         )
     finally:

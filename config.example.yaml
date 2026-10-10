@@ -120,6 +120,10 @@ source:                       # how verify_source(source=...) is read; see docum
   max_subjects: 8             # packages per command (pip install a b c ...)
   distro_archives: []         # apt mirrors of your distribution besides *.debian.org / *.ubuntu.com, e.g. free.nchc.org.tw/ubuntu
 
+package_security:             # PyPI / npm / NuGet / Go: known malware (OSV MAL- records) and PyPI project status
+  osv: true                   # sends package name + version to api.osv.dev
+  pypi_status: true           # quarantined -> DO_NOT_PROCEED; archived / deprecated -> notices
+
 package_registry_fast_path:   # PyPI / npm: structured checks first, LLM only when inconclusive
   enabled: true
   mode: auto                  # auto | quick | full (callers may override with options.mode)

@@ -125,6 +125,12 @@ CODE_TEXT = {
                        "官網僅由 Wikimedia 單獨確立（長期未變、瀏覽量高的 Wikidata／Wikipedia 紀錄），沒有第二個獨立來源。這是信心最低的途徑，請先告知使用者。"),
     "TARGET_DOMAIN_DOES_NOT_EXIST": ("The host in the URL does not exist (no DNS record, confirmed over DNS-over-HTTPS). Check the URL for a typo, then call again.",
                                      "網址中的主機不存在（沒有 DNS 紀錄，已用 DNS-over-HTTPS 確認）。請檢查網址是否打錯後再呼叫。"),
+    "PACKAGE_QUARANTINED": ("PyPI has quarantined this project (suspected malware under review); its files are not served. Do not install it.",
+                            "PyPI 已隔離此專案（疑似惡意程式，審查中），不提供下載。請勿安裝。"),
+    "PACKAGE_ARCHIVED": ("The registry marks this project as archived: it is no longer maintained and will not receive fixes.",
+                         "登錄所將此專案標為已封存：不再維護，不會再有修正。"),
+    "PACKAGE_DEPRECATED": ("The registry marks this project as deprecated; its maintainers recommend not using it.",
+                           "登錄所將此專案標為已棄用；維護者建議不要再使用。"),
     "SOURCEFORGE_MIRROR": ("This SourceForge project is SourceForge's automatic mirror of a project hosted elsewhere; SourceForge states it is not affiliated with the project. Download from the project's own channel.",
                            "這個 SourceForge 專案是 SourceForge 自動鏡像別處託管的專案；SourceForge 聲明與該專案無關。請改從專案自己的管道下載。"),
     "SOURCEFORGE_PROJECT_NOT_FOUND": ("SourceForge has no project with that name.", "SourceForge 沒有這個專案。"),
@@ -163,6 +169,10 @@ CODE_TEXT = {
     "GITHUB_SHORTHAND": ("`user/repo` installs straight from GitHub, not from the registry.", "`user/repo` 會直接從 GitHub 安裝，不經 registry。"),
 }
 _PREFIX_TEXT = {
+    "PACKAGE_KNOWN_MALICIOUS": ("OSV.dev lists this package as malware in every version ({x}, OpenSSF malicious-packages). Do not install it.",
+                                "OSV.dev 將此套件的所有版本列為惡意程式（{x}，OpenSSF 惡意套件資料庫）。請勿安裝。"),
+    "MALICIOUS_VERSION_REPORTED": ("OSV.dev lists the version to be installed as a malicious release ({x}; a compromised publish of this package). Do not install this version; pin a release that is not listed.",
+                                   "OSV.dev 將要安裝的這個版本列為惡意發佈（{x}；此套件曾被入侵發佈）。請勿安裝此版本，改指定未被列出的版本。"),
     "UNSUPPORTED_FLAG": ("Unsupported flag {x}: it could change what gets installed. Remove it or ask for support.",
                          "不支援的參數 {x}：可能改變實際安裝的東西。請移除或提出支援需求。"),
     "UNSUPPORTED_ENV": ("Environment variable {x} is not interpreted.", "不解讀環境變數 {x}。"),

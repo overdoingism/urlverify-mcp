@@ -20,6 +20,7 @@ class VerifyRequest(BaseModel):
     description: str = ""
     options: dict[str, Any] | None = None
     seeds: list[dict[str, Any]] = Field(default_factory=list)   # deterministic facts found while resolving the source
+    package: dict[str, Any] | None = None   # {"ecosystem", "name", "version"} when the source resolved to a registry package
 
 
 class Evidence(BaseModel):
@@ -110,7 +111,7 @@ class VerifyResult(BaseModel):
     engine_notes: list[str] = Field(default_factory=list)
     trace_id: str = ""
     duration_s: float = 0.0
-    path: str = "full"                     # full | registry_fast_path | l0_fatal | timeout
+    path: str = "full"                     # full | registry_fast_path | package_security | l0_fatal | timeout
     degraded: list[str] = Field(default_factory=list)   # dependencies that failed during this verification (observed, not probed)
     rule_codes: list[str] = Field(default_factory=list)          # fixed reason codes emitted by the rules (FALSE contradictions)
     rule_notices: list[str] = Field(default_factory=list)        # fixed informational codes emitted by the rules

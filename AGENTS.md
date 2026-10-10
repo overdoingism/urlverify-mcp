@@ -237,6 +237,19 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
     UNVERIFIABLE；只有官網逐字連到該檔案時例外。查無專案 → `SOURCEFORGE_PROJECT_NOT_FOUND`。
   - 所以官網只有 Wikimedia 一家（Audacity、KeePass）時 SF 幫不上忙，這是預期行為。
 
+## 6.5 已知惡意套件與登錄所狀態（2026-10-11 定案）
+PyPI、npm、NuGet、Go 套件（指令解析出的套件，或登錄所網址）在任何可能判 TRUE 的路徑之前先查：
+- **OSV.dev，只採 `MAL-` 紀錄**（OpenSSF 惡意套件資料庫，會匯入 GitHub 判定的惡意套件；忽略已撤回者）。GHSA 不直接採用：
+  惡意的標法不一致（lodahs 是 CWE-506、ctx 是 CWE-912），文字比對會誤判。查詢帶確切版本，由 OSV 判斷哪些紀錄適用。
+  - 紀錄涵蓋所有版本（自 0 起、無上限、無版本清單）→ 整個套件是惡意的：**FALSE 0.95**，`PACKAGE_KNOWN_MALICIOUS:<id>`，不跑調查。
+  - 紀錄只涵蓋特定版本且含目標版本 → 官方套件的某版被植入（官方被挾持）：**判定不變**，附 `MALICIOUS_VERSION_REPORTED:<id>`，
+    `next_action` 給 **DO_NOT_PROCEED**。這是判定（是否官方）與下一步（行動建議）第一次分開。
+- **PyPI `project-status`**（simple API v1）：`quarantined` → **UNVERIFIABLE**＋`PACKAGE_QUARANTINED`＋**DO_NOT_PROCEED**
+  （PyPI 對疑似惡意的暫扣，誰發佈的不在此判定，但不提供下載）；`archived`／`deprecated` → 純告知提示碼。
+- 查不到（服務失敗）→ 只記備註，不影響結果。不快取。這些停止點用範本 reason，不呼叫 LLM。
+- 已知缺口：不在 MAL 清單的（如 2022 年的 ctx）抓不到；剛植入尚未收錄的版本由發佈冷卻期補位。只解析未驗證的生態系（cargo、gem…）
+  暫不查 OSV（roger 決定：等支援驗證時一起做）。
+
 ## 6.1 規則寫死 vs. LLM 自主：責任分工
 原則：**密碼學與結構性事實、安全不變量歸規則；語意推理歸 LLM。LLM 提議，規則驗證。**
 最低目標模型：Qwen3.8 27B 等級（能力足以做實體解析與證據判讀）。

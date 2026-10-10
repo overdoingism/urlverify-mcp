@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Known malware and registry holds (`package_security`, AGENTS §6.5), for PyPI / npm / NuGet / Go packages before any
+  TRUE path: OSV.dev `MAL-` records covering every version → `VERIFIED_FALSE` with `PACKAGE_KNOWN_MALICIOUS:<id>`; a
+  record for the exact version to install (a compromised release of an official package) keeps the verdict but sets
+  `MALICIOUS_VERSION_REPORTED:<id>` and `next_action: DO_NOT_PROCEED`; PyPI `project-status: quarantined` →
+  `UNVERIFIABLE` + `PACKAGE_QUARANTINED` + `DO_NOT_PROCEED`; `archived` / `deprecated` → notices. Lookup failures change
+  nothing. Decided stops (known malware, quarantine, missing host) use a template reason instead of the LLM (≈0.5 s
+  instead of ≈20 s).
+
 - A target host that does not exist (the system resolver finds nothing and the DNS-over-HTTPS resolvers answer
   NXDOMAIN) is `UNVERIFIABLE` with `TARGET_DOMAIN_DOES_NOT_EXIST` and `next_action: FIX_INPUT_AND_RETRY`; the fixed
   lookups and the LLM are skipped (a live case spent 163 s investigating a domain that does not resolve). An

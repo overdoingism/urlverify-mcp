@@ -145,6 +145,16 @@ List of case-insensitive regexes. A match in the **target page** means "text add
 | `distro_archives` | list[str] · `[]` | apt: extra hosts (or `host/path` prefixes) that are mirrors of YOUR distribution, besides `*.debian.org` / `*.ubuntu.com`, e.g. `free.nchc.org.tw/ubuntu`. APT checks the distribution's signatures on any mirror; this only tells the tool that the mirror serves the distribution rather than a vendor repository. |
 | `max_subjects` | int · `8` | Most packages accepted in one command (`pip install a b c …`); more gives `TOO_MANY_SUBJECTS`. Each package is verified in turn, each with its own `budget.max_total_s`. |
 
+## `package_security` — known malware and registry holds
+
+Checked for PyPI, npm, NuGet and Go packages (from an install command or a registry URL) before any path that could
+say `VERIFIED_TRUE`. A lookup that fails changes nothing.
+
+| Field | Type / default | Meaning |
+|---|---|---|
+| `osv` | bool · `true` | Ask OSV.dev for `MAL-` records (OpenSSF malicious-packages) about the exact version. Malware in every version → `VERIFIED_FALSE` with `PACKAGE_KNOWN_MALICIOUS:<id>`; the version to install is a compromised release of the package → verdict unchanged, notice `MALICIOUS_VERSION_REPORTED:<id>`, `next_action: DO_NOT_PROCEED`. Sends the package name and version to api.osv.dev. |
+| `pypi_status` | bool · `true` | Read PyPI's `project-status`: `quarantined` → `UNVERIFIABLE` with `PACKAGE_QUARANTINED` and `DO_NOT_PROCEED`; `archived` / `deprecated` → informational notices `PACKAGE_ARCHIVED` / `PACKAGE_DEPRECATED`. |
+
 ## `package_registry_fast_path` — PyPI / npm shortcut
 
 | Field | Type / default | Meaning |

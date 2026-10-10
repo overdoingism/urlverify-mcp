@@ -431,6 +431,13 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
         notes.append("registry state: " + msg)
         l0.risk_signals.append(f"registry_{st}")
         return Decision(Verdict.FALSE, 0.95 if st == "security_holding" else 0.9, notes, evidence, support, established, est_orgs, codes=["PACKAGE_SECURITY_HOLDING" if st == "security_holding" else "PACKAGE_NOT_FOUND"])
+    if registry_state and registry_state.get("state") in ("known_malicious", "quarantined"):
+        notes.append("package security: " + "; ".join(registry_state.get("notes") or []))
+        l0.risk_signals.append(f"package_{registry_state['state']}")
+        if registry_state["state"] == "known_malicious":     # malware in every version: not anyone's official channel
+            return Decision(Verdict.FALSE, 0.95, notes, evidence, support, established, est_orgs, codes=list(registry_state.get("codes") or []))
+        # PyPI's hold on suspected malware: who publishes it is not decided here, but nothing should be installed
+        return Decision(Verdict.UNVERIFIABLE, 0.0, notes, evidence, support, established, est_orgs, codes=list(registry_state.get("codes") or []))
     if registry_state and registry_state.get("state") == "latest_yanked":
         notes.append(f"registry state: latest release {registry_state.get('version')} is fully yanked")
         l0.risk_signals.append("registry_latest_yanked")
