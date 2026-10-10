@@ -309,6 +309,8 @@ config.example.yaml
   結構化來源由工具層記錄類型，不接受 LLM 自行宣告。非逐字摘要必須所有事實錨點吻合，計票只使用已核實錨點。
 - `scheme`、`public_address`、`dns`、`tls`、`redirects` 必須完成且通過；錯誤、跳過、缺少結果均不得 TRUE。
   DNS／API 暫時失敗是未知，不當成仿冒或套件不存在；已證實的非公開位址仍是 FALSE。
+  主機確定不存在（系統查無位址，且每個有回應的 DoH resolver 都回 NXDOMAIN）是確定答案而非失敗：UNVERIFIABLE＋`TARGET_DOMAIN_DOES_NOT_EXIST`
+  （FIX_INPUT_AND_RETRY），不跑固定預查與 LLM（2026-10-11 定案：判 UNVERIFIABLE 而非 FALSE，網址可能只是打錯）。DoH 無回應則照舊視為未完成。
 - 每次本機對非信任 URL 的 HTTP 連線均檢查 DNS 全部答案、固定連到公開 IP，保留原始 Host／TLS SNI；每個重導重新檢查。
   TLS 診斷連線也沿用已檢查位址。已被 L0 拒絕的目標不再抓頁面。
   外部 MCP 抓取服務先做本機重導檢查，但服務端仍須自行限制出站位址，本機不能保證其 DNS 視圖與後續抓取行為。

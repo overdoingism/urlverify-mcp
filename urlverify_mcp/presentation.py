@@ -123,6 +123,8 @@ CODE_TEXT = {
     "FLATHUB_APP_NOT_FOUND": ("Flathub has no app with that id.", "Flathub 沒有這個 app ID。"),
     "WIKIMEDIA_ONLY": ("The official website was established by Wikimedia alone (an old, unchanged, widely read Wikidata / Wikipedia record), without a second independent source. Lowest-confidence path: tell the user.",
                        "官網僅由 Wikimedia 單獨確立（長期未變、瀏覽量高的 Wikidata／Wikipedia 紀錄），沒有第二個獨立來源。這是信心最低的途徑，請先告知使用者。"),
+    "TARGET_DOMAIN_DOES_NOT_EXIST": ("The host in the URL does not exist (no DNS record, confirmed over DNS-over-HTTPS). Check the URL for a typo, then call again.",
+                                     "網址中的主機不存在（沒有 DNS 紀錄，已用 DNS-over-HTTPS 確認）。請檢查網址是否打錯後再呼叫。"),
     "SOURCEFORGE_MIRROR": ("This SourceForge project is SourceForge's automatic mirror of a project hosted elsewhere; SourceForge states it is not affiliated with the project. Download from the project's own channel.",
                            "這個 SourceForge 專案是 SourceForge 自動鏡像別處託管的專案；SourceForge 聲明與該專案無關。請改從專案自己的管道下載。"),
     "SOURCEFORGE_PROJECT_NOT_FOUND": ("SourceForge has no project with that name.", "SourceForge 沒有這個專案。"),

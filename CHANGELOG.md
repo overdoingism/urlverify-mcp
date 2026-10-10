@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A target host that does not exist (the system resolver finds nothing and the DNS-over-HTTPS resolvers answer
+  NXDOMAIN) is `UNVERIFIABLE` with `TARGET_DOMAIN_DOES_NOT_EXIST` and `next_action: FIX_INPUT_AND_RETRY`; the fixed
+  lookups and the LLM are skipped (a live case spent 163 s investigating a domain that does not resolve). An
+  unconfirmed resolver failure stays an ordinary incomplete check.
+- Live cases: `lmstudio-typosquat` accepts FALSE or UNVERIFIABLE (the domain currently does not exist);
+  `npm-lodahs-typosquat` now expects the registry fast path (npm's security team took the name over).
+
 - Docs: README rewritten and shortened (bilingual introduction, the rest in English); the quick start moved to
   [docs/quickstart.en.md](docs/quickstart.en.md) and [docs/quickstart.zh-TW.md](docs/quickstart.zh-TW.md).
 - Removed five unused imports.

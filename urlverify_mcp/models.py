@@ -66,6 +66,11 @@ class L0Result(BaseModel):
                 or any(c.name == name and c.status not in ("pass", "warn") for c in self.checks)]
 
     @property
+    def target_missing(self) -> bool:
+        """The target host does not exist (NXDOMAIN confirmed by DNS-over-HTTPS): nothing there to verify."""
+        return any(c.name == "dns" and isinstance(c.detail, dict) and c.detail.get("nxdomain") for c in self.checks)
+
+    @property
     def fatal_failures(self) -> list[CheckResult]:
         return [c for c in self.checks if c.status == "fail" and c.fatal]
 

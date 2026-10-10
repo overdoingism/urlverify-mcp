@@ -29,7 +29,7 @@ _FIXABLE = ("INPUT_", "SOURCE_", "UNSUPPORTED_FLAG", "UNSUPPORTED_ENV", "FLAG_MI
             "VERSION_NOT_FOUND", "VERSION_RANGE_UNSUPPORTED", "WINGET_QUERY_NOT_EXACT", "WINGET_TOO_MANY_INSTALLERS",
             "WINGET_MANIFEST_NOT_FOUND", "WINGET_INSTALLER_NOT_FOUND", "TOO_MANY_SUBJECTS", "GIT_REMOTE_UNSUPPORTED",
             "GIT_PROTOCOL_INSECURE", "PACKAGE_HAS_NO_RELEASE", "HOMEBREW_NOT_FOUND", "SCOOP_BUCKET_AMBIGUOUS",
-            "SCOOP_MANIFEST_NOT_FOUND", "SCOOP_VERSION_PIN_UNSUPPORTED", "GO_IMPORT_NOT_FOUND", "FLATHUB_APP_NOT_FOUND", "SOURCEFORGE_PROJECT_NOT_FOUND",
+            "SCOOP_MANIFEST_NOT_FOUND", "SCOOP_VERSION_PIN_UNSUPPORTED", "GO_IMPORT_NOT_FOUND", "FLATHUB_APP_NOT_FOUND", "SOURCEFORGE_PROJECT_NOT_FOUND", "TARGET_DOMAIN_DOES_NOT_EXIST",
             "DISTRO_ORIGIN_NEEDED", "DISTRO_ORIGIN_MISSING_PACKAGE", "DISTRO_PACKAGE_NOT_AVAILABLE")
 # notices that turn a TRUE into "tell the user first"
 _CAUTION = ("SCRIPT_MAY_DOWNLOAD_MORE", "HASH_CHECK_DISABLED", "MALWARE_SCAN_DISABLED", "TLS_VERIFICATION_DISABLED",
@@ -124,8 +124,8 @@ def result_codes(res: VerifyResult) -> tuple[list[str], list[str]]:
     identity-graph rewrite will emit them natively.)"""
     codes, notices = [], []
     for name, c in (res.checks or {}).items():
-        if c.get("status") == "fail":
-            codes.append(f"CHECK_FAILED:{name}")
+        if c.get("status") == "fail" and not (name == "dns" and (c.get("detail") or {}).get("nxdomain")):
+            codes.append(f"CHECK_FAILED:{name}")       # a confirmed missing host is TARGET_DOMAIN_DOES_NOT_EXIST instead
     for sig in res.risk_signals:
         if str(sig).startswith("RELEASE_COOLDOWN_PERIOD"):
             notices.append("RELEASE_COOLDOWN_ACTIVE")
@@ -140,7 +140,7 @@ def result_codes(res: VerifyResult) -> tuple[list[str], list[str]]:
     if "registry_typosquat:" in sigs:
         codes.append("PACKAGE_NAME_LOOKALIKE")
     codes.extend(c for c in res.rule_codes if c not in codes)
-    if res.verdict == Verdict.UNVERIFIABLE:
+    if res.verdict == Verdict.UNVERIFIABLE and "TARGET_DOMAIN_DOES_NOT_EXIST" not in codes:
         # native gap codes (AGENTS §6.3): one per missing identity edge, argument-free so callers can switch on them
         for m in res.missing_edges:
             edge = m.get("edge", "")

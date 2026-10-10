@@ -14,7 +14,9 @@
   project: LM Studio
   url: https://lmstudio-download.com/
   description: LM Studio installer
-  expect: VERIFIED_FALSE          # brand-in-label + not established (may resolve to UNVERIFIABLE if domain does not exist)
+  # brand-in-label + not established -> FALSE while the domain exists; UNVERIFIABLE + TARGET_DOMAIN_DOES_NOT_EXIST
+  # (no investigation) while it does not resolve (it did not on 2026-10-11)
+  expect_any: [VERIFIED_FALSE, UNVERIFIABLE]
 - id: qwen-hf-official
   project: Qwen3
   url: https://huggingface.co/Qwen/Qwen3-8B
@@ -60,9 +62,8 @@
   project: lodash
   url: https://www.npmjs.com/package/lodahs
   description: one edit away from lodash
-  expect_any: [VERIFIED_FALSE, UNVERIFIABLE]
-  expect_path: full                    # suspicious near-name must fall through to the full pipeline
-  expect_risk_prefix: registry_typosquat
+  expect: VERIFIED_FALSE               # npm's security team has taken the name over (0.0.1-security), decided at once
+  expect_path: registry_fast_path
 - id: npm-scoped-electron-asar
   project: "@electron/asar"
   url: https://www.npmjs.com/package/@electron/asar

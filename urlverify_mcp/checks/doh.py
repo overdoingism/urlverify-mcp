@@ -36,6 +36,33 @@ async def resolve_doh(host: str, resolvers: list[str], timeout: float, user_agen
     return out
 
 
+def nxdomain_answer(statuses: list[int]) -> bool | None:
+    """DoH response codes (RFC 8484 JSON "Status") -> True when every resolver that answered says NXDOMAIN (3), False
+    when any says the name exists (0), None when none answered (unknown: never treated as "does not exist")."""
+    if not statuses:
+        return None
+    if any(s == 0 for s in statuses):
+        return False
+    return all(s == 3 for s in statuses) or None
+
+
+async def confirm_nxdomain(host: str, resolvers: list[str], timeout: float, user_agent: str) -> dict[str, Any]:
+    """Asked only when the system resolver found nothing: is the name really absent (an authoritative NXDOMAIN from
+    independent resolvers), or did the local resolver / network fail?"""
+    statuses: list[int] = []
+    errors: list[str] = []
+    async with httpx.AsyncClient(timeout=timeout, headers={"User-Agent": user_agent, "Accept": "application/dns-json"}) as c:
+        for base in resolvers:
+            try:
+                r = await c.get(base, params={"name": host, "type": "A"})
+                r.raise_for_status()
+                statuses.append(int(r.json().get("Status")))
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{base}: {type(e).__name__}: {e}")
+    observe("doh", bool(statuses), errors[-1] if errors and not statuses else None)
+    return {"nxdomain": nxdomain_answer(statuses), "statuses": statuses, "errors": errors}
+
+
 def assess(system_ips: list[str], doh_ips: list[str], system_tls_ok: bool | None, doh_tls_ok: bool | None) -> tuple[str, bool, str]:
     """-> (status, fatal, message)."""
     if not doh_ips:

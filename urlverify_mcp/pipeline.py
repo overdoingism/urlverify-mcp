@@ -109,13 +109,13 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         page_source = l0.final_url or l0.normalized_url
         await progress.report("fetching target page for injection screening", 0.12)
         try:
-            if l0.fatal_failures:
-                raise ValueError("target fetch skipped: fatal L0 failure")
+            if l0.fatal_failures or l0.target_missing:
+                raise ValueError("target fetch skipped: " + ("fatal L0 failure" if l0.fatal_failures else "the host does not exist"))
             page = await fetcher.fetch(page_source)
             page_source = getattr(fetcher, "sources", {}).get(page_source, page_source)
         except Exception as e:  # noqa: BLE001
             engine_notes.append(f"target page fetch ({cfg.fetch.provider}) failed: {type(e).__name__}: {e}")
-            if cfg.fetch.provider != "builtin" and not l0.fatal_failures:
+            if cfg.fetch.provider != "builtin" and not l0.fatal_failures and not l0.target_missing:
                 from .providers.fetch import BuiltinFetcher
                 bf = BuiltinFetcher(cfg)
                 try:
@@ -178,10 +178,10 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
 
         from .models import LLMSubmission
         fixed_codes: list[str] = []
-        if l0.fatal_failures:
-            # No need to spend LLM budget: deterministic failure is final.
+        if l0.fatal_failures or l0.target_missing:
+            # No need to spend LLM budget: deterministic failure is final / there is nothing at the target to verify.
             sub = LLMSubmission(identity=IdentityGraph(product=req.project))
-            engine_notes.append("L1 skipped: fatal L0 failure")
+            engine_notes.append("L1 skipped: " + ("fatal L0 failure" if l0.fatal_failures else "the target host does not exist"))
         else:
             # ---- fixed, gap-driven lookups (AGENTS.md §6.3): no LLM involved
             from .identity.prefetch import Prefetch, brief, merge

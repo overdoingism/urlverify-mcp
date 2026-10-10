@@ -442,6 +442,10 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
         notes.append(f"fatal deterministic failure: {msgs}")
         return Decision(Verdict.FALSE, 0.9, notes, evidence, support, established, est_orgs, codes=["L0_FATAL"])
 
+    if l0.target_missing:
+        notes.append(f"{l0.host} does not exist (NXDOMAIN confirmed over DNS-over-HTTPS); check the URL")
+        return Decision(Verdict.UNVERIFIABLE, 0.0, notes, evidence, support, established, est_orgs, codes=["TARGET_DOMAIN_DOES_NOT_EXIST"])
+
     if registry_state and registry_state.get("state") == "unknown":
         notes.append("target registry state unavailable; cannot establish the target release")
         return Decision(Verdict.UNVERIFIABLE, 0.2, notes, evidence, support, established, est_orgs)

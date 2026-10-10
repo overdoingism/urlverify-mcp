@@ -98,7 +98,14 @@ async def run_l0(url: str, cfg: Config, store: Storage, known_official: list[str
             res.checks.append(CheckResult(name=name, status="skip", message="skipped: non-public target"))
         return res
     if not dns_r.get("resolved") or not dns_r.get("addresses"):
-        res.checks.append(CheckResult(name="dns", status="error", detail=dns_r, message="DNS lookup failed"))
+        conf = await doh_mod.confirm_nxdomain(host, cfg.net.doh_resolvers, cfg.net.timeout_s, cfg.net.user_agent) \
+            if cfg.net.doh_cross_check and cfg.net.doh_resolvers else {"nxdomain": None}
+        if conf.get("nxdomain"):
+            # a definite answer, not a failure: the name does not exist (not fatal: nothing counterfeit was found either)
+            res.checks.append(CheckResult(name="dns", status="fail", fatal=False, detail={**dns_r, "nxdomain": True, "doh": conf},
+                                          message="host does not exist (NXDOMAIN, confirmed over DNS-over-HTTPS)"))
+        else:
+            res.checks.append(CheckResult(name="dns", status="error", detail={**dns_r, "doh": conf}, message="DNS lookup failed"))
         for name in ("public_address", "tls", "redirects"):
             res.checks.append(CheckResult(name=name, status="skip", message="DNS unavailable"))
         return res
