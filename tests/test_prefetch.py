@@ -405,3 +405,49 @@ async def test_single_source_samples_are_collected_inside_the_window():
     from urlverify_mcp.rules import _wikimedia_solo
     assert _wikimedia_solo("keepass.info", store, Config().identity.wikimedia_solo)[0]
     assert "wikimedia_solo" not in brief(decide(Config(), l0_for("keepass.info"), pre.submission("KeePass"), store, "KeePass"), store)
+
+
+class FakeSnap(FakeStructured):
+    def __init__(self, snaps, **kw):
+        super().__init__(**kw)
+        self.snaps = snaps
+
+    async def snapcraft(self, name):
+        return self.snaps.get(name, {"ok": True, "found": False, "source": f"https://snapcraft.io/{name}"})
+
+
+def _snap(name, verified, website=None, title=None):
+    info = {"name": title or name, "developer_name": "Pub", "is_verified": verified, "verification_method": "verified" if verified else None}
+    if verified and website:
+        info["website"] = website
+    return {"ok": True, "found": True, "owner": name, "owner_info": info, "repo_info": {"id": name}, "source": f"https://snapcraft.io/{name}"}
+
+
+VLC_WD = {"qid": "Q171477", "label": "VLC media player", "aliases": ["VLC"], "official_website": ["https://www.videolan.org/vlc/"],
+          "stability": aged("https://www.videolan.org/vlc/"), "source": "https://www.wikidata.org/wiki/Q171477"}
+
+
+async def test_snap_verified_publisher_establishes_through_its_website():
+    import json as _json
+    store = EvidenceStore()
+    store["https://techcrunch.com/vlc"] = "VLC media player is available from videolan.org."
+    fs = FakeSnap({"vlc": _snap("vlc", True, "https://www.videolan.org/vlc/", title="VLC")}, wikidata={"VLC": [VLC_WD]})
+    l0 = l0_for("snapcraft.io", "snapcraft", "vlc")
+    pre = Prefetch(Config(identity={"homebrew_reverse_lookup": False}), fs, store)
+    sub = await pre.run(l0, "VLC")
+    sub.evidence.append(Evidence(kind="media", source="https://techcrunch.com/vlc", tier=2, claim="c", quote="VLC media player is available from videolan.org"))
+    d = decide(Config(), l0, sub, store, "VLC")
+    assert d.verdict == Verdict.TRUE and "PROJECT_TO_ORG:snapcraft:vlc" in d.established_edges, d.notes
+
+
+async def test_snap_unverified_publisher_and_missing_snap():
+    store = EvidenceStore()
+    fs = FakeSnap({"vlc": _snap("vlc", False, title="VLC")}, wikidata={"VLC": [VLC_WD]})
+    l0 = l0_for("snapcraft.io", "snapcraft", "vlc")
+    pre = Prefetch(Config(identity={"homebrew_reverse_lookup": False}), fs, store)
+    sub = await pre.run(l0, "VLC")
+    assert "SNAP_PUBLISHER_UNVERIFIED" in pre.codes
+    assert decide(Config(), l0, sub, store, "VLC").verdict == Verdict.UNVERIFIABLE
+    pre2 = Prefetch(Config(identity={"homebrew_reverse_lookup": False}), FakeSnap({}), EvidenceStore())
+    await pre2.run(l0_for("snapcraft.io", "snapcraft", "nope"), "Nope")
+    assert "SNAP_NOT_FOUND" in pre2.codes

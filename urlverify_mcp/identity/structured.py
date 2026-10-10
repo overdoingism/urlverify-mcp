@@ -376,6 +376,31 @@ class Structured:
         return {"ok": True, "found": True, "owner": app_id, "owner_info": info, "repo_info": {"id": app_id},
                 "source": f"https://flathub.org/apps/{app_id}"}
 
+    # ---------------- Snap Store
+    async def snapcraft(self, *a, **k): return _obs("snapcraft", await self._snapcraft(*a, **k))
+
+    async def _snapcraft(self, name: str) -> dict[str, Any]:
+        """Snap Store record. The publisher's `validation` is Canonical's statement: "verified" = the publisher's identity
+        was checked. Like Flathub, the website is kept only for a verified publisher."""
+        source = f"https://snapcraft.io/{name}"
+        try:
+            d = await self._json(f"https://api.snapcraft.io/v2/snaps/info/{name}",
+                                 params={"fields": "title,publisher,website,contact,store-url"}, headers={"Snap-Device-Series": "16"})
+        except Exception as ex:  # noqa: BLE001
+            if "HTTP 404" in str(ex):
+                return {"ok": True, "found": False, "source": source}
+            return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+        snap, pub = d.get("snap") or {}, (d.get("snap") or {}).get("publisher") or {}
+        verified = pub.get("validation") == "verified"
+        info = {"name": snap.get("title"), "developer_name": pub.get("display-name"), "is_verified": verified,
+                "verification_method": pub.get("validation")}
+        if verified and snap.get("website"):
+            info["website"] = snap["website"]
+        if pub.get("username"):
+            info["login"] = f"snapcraft:{pub['username']}"
+        return {"ok": True, "found": True, "owner": d.get("name") or name, "owner_info": info, "repo_info": {"id": d.get("name") or name},
+                "source": source}
+
     # ---------------- SourceForge
     async def sourceforge(self, *a, **k): return _obs("sourceforge", await self._sourceforge(*a, **k))
 

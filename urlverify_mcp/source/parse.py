@@ -242,12 +242,11 @@ def _apply_registry_defaults(parsed: ParsedSource, regs: dict[str, str]) -> None
 
 
 # ------------------------------------------------------------------------------------------------------ dispatch
-PARSE_ONLY = {"cargo": "crates", "gem": "rubygems", "composer": "packagist", "choco": "chocolatey", "conda": "conda", "mamba": "conda", "micromamba": "conda",
-              "zypper": "rpm",
-              "apk": "apk", "snap": "snap", "flatpak": "flatpak", "ollama": "ollama", "install-module": "psgallery"}
+PARSE_ONLY = {"cargo": "crates", "gem": "rubygems", "choco": "chocolatey", "conda": "conda", "mamba": "conda", "micromamba": "conda",
+              "flatpak": "flatpak", "ollama": "ollama", "install-module": "psgallery"}
 KNOWN_COMMANDS = {"pip", "pip3", "python", "python3", "py", "uv", "uvx", "pipx", "poetry", "pdm", "rye", "pipenv",
                   "npm", "pnpm", "yarn", "bun", "npx", "pnpx", "bunx", "dotnet", "nuget", "install-package", "winget",
-                  "git", "gh", "hf", "huggingface-cli", "docker", "podman", "nerdctl", "brew", "scoop", "go", "flatpak", "apt", "apt-get", "dnf", "yum", "pacman"} | set(PARSE_ONLY)
+                  "git", "gh", "hf", "huggingface-cli", "docker", "podman", "nerdctl", "brew", "scoop", "go", "flatpak", "apt", "apt-get", "dnf", "yum", "pacman", "zypper", "apk", "snap", "composer"} | set(PARSE_ONLY)
 
 
 def _dispatch(cmd: str, args: list[str]) -> Callable[[], ParsedSource] | None:
@@ -293,7 +292,11 @@ def _dispatch(cmd: str, args: list[str]) -> Callable[[], ParsedSource] | None:
         return lambda: _go(args)
     if cmd == "flatpak":
         return lambda: _flatpak(args)
-    if cmd in ("apt", "apt-get", "dnf", "yum", "pacman"):
+    if cmd == "snap":
+        return lambda: _snap(args)
+    if cmd == "composer":
+        return lambda: _composer(args)
+    if cmd in ("apt", "apt-get", "dnf", "yum", "pacman", "zypper", "apk"):
         return lambda: _distro(cmd, args)
     if cmd in PARSE_ONLY:
         return lambda: _parse_only(cmd, args)
@@ -1090,6 +1093,94 @@ def _flatpak(args: list[str]) -> ParsedSource:
     return out
 
 
+# ---------------------------------------------------------------------------------------------------- snap
+SNAP_FLAGS = Flags(boolean=["--classic", "--devmode", "--jailmode", "--edge", "--beta", "--candidate", "--stable", "--dangerous",
+                            "--unaliased", "--prefer", "--no-wait"],
+                   value=["--channel", "--revision", "--cohort", "--name"])
+
+
+def _snap(args: list[str]) -> ParsedSource:
+    """`snap install <name>`: the Snap Store record decides who publishes it (verified publisher, like Flathub)."""
+    out = ParsedSource(tool="snap")
+    if not args or args[0] != "install":
+        out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
+        out.message = "snap is understood as `snap install <name>`"
+        return out
+    pos, seen, codes, rest = walk(args[1:], SNAP_FLAGS)
+    pos += rest
+    out.codes += codes
+    if out.codes:
+        return out
+    for p in pos:
+        if _is_local_path(p) or p.endswith(".snap") or _has(seen, "--dangerous"):
+            out.subjects.append(_subject(p, "snap", codes=["LOCAL_PATH_UNSUPPORTED"]))
+            continue
+        s = _subject(p, "snap", name=p)
+        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?", p):
+            s.codes.append("INVALID_PACKAGE_SPEC")
+        else:
+            s.url = f"https://snapcraft.io/{p}"
+            s.registry, s.registry_basis = "https://snapcraft.io", "public default"
+        if _has(seen, "--classic"):
+            s.notes.append("SNAP_CLASSIC_CONFINEMENT")          # runs without the snap sandbox (full user / system access)
+        if _has(seen, "--devmode"):
+            s.notes.append("SNAP_DEVMODE")                      # sandbox violations only logged
+        out.subjects.append(s)
+    if not pos and not out.codes:
+        out.codes.append("SOURCE_NO_PACKAGE")
+    return out
+
+
+# ---------------------------------------------------------------------------------------------------- composer
+COMPOSER_FLAGS = Flags(boolean=["--dev", "--no-update", "--no-install", "-w", "--update-with-dependencies", "-W",
+                                "--update-with-all-dependencies", "--with-all-dependencies", "--with-dependencies",
+                                "--prefer-dist", "--prefer-source", "--prefer-stable", "--prefer-lowest", "-n", "--no-interaction",
+                                "--no-progress", "--sort-packages", "-o", "--optimize-autoloader", "-q", "--quiet", "-v", "-vv", "-vvv",
+                                "--no-scripts", "--no-plugins", "--update-no-dev", "--ignore-platform-reqs", "--minimal-changes"],
+                       value=["--ignore-platform-req", "-d", "--working-dir", "--repository", "--repository-url"])
+COMPOSER_PKG_RE = re.compile(r"^([a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*)(?:[:=](.+))?$")
+
+
+def _composer(args: list[str]) -> ParsedSource:
+    """`composer [global] require vendor/package[:constraint]`: Packagist names the source repository, which is what is
+    verified (the dist archive is an export of that repository)."""
+    out = ParsedSource(tool="composer")
+    a = list(args)
+    if a and a[0] == "global":
+        a = a[1:]
+    if not a or a[0] not in ("require", "req", "r"):
+        out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
+        out.message = "composer is understood as `composer [global] require vendor/package[:constraint]`"
+        return out
+    pos, seen, codes, rest = walk(a[1:], COMPOSER_FLAGS)
+    pos += rest
+    out.codes += codes
+    if _has(seen, "--repository", "--repository-url", "-d", "--working-dir"):
+        out.codes.append("UNSUPPORTED_FLAG:" + next(f for f in ("--repository", "--repository-url", "-d", "--working-dir") if f in seen))
+    if out.codes:
+        return out
+    i = 0
+    while i < len(pos):
+        p = pos[i]
+        m = COMPOSER_PKG_RE.match(p.lower())
+        if not m:
+            out.subjects.append(_subject(p, "composer", name=p, codes=["INVALID_PACKAGE_SPEC"]))
+            i += 1
+            continue
+        spec = m.group(5)
+        if spec is None and i + 1 < len(pos) and not COMPOSER_PKG_RE.match(pos[i + 1].lower()):
+            spec, i = pos[i + 1], i + 1                     # composer require vendor/pkg "^1.2"
+        s = _subject(p, "composer", name=m.group(1), version_spec=spec or None)
+        s.registry, s.registry_basis = "https://repo.packagist.org", "public default"
+        if m.group(1).startswith(("ext-", "lib-")) or m.group(1) in ("php", "composer-plugin-api"):
+            s.codes.append("INVALID_PACKAGE_SPEC")
+        out.subjects.append(s)
+        i += 1
+    if not pos and not out.codes:
+        out.codes.append("SOURCE_NO_PACKAGE")
+    return out
+
+
 # ---------------------------------------------------------------------------------------- distribution packages
 APT_FLAGS = Flags(boolean=["-y", "--yes", "--assume-yes", "-q", "--quiet", "-qq", "--no-install-recommends", "--install-recommends",
                            "--reinstall", "--only-upgrade", "-f", "--fix-broken", "--no-upgrade", "-s", "--simulate", "--dry-run",
@@ -1102,15 +1193,43 @@ DNF_FLAGS = Flags(boolean=["-y", "--assumeyes", "-q", "--quiet", "--refresh", "-
 PACMAN_FLAGS = Flags(boolean=["-S", "-y", "-yy", "-u", "--noconfirm", "--needed", "--asdeps", "--asexplicit", "-q", "--quiet",
                               "--noprogressbar", "-v", "--verbose", "-w", "--downloadonly"],
                      value=["--config", "--dbpath", "--root", "--overwrite", "--ignore"])
+ZYPPER_GLOBAL = Flags(boolean=["-n", "--non-interactive", "-q", "--quiet", "-v", "--verbose", "--no-refresh",
+                               "--gpg-auto-import-keys", "--no-gpg-checks", "--no-color", "-t", "--terse"],
+                      value=["-R", "--root", "-p", "--plus-repo", "-c", "--config"])
+ZYPPER_FLAGS = Flags(boolean=["-y", "--no-confirm", "-l", "--auto-agree-with-licenses", "--no-recommends", "--recommends",
+                              "-f", "--force", "-d", "--download-only", "-D", "--dry-run", "--oldpackage", "--allow-unsigned-rpm",
+                              "--details", "--force-resolution", "--no-force-resolution"],
+                     value=["-r", "--repo", "--from", "-t", "--type"])
+APK_FLAGS = Flags(boolean=["--no-cache", "-U", "--update-cache", "-u", "--upgrade", "-q", "--quiet", "-v", "--verbose",
+                           "--no-progress", "-i", "--interactive", "--allow-untrusted", "-l", "--latest", "--no-scripts", "-s", "--simulate"],
+                  value=["-t", "--virtual", "-X", "--repository", "-p", "--root", "--repositories-file", "--keys-dir"])
 
 
 def _distro(cmd: str, args: list[str]) -> ParsedSource:
     """apt / dnf / pacman installs. What the host installs from depends on ITS repository configuration, which this
     server cannot see: the caller passes the package manager's own origin report in options.origin (see source/distro.py)."""
-    manager = {"apt": "apt", "apt-get": "apt", "dnf": "dnf", "yum": "dnf", "pacman": "pacman"}[cmd]
+    manager = {"apt": "apt", "apt-get": "apt", "dnf": "dnf", "yum": "dnf", "pacman": "pacman", "zypper": "zypper", "apk": "apk"}[cmd]
     out = ParsedSource(tool=cmd)
     a = list(args)
-    if manager == "pacman":
+    if manager == "zypper":
+        gpos, gseen, gcodes, grest = walk(a, ZYPPER_GLOBAL, stop_at_first_positional=True)   # zypper -n install ...
+        out.codes += gcodes
+        if _has(gseen, "-R", "--root", "-p", "--plus-repo", "-c", "--config"):
+            out.codes.append("UNSUPPORTED_FLAG:" + next(f for f in ("-R", "--root", "-p", "--plus-repo", "-c", "--config") if f in gseen))
+        if out.codes:
+            return out
+        a = gpos + grest
+        if _has(gseen, "--no-gpg-checks"):
+            a.append("--allow-unsigned-rpm")                 # same effect for the report: signatures not enforced
+    if manager in ("zypper", "apk"):
+        sub_ok = ("install", "in") if manager == "zypper" else ("add",)
+        if not a or a[0] not in sub_ok:
+            out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
+            out.message = f"{cmd} is understood as `{cmd} {sub_ok[0]} <package>`"
+            return out
+        a = a[1:]
+        flags = ZYPPER_FLAGS if manager == "zypper" else APK_FLAGS
+    elif manager == "pacman":
         if not a or not re.fullmatch(r"-S[yu]*", a[0]):
             out.codes.append("SOURCE_COMMAND_UNSUPPORTED")
             out.message = "pacman is understood as `pacman -S <package>` (official repositories; AUR helpers are user content)"
@@ -1127,23 +1246,29 @@ def _distro(cmd: str, args: list[str]) -> ParsedSource:
     pos, seen, codes, rest = walk(a, flags)
     pos += rest
     out.codes += codes
-    if _has(seen, "-o", "--option", "--setopt", "--config", "--dbpath", "--root", "--installroot"):
-        out.codes.append("UNSUPPORTED_FLAG:" + next(f for f in ("-o", "--option", "--setopt", "--config", "--dbpath", "--root", "--installroot") if f in seen))
+    bad = ("-o", "--option", "--setopt", "--config", "--dbpath", "--root", "--installroot", "--repositories-file", "--keys-dir")
+    if manager == "apk":
+        bad += ("-p",)
+    if _has(seen, *bad):
+        out.codes.append("UNSUPPORTED_FLAG:" + next(f for f in bad if f in seen))
     if out.codes:
         return out
     for p in pos:
-        if _is_local_path(p) or re.match(r"^https?://", p) or p.endswith((".deb", ".rpm", ".pkg.tar.zst")):
+        if _is_local_path(p) or re.match(r"^https?://", p) or p.endswith((".deb", ".rpm", ".pkg.tar.zst", ".apk")):
             out.subjects.append(_subject(p, "distro", codes=["LOCAL_PATH_UNSUPPORTED" if "://" not in p else "SOURCE_COMMAND_UNSUPPORTED"]))
             continue
-        name, _, ver = p.partition("=") if manager == "apt" else (p, "", "")
+        tag = None
+        if manager == "apk" and "@" in p:
+            p, _, tag = p.partition("@")                      # name@testing: a tagged (pinned) repository
+        name, _, ver = p.partition("=") if manager in ("apt", "zypper", "apk") else (p, "", "")
         s = _subject(p, "distro", name=name, version_spec=ver or None, options={"manager": manager})
         if not re.fullmatch(r"[a-z0-9][a-z0-9+.:_-]*", name, re.I):
             s.codes.append("INVALID_PACKAGE_SPEC")
         if _val(seen, "-t", "--target-release"):
             s.options["target_release"] = _val(seen, "-t", "--target-release")
-        if _has(seen, "--nogpgcheck"):
+        if _has(seen, "--nogpgcheck", "--allow-unsigned-rpm", "--allow-untrusted"):
             s.notes.append("SIGNATURE_CHECK_DISABLED")
-        if _has(seen, "--enablerepo", "--repo", "--repoid"):
+        if _has(seen, "--enablerepo", "--repo", "--repoid", "-r", "--from", "-X", "--repository") or tag:
             s.notes.append("REPOSITORY_SELECTED_ON_COMMAND_LINE")
         out.subjects.append(s)
     if not pos and not out.codes:
@@ -1157,18 +1282,16 @@ _PO_VALUE = {"cargo": {"--version", "--vers", "--git", "--branch", "--tag", "--r
              "gem": {"-v", "--version", "-s", "--source", "-i", "--install-dir", "-n", "--bindir", "--platform"},
              "choco": {"--version", "-s", "--source", "--params", "--package-parameters", "--ia", "--install-arguments"},
              "conda": {"-c", "--channel", "-n", "--name", "-p", "--prefix"},
-             "composer": set(), 
-             "flatpak": {"--arch", "--branch"}, "snap": {"--channel", "--revision"}}
+             "flatpak": {"--arch", "--branch"}}
 
 
 def _parse_only(cmd: str, args: list[str]) -> ParsedSource:
     eco = PARSE_ONLY[cmd]
     out = ParsedSource(tool=cmd)
     a = list(args)
-    subs = {"crates": ("install", "add"), "rubygems": ("install",), "packagist": ("require",),
+    subs = {"crates": ("install", "add"), "rubygems": ("install",),
             "chocolatey": ("install",), "conda": ("install", "create"),
-            "rpm": ("install", "in"), "apk": ("add",),
-            "snap": ("install",), "flatpak": ("install",), "ollama": ("pull", "run"), "psgallery": ()}[eco]
+            "flatpak": ("install",), "ollama": ("pull", "run"), "psgallery": ()}[eco]
     if subs:
         if not a or a[0] not in subs:
             out.codes.append("SOURCE_COMMAND_UNSUPPORTED")

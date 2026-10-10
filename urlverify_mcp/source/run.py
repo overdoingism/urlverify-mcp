@@ -29,13 +29,14 @@ _FIXABLE = ("INPUT_", "SOURCE_", "UNSUPPORTED_FLAG", "UNSUPPORTED_ENV", "FLAG_MI
             "VERSION_NOT_FOUND", "VERSION_RANGE_UNSUPPORTED", "WINGET_QUERY_NOT_EXACT", "WINGET_TOO_MANY_INSTALLERS",
             "WINGET_MANIFEST_NOT_FOUND", "WINGET_INSTALLER_NOT_FOUND", "TOO_MANY_SUBJECTS", "GIT_REMOTE_UNSUPPORTED",
             "GIT_PROTOCOL_INSECURE", "PACKAGE_HAS_NO_RELEASE", "HOMEBREW_NOT_FOUND", "SCOOP_BUCKET_AMBIGUOUS",
-            "SCOOP_MANIFEST_NOT_FOUND", "SCOOP_VERSION_PIN_UNSUPPORTED", "GO_IMPORT_NOT_FOUND", "FLATHUB_APP_NOT_FOUND", "SOURCEFORGE_PROJECT_NOT_FOUND", "TARGET_DOMAIN_DOES_NOT_EXIST",
+            "SCOOP_MANIFEST_NOT_FOUND", "SCOOP_VERSION_PIN_UNSUPPORTED", "GO_IMPORT_NOT_FOUND", "FLATHUB_APP_NOT_FOUND", "SOURCEFORGE_PROJECT_NOT_FOUND", "TARGET_DOMAIN_DOES_NOT_EXIST", "SNAP_NOT_FOUND", "PACKAGIST_PACKAGE_NOT_FOUND",
             "DISTRO_ORIGIN_NEEDED", "DISTRO_ORIGIN_MISSING_PACKAGE", "DISTRO_PACKAGE_NOT_AVAILABLE")
 # notices that turn a TRUE into "tell the user first"
 _CAUTION = ("SCRIPT_MAY_DOWNLOAD_MORE", "HASH_CHECK_DISABLED", "MALWARE_SCAN_DISABLED", "TLS_VERIFICATION_DISABLED",
             "PRIVILEGED_CONTAINER", "SUBMODULES_NOT_VERIFIED", "RELEASE_COOLDOWN_ACTIVE", "RELEASE_COOLDOWN_UNKNOWN",
             "SELF_PUBLISHED_CAP", "CONTENT_TRUST_DISABLED", "INSTALLER_ARGUMENTS_OVERRIDDEN", "LOW_CONFIDENCE",
-            "QUARANTINE_DISABLED", "SIGNATURE_CHECK_DISABLED", "WIKIMEDIA_ONLY")
+            "QUARANTINE_DISABLED", "SIGNATURE_CHECK_DISABLED", "WIKIMEDIA_ONLY",
+            "SNAP_CLASSIC_CONFINEMENT", "SNAP_DEVMODE")
 CONFIDENCE_FOR_PROCEED = 0.8
 
 
@@ -262,7 +263,7 @@ async def verify_source(req: SourceRequest, cfg: Config, store: Storage) -> Sour
             continue
         await progress.report(f"verifying {i}/{len(resolved)}: {s.url}", 0.02)
         pkg = ({"ecosystem": s.ecosystem, "name": s.name, "version": s.version}
-               if s.ecosystem in ("pypi", "npm", "nuget", "go") and s.name else None)
+               if s.ecosystem in ("pypi", "npm", "nuget", "go", "composer") and s.name else None)
         vr = VerifyRequest(project=req.project, url=s.url or "", description=_llm_description(req, s), options=req.options,
                            seeds=[x.model_dump() for x in s.seeds], package=pkg)
         res = await verify(vr, cfg, store, record=False)

@@ -170,6 +170,15 @@ class Prefetch:
             if r.get("ok") and not (r.get("owner_info") or {}).get("is_verified"):
                 self.codes.append("FLATHUB_UNVERIFIED")
                 self.notes.append(f"fixed lookup: Flathub app {owner} is not verified by its developer (community packaging)")
+        elif platform == "snapcraft":
+            r = await self.structured.snapcraft(owner)
+            if r.get("found") is False:
+                self.codes.append("SNAP_NOT_FOUND")
+                self.notes.append(f"fixed lookup: the Snap Store has no snap {owner}")
+                return
+            if r.get("ok") and not (r.get("owner_info") or {}).get("is_verified"):
+                self.codes.append("SNAP_PUBLISHER_UNVERIFIED")
+                self.notes.append(f"fixed lookup: the publisher of snap {owner} is not verified by the Snap Store")
         elif platform == "sourceforge":
             r = await self.structured.sourceforge(owner)
             if r.get("found") is False:
@@ -189,7 +198,7 @@ class Prefetch:
         else:
             return
         tool = {"github": "github_info", "huggingface": "huggingface_info", "flathub": "flathub_info",
-                "sourceforge": "sourceforge_info"}[platform]
+                "sourceforge": "sourceforge_info", "snapcraft": "snapcraft_info"}[platform]
         if r.get("ok") and r.get("source"):
             self._record(tool, {"owner": owner, "repo": repo}, r, platform, r["source"])
             self._cite(r["source"], platform, f"{platform} record of {owner}{'/' + repo if repo else ''}")
@@ -320,7 +329,7 @@ class Prefetch:
             await self.wikimedia(dev, l0)
         if not hit and "WIKIMEDIA_AMBIGUOUS" not in self.codes:
             self.codes.append("WIKIMEDIA_NO_MATCH")
-        if l0.platform in ("github", "huggingface", "flathub", "sourceforge") and l0.platform_scope == "user_content" and l0.platform_owner:
+        if l0.platform in ("github", "huggingface", "flathub", "sourceforge", "snapcraft") and l0.platform_scope == "user_content" and l0.platform_owner:
             self._add_org(l0.platform, l0.platform_owner)
             await self.platform_record(l0.platform, l0.platform_owner, l0.platform_repo)
             extra = [o for o in self.orgs.get(l0.platform, []) if o.lower() != l0.platform_owner.lower()][:MAX_EXTRA_OWNER_RECORDS]

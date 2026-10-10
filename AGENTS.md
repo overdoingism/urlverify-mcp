@@ -213,6 +213,8 @@ L2 產物雜湊/簽章驗證**不在範圍內**（並非所有來源都提供；
      紀錄保留（可用 fact ID 引用），候選清單放進給 LLM 的說明，由 LLM 判定哪一個是本專案並引用（`WIKIMEDIA_AMBIGUOUS`）。
      LLM 選擇本身不產生票，票仍依 §4.1 的時間條件由紀錄內容決定。
    - 平台目標缺 `PROJECT_TO_ORG` → 取 owner（與 repo）的平台紀錄。
+   - LLM 調查結束後：它引用了但沒抓的第三方頁面（tier 1／2，非目標與候選官網），由引擎自行抓取最多 3 頁，再逐字核對引文
+     （2026-10-11；Vulkan SDK 的 Chocolatey 頁面因此不再被丟棄）。不放寬任何規則，抓回的內容不給 LLM。
    - 套件目標缺 `PACKAGE_TO_REPOSITORY` → registry metadata 與 provenance（既有）。
    預查得到的紀錄轉為以 fact 引用的確定性證據；候選網域／org 由紀錄推出（官網、原始碼庫 owner、目標本身）。
 3. 以預查證據跑規則引擎。**已能裁決（TRUE／FALSE）就不啟動 LLM**；票數規則與 LLM 引用時完全相同，所以不增加長尾風險。
@@ -408,12 +410,18 @@ config.example.yaml
   平台目標的專案名稱比對可採用「目標自己那筆平台紀錄」的顯示名稱（Flathub app ID 常不含名稱），他人紀錄不算。
   發行管道的 manifest 倉庫（github.com/flathub、Homebrew、ScoopInstaller…）與該發行管道同一家族，不另計一家；
   未驗證的 Flathub app 不接受任何 Flathub 家族的支持（Flathub 對此類 app 明示「非開發者所屬」）。（VLC 實測發現，2026-09-24）
-- 發行版套件（apt／dnf／pacman，2026-09-24）：MCP 看不到主機的倉庫設定，所以由呼叫方把套件管理器自己的來源報告放進 `options.origin`
+- 發行版套件（apt／dnf／pacman，2026-09-24；zypper／apk，2026-10-11）：MCP 看不到主機的倉庫設定，所以由呼叫方把套件管理器自己的來源報告放進 `options.origin`
   （`apt-cache policy`、`dnf info`、`pacman -Si`，在要安裝的那台機器上執行）。判定純確定性、不連網：
   候選版本只來自官方 archive（*.debian.org、*.ubuntu.com，或 `source.distro_archives` 加列的鏡像）／官方 repo ID → TRUE 並附 `DISTRO_PACKAGE`
   （發行版以上游原始碼建置並簽章，屬發行版官方管道）；apt 第三方 repo → 以該 repo 網址走網址驗證；官方與非官方混合 → UNVERIFIABLE；
   未附報告 → FIX_INPUT 並給出該跑的指令。不以路徑或 component 名稱猜「是不是發行版鏡像」（廠商 repo 與 PPA 也長得一樣）。
-- 支援但尚未驗證的生態系（cargo、gem、composer、choco、conda、zypper、apk、AUR、snap、ollama、Install-Module、msstore、其他容器 registry、非 Flathub 的 flatpak remote）
+  zypper 的 repo 名稱與別名是本機自訂標籤，**以 `zypper lr -u` 查到的 URI 判定**（*.opensuse.org、*.suse.com）；apk 以 `apk policy`
+  列出的倉庫網址判定（*.alpinelinux.org），`name@tag` 釘選的倉庫記為 REPOSITORY_SELECTED_ON_COMMAND_LINE。
+- snap（2026-10-11）：Snap Store 紀錄的發佈者 `validation: verified` 是 Canonical 對發佈者身分的驗證，比照 Flathub：已驗證者記其 website，
+  套用「平台已驗證連結」；未驗證 → `SNAP_PUBLISHER_UNVERIFIED`，不接受 snapcraft 家族的支持。`--classic`／`--devmode` 為需先告知的提示碼。
+- composer（2026-10-11）：Packagist 的套件紀錄指名原始碼倉庫（dist 是該倉庫的匯出），驗證對象即該倉庫（同 Go）；版本取指定的確切版本或
+  最新穩定版（範圍 → VERSION_NOT_ENFORCED）；Packagist 標 abandoned → PACKAGE_DEPRECATED。OSV 一併查（Packagist）。
+- 支援但尚未驗證的生態系（cargo、gem、choco、conda、AUR、ollama、Install-Module、msstore、其他容器 registry、非 Flathub 的 flatpak remote）
   回 `ECOSYSTEM_NOT_YET_VERIFIED:<eco>` 並列出解析結果；`cargo install --git` 走 git 驗證。apt 家族優先度最低（信任模型是發行版簽章）。
 - next_action：FALSE → DO_NOT_PROCEED；呼叫方可修正的代碼 → FIX_INPUT_AND_RETRY；其餘非 TRUE → INFORM_USER_AND_CONFIRM；
   TRUE 但信心 < 0.8 或帶警示（腳本會再下載、冷卻期、雜湊檢查關閉、自我發佈上限…）→ INFORM_USER_AND_CONFIRM；否則 PROCEED。

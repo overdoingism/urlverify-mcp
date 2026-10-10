@@ -14,6 +14,7 @@ import yaml
 
 from ..health import observe
 from .model import Seed, Subject
+from .parse import git_https
 from .semver import max_satisfying, parse_version
 
 WINGET_REPO = "microsoft/winget-pkgs"
@@ -59,6 +60,8 @@ class Resolver:
                 return await self._scoop(s, hint_text)
             elif s.ecosystem == "go" and s.options.get("vanity"):
                 await self._go_vanity(s)
+            elif s.ecosystem == "composer":
+                await self._composer(s)
         except httpx.HTTPError as e:
             s.codes.append(f"RESOLUTION_FAILED:{s.ecosystem}")
             s.notes.append(f"{type(e).__name__}: {e}"[:200])
@@ -278,6 +281,40 @@ class Resolver:
         return _fanout(s, urls, ver, seeds, f"https://github.com/{repo}")
 
     # -------------------------------------------------------------------------------------------------- Go
+    async def _composer(self, s: Subject) -> None:
+        """Packagist p2 metadata (minified: each entry lists only what changed from the previous one). The version is
+        the exact one asked for, else the newest stable release; the subject becomes the source repository."""
+        r = await self._get(f"https://repo.packagist.org/p2/{s.name}.json", "packagist")
+        if r.status_code == 404:
+            s.codes.append("PACKAGIST_PACKAGE_NOT_FOUND")
+            return
+        r.raise_for_status()
+        versions = expand_minified(r.json().get("packages", {}).get(s.name) or [])
+        if not versions:
+            s.codes.append("PACKAGE_HAS_NO_RELEASE")
+            return
+        stable = [v for v in versions if re.fullmatch(r"v?\d+(\.\d+)*", str(v.get("version", "")))]
+        spec = (s.version_spec or "").strip()
+        exact = re.sub(r"^v", "", spec) if re.fullmatch(r"v?\d+(\.\d+)*", spec) else None
+        if exact:
+            pick = next((v for v in versions if re.sub(r"^v", "", str(v.get("version", ""))) == exact), None)
+            if pick is None:
+                s.codes.append("VERSION_NOT_FOUND")
+                return
+        else:
+            pick = (stable or versions)[0]
+            if spec and spec not in ("*", "latest"):
+                s.notes.append("VERSION_NOT_ENFORCED")    # a range: the newest stable release is checked
+        s.version = str(pick.get("version"))
+        src = pick.get("source") or {}
+        repo = git_https(src.get("url") or "") if src.get("type") == "git" else None
+        if not repo:
+            s.codes.append(f"ECOSYSTEM_NOT_YET_VERIFIED:packagist-source-{src.get('type') or 'none'}")
+            return
+        s.url = repo
+        if pick.get("abandoned"):
+            s.notes.append("PACKAGE_DEPRECATED")
+
     async def _go_vanity(self, s: Subject) -> None:
         """A module path on a custom domain declares its repository in a go-import meta tag (what `go` itself reads)."""
         path = s.name or ""
@@ -512,3 +549,17 @@ def _winget_installers(doc: dict[str, Any]) -> list[dict[str, Any]]:
 def _arch_from_text(text: str) -> str | None:
     found = {_ARCH[m.lower()] for m in re.findall(r"(?i)(?<![\w-])(x64|amd64|x86_64|arm64|aarch64|x86|i386|32-bit)(?![\w-])", text or "")}
     return found.pop() if len(found) == 1 else None
+
+
+def expand_minified(entries: list[dict]) -> list[dict]:
+    """Composer's minified metadata (composer/2.0): each version inherits the previous one's fields; "__unset" removes."""
+    out, cur = [], {}
+    for e in entries:
+        cur = dict(cur)
+        for k, v in e.items():
+            if v == "__unset":
+                cur.pop(k, None)
+            else:
+                cur[k] = v
+        out.append(cur)
+    return out

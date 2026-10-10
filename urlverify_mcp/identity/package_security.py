@@ -19,7 +19,7 @@ import httpx
 from ..health import observe
 
 OSV_QUERY = "https://api.osv.dev/v1/query"
-OSV_ECOSYSTEM = {"pypi": "PyPI", "npm": "npm", "nuget": "NuGet", "go": "Go"}
+OSV_ECOSYSTEM = {"pypi": "PyPI", "npm": "npm", "nuget": "NuGet", "go": "Go", "composer": "Packagist"}
 
 
 def covers_every_version(record: dict[str, Any]) -> bool:

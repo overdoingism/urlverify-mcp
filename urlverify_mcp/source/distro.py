@@ -5,6 +5,8 @@ passes the package manager's report in `options.origin`:
     apt     `apt-cache policy <package>`   (candidate version and the archive URL(s) it comes from)
     dnf     `dnf info <package>`           (Repository / From repo)
     pacman  `pacman -Si <package>`         (Repository)
+    zypper  `zypper info <package>` and `zypper lr -u` (the repository, and the URI behind that repository's name)
+    apk     `apk policy <package>`         (versions and the repository URLs they come from)
 A package whose candidate comes only from the distribution's official archive is the distribution's official
 channel (built and signed by the distribution): VERIFIED_TRUE with the notice DISTRO_PACKAGE. An apt package from a
 third-party repository becomes a URL subject (the repository URL is verified like any download site). Anything else
@@ -18,12 +20,15 @@ from urllib.parse import urlsplit
 
 # Official archive hosts (suffix match). Other mirrors can be added in config: source.distro_archives.
 APT_OFFICIAL_SUFFIXES = ("debian.org", "ubuntu.com")
+APK_OFFICIAL_SUFFIXES = ("alpinelinux.org",)
+ZYPPER_OFFICIAL_SUFFIXES = ("opensuse.org", "suse.com")     # repository names are local labels: the URI decides
 DNF_OFFICIAL_REPOS = {"fedora", "updates", "baseos", "appstream", "extras", "crb", "powertools", "highavailability",
                       "resilientstorage", "rt", "nfv", "sap", "saphana"}
 DNF_OFFICIAL_PREFIXES = ("rhel-", "fedora-")          # e.g. rhel-9-for-x86_64-baseos-rpms
 PACMAN_OFFICIAL_REPOS = {"core", "extra", "multilib"}
 
-ORIGIN_HOWTO = {"apt": "LC_ALL=C apt-cache policy {pkg}", "dnf": "LC_ALL=C dnf info {pkg}", "pacman": "LC_ALL=C pacman -Si {pkg}"}
+ORIGIN_HOWTO = {"apt": "LC_ALL=C apt-cache policy {pkg}", "dnf": "LC_ALL=C dnf info {pkg}", "pacman": "LC_ALL=C pacman -Si {pkg}",
+                "zypper": "LC_ALL=C zypper info {pkg}; LC_ALL=C zypper lr -u", "apk": "apk policy {pkg}"}
 
 
 def _norm(x: str) -> str:
@@ -63,23 +68,67 @@ def parse_apt_policy(text: str, pkg: str) -> dict[str, Any] | None:
     return out
 
 
+def parse_apk_policy(text: str, pkg: str) -> dict[str, Any] | None:
+    """`apk policy` -> {candidate, versions: {version: [{"url"}]}}. Versions are listed best first; the candidate is the
+    first one that some repository offers (an installed-only entry is lib/apk/db/installed, not a URL)."""
+    lines = text.splitlines()
+    start = next((i for i, ln in enumerate(lines) if re.fullmatch(rf"{re.escape(pkg)} policy:\s*", ln.strip())), None)
+    if start is None:
+        return None
+    out: dict[str, Any] = {"candidate": None, "installed": None, "versions": {}}
+    cur = None
+    for ln in lines[start + 1:]:
+        if ln and not ln[0].isspace():
+            break
+        st = ln.strip()
+        if re.fullmatch(r"\S+:", st) and not st.startswith(("http", "/")):
+            cur = st[:-1]
+            out["versions"].setdefault(cur, [])
+        elif cur:
+            m = re.search(r"(https?://\S+)", st)
+            if m:
+                out["versions"][cur].append({"url": m.group(1)})
+                out["candidate"] = out["candidate"] or cur
+            elif "lib/apk/db/installed" in st:
+                out["installed"] = cur
+    return out
+
+
+def parse_zypper_repos(text: str) -> dict[str, str]:
+    """`zypper lr -u` table -> {alias or name (lower case): URI}."""
+    rows = [[c.strip() for c in ln.split("|")] for ln in text.splitlines() if ln.count("|") >= 3]
+    header = next((r for r in rows if "URI" in r and ("Alias" in r or "Name" in r)), None)
+    if not header:
+        return {}
+    iu = header.index("URI")
+    keys = [header.index(k) for k in ("Alias", "Name") if k in header]
+    out = {}
+    for r in rows:
+        if r is header or len(r) <= iu or not re.match(r"^\w+://", r[iu]):
+            continue
+        for k in keys:
+            if r[k]:
+                out[r[k].lower()] = r[iu]
+    return out
+
+
 def parse_field(text: str, pkg: str, fields: tuple[str, ...]) -> str | None:
     """`Name : pkg` block of dnf info / pacman -Si; returns the first of `fields` in that block."""
     blocks = re.split(r"\n\s*\n", text)
     for b in blocks:
         if re.search(rf"^\s*Name\s*:\s*{re.escape(pkg)}\s*$", b, re.M | re.I):
             for f in fields:
-                m = re.search(rf"^\s*{f}\s*:\s*(\S+)", b, re.M | re.I)
+                m = re.search(rf"^\s*{f}\s*:\s*(\S[^\n]*?)\s*$", b, re.M | re.I)
                 if m:
                     return m.group(1)
     return None
 
 
-def _apt_official(url: str, extra: list[str]) -> bool:
+def _apt_official(url: str, extra: list[str], suffixes: tuple[str, ...] = APT_OFFICIAL_SUFFIXES) -> bool:
     u = urlsplit(url)
     host = (u.hostname or "").lower()
     hp = f"{host}{u.path}".rstrip("/").lower()
-    if any(host == s or host.endswith("." + s) for s in APT_OFFICIAL_SUFFIXES):
+    if any(host == s or host.endswith("." + s) for s in suffixes):
         return True
     return any(hp == e.lower().rstrip("/") or hp.startswith(e.lower().rstrip("/") + "/") or host == e.lower() for e in extra)
 
@@ -92,8 +141,8 @@ def decide(subject, project: str, origin: str | None, extra_archives: list[str])
         return {"verdict": "UNVERIFIABLE", "confidence": 0.0, "codes": ["DISTRO_ORIGIN_NEEDED"],
                 "notices": [], "message": f"run `{howto}` on the target machine and pass its output as options.origin"}
     notices = ["DISTRO_PACKAGE"]
-    if mgr == "apt":
-        rep = parse_apt_policy(origin, pkg)
+    if mgr in ("apt", "apk"):
+        rep = parse_apt_policy(origin, pkg) if mgr == "apt" else parse_apk_policy(origin, pkg)
         if rep is None:
             return {"verdict": "UNVERIFIABLE", "confidence": 0.0, "codes": ["DISTRO_ORIGIN_MISSING_PACKAGE"], "notices": [],
                     "message": f"options.origin has no block for {pkg}; pass the output of `{howto}`"}
@@ -107,9 +156,9 @@ def decide(subject, project: str, origin: str | None, extra_archives: list[str])
         urls = [o["url"] for o in origins]
         if not urls:
             return {"verdict": "UNVERIFIABLE", "confidence": 0.0, "codes": ["DISTRO_ORIGIN_UNKNOWN"], "notices": []}
-        official = [_apt_official(u, extra_archives) for u in urls]
+        official = [_apt_official(u, extra_archives, APT_OFFICIAL_SUFFIXES if mgr == "apt" else APK_OFFICIAL_SUFFIXES) for u in urls]
         subject.registry = urls[0]
-        subject.registry_basis = "options.origin (apt-cache policy)"
+        subject.registry_basis = f"options.origin ({'apt-cache' if mgr == 'apt' else 'apk'} policy)"
         if all(official):
             pass
         elif not any(official):
@@ -119,6 +168,22 @@ def decide(subject, project: str, origin: str | None, extra_archives: list[str])
             return {"verdict": "UNVERIFIABLE", "confidence": 0.0, "codes": ["DISTRO_ORIGIN_MIXED"], "notices": []}
         else:
             return {"verdict": "UNVERIFIABLE", "confidence": 0.0, "codes": ["DISTRO_ORIGIN_MIXED"], "notices": []}
+    elif mgr == "zypper":
+        repo = parse_field(origin, pkg, ("Repository",))
+        if not repo:
+            return {"verdict": "UNVERIFIABLE", "confidence": 0.0, "codes": ["DISTRO_ORIGIN_MISSING_PACKAGE"], "notices": [],
+                    "message": f"options.origin has no Repository line for {pkg}; pass the output of `{howto}`"}
+        uri = parse_zypper_repos(origin).get(repo.lower())
+        if not uri:
+            return {"verdict": "UNVERIFIABLE", "confidence": 0.0, "codes": ["DISTRO_ORIGIN_NEEDED"], "notices": [],
+                    "message": f"repository '{repo}' is not in a `zypper lr -u` table; pass the output of `{howto}`"}
+        subject.registry, subject.registry_basis = uri, "options.origin (zypper info + zypper lr -u)"
+        if not _apt_official(uri, extra_archives, ZYPPER_OFFICIAL_SUFFIXES):
+            return {"url": f"{urlsplit(uri).scheme}://{urlsplit(uri).netloc}{urlsplit(uri).path}".rstrip("/")}
+        v = parse_field(origin, pkg, ("Version",))
+        subject.version = v
+        if subject.version_spec and v and subject.version_spec != v:
+            notices.append("VERSION_NOT_ENFORCED")
     else:
         repo = parse_field(origin, pkg, ("Repository", "From repo"))
         if not repo:

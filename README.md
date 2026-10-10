@@ -78,11 +78,13 @@ details: ...                    # evidence, checks, identity, notes
 | Scoop | `scoop install [bucket/]<app>` (official ScoopInstaller buckets) |
 | Flatpak | `flatpak install [flathub] <app-id>`; apps not verified by their developer stay `UNVERIFIABLE` |
 | Go | `go install` / `go get <module>@<version>` |
-| apt / dnf / pacman | pass the package manager's origin report in `options.origin` (`LC_ALL=C apt-cache policy <pkg>`, `dnf info`, `pacman -Si`) |
+| apt / dnf / pacman / zypper / apk | pass the package manager's origin report in `options.origin` (`LC_ALL=C apt-cache policy <pkg>`, `dnf info`, `pacman -Si`, `zypper info` + `zypper lr -u`, `apk policy`) |
+| Snap | `snap install <name>`: a publisher verified by the Snap Store is established through its website; `--classic` is reported |
+| Composer | `composer [global] require vendor/package[:version]`: the source repository Packagist names is verified |
 | Scripts | `curl … \| sh`, `irm … \| iex` and similar: the script URL is verified, not what it downloads next |
 
-Parsed but not verified yet (`ECOSYSTEM_NOT_YET_VERIFIED`): cargo, gem, composer, choco, conda, zypper, apk, AUR,
-snap, ollama, Install-Module, msstore, other container registries. Always rejected: lock / requirement files, local paths,
+Parsed but not verified yet (`ECOSYSTEM_NOT_YET_VERIFIED`): cargo, gem, choco, conda, AUR, ollama, Install-Module,
+msstore, other container registries. Always rejected: lock / requirement files, local paths,
 extra indexes, chained commands (`&&`, `;`). Unknown flags are reported, never ignored.
 
 ## Trust rules in brief

@@ -75,6 +75,10 @@ SEED: list[Anchor] = [
         HostRule(r"^(?:www\.)?(?:sourceforge\.net|sf\.net)$", "path", rf"^/projects/(?P<owner>{_SEG})"),
         HostRule(r"^(?:[a-z0-9-]+\.)?(?:dl|downloads)\.sourceforge\.net$", "path", rf"^/project/(?P<owner>{_SEG})"),
     ], ["Sectigo", "Let's Encrypt"], "SourceForge (mirror network; owner = project slug)"),
+    Anchor("snapcraft", ["snapcraft.io"], [
+        HostRule(r"^snapcraft\.io$", "path",
+                 rf"^/(?!(?:docs|store|about|blog|search|account|publisher|install|tutorials|iot|snaps|login|static|build|first-snap)(?:/|$))(?P<owner>{_SEG})"),
+    ], ["Let's Encrypt", "DigiCert"], "Snap Store (owner = snap name)"),
     Anchor("flathub", ["flathub.org"], [
         HostRule(r"^flathub\.org$", "path", rf"^/apps/(?P<owner>{_SEG})"),
         HostRule(r"^dl\.flathub\.org$", "opaque"),

@@ -70,6 +70,8 @@ def _record_aliases(tool: str, args: dict[str, Any], raw: dict[str, Any]) -> lis
         out += [f"https://huggingface.co/{owner}"] + ([f"https://huggingface.co/{owner}/{repo}"] if repo else [])
     elif tool == "sourceforge_info" and owner:
         out += [f"https://sourceforge.net/projects/{owner}", f"https://sourceforge.net/p/{owner}", f"https://sourceforge.net/rest/p/{owner}"]
+    elif tool == "snapcraft_info" and owner:
+        out += [f"https://snapcraft.io/{owner}", f"https://api.snapcraft.io/v2/snaps/info/{owner}"]
     elif tool == "flathub_info" and owner:
         out += [f"https://flathub.org/apps/{owner}", f"https://flathub.org/api/v2/appstream/{owner}"]
     elif tool == "package_registry":

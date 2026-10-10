@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- New verified ecosystems: zypper and apk (origin report in `options.origin`, judged by repository URI / URL like apt);
+  snap (`snap install`: Snap Store publisher verification, like Flathub; `SNAP_PUBLISHER_UNVERIFIED`,
+  `SNAP_CLASSIC_CONFINEMENT`, `SNAP_DEVMODE`); composer (`composer [global] require`: the Packagist source repository is
+  verified, OSV checked as Packagist, abandoned → `PACKAGE_DEPRECATED`).
+- After the LLM investigation, third-party tier-1/2 pages it quoted without fetching are fetched by the engine (at most
+  three) and the quotes checked verbatim, instead of being discarded (Vulkan SDK: the Chocolatey page now counts).
+
 - Replay tests: nine new cases captured from the 2026-10-11 live run (LM Studio site / repo / homoglyph / missing
   domain, Qwen3 official and community repos, pypdf, VLC https / http); 21 replay cases in total.
 - Known malware and registry holds (`package_security`, AGENTS §6.5), for PyPI / npm / NuGet / Go packages before any

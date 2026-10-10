@@ -65,6 +65,38 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage, record: b
             progress.unbind(ptoken)
 
 
+MAX_ENGINE_FETCHES = 3
+
+
+async def fetch_cited(sub, store, fetcher, l0, cfg: Config, notes: list[str], limit: int = MAX_ENGINE_FETCHES) -> list[str]:
+    """Third-party pages the investigator quoted without fetching would be discarded as unverifiable. The engine fetches
+    a few of them itself (tier 1 / 2 only; never the target's own site or a candidate official domain, which do not
+    count anyway) so the quote can be checked verbatim against what is really there. Nothing is relaxed: the quote must
+    still match, and the fetched text is never shown to the LLM. (AGENTS §6.3; the Vulkan SDK / Chocolatey case.)"""
+    from .checks.urltools import etld1_of, host_of
+    own = {etld1_of(d) for d in sub.identity.official_domains} | {l0.etld1}
+    todo: list[str] = []
+    for ev in sub.evidence:
+        url = ev.source or ""
+        if ev.facts or not ev.quote or not url.startswith(("http://", "https://")) or url in todo:
+            continue
+        if store.page_text(url) is not None or store.find_record(url) is not None:
+            continue
+        if etld1_of(host_of(url)) in own or classify(url, ev.tier, cfg.identity)[0] > 2:
+            continue
+        todo.append(url)
+    fetched = []
+    for url in todo[:limit]:
+        try:
+            store[url] = await fetcher.fetch(url)
+            fetched.append(url)
+        except Exception as e:  # noqa: BLE001
+            notes.append(f"engine fetch of cited page {url} failed: {type(e).__name__}")
+    if fetched:
+        notes.append("engine fetched pages the investigator cited without fetching (quotes are checked verbatim): " + ", ".join(fetched))
+    return fetched
+
+
 def _package_from_l0(l0) -> dict | None:
     """A registry URL target (pypi.org/project/x, npmjs.com/package/x, nuget.org/packages/x, files.pythonhosted.org ...):
     the release-cooldown lookup already resolved registry, package and version; else the anchor owner, version unknown."""
@@ -277,6 +309,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                     if dev and await pre.wikimedia(dev, l0):
                         sub = merge(pre.submission(req.project), llm_sub)
                         engine_notes.append(f"fixed lookup after the LLM: Wikimedia for developer '{dev}'")
+                    await fetch_cited(sub, inv.evidence_store, fetcher, l0, cfg, engine_notes)
                 except Exception as e:  # noqa: BLE001
                     sub = det_sub
                     engine_notes.append(f"investigation failed: {type(e).__name__}: {e}")

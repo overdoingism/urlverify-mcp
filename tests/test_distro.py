@@ -94,3 +94,54 @@ def test_apt_policy_in_any_locale():
     assert decide(subj("apt install curl"), "curl", zh, [])["verdict"] == "VERIFIED_TRUE"
     none = "foo:\n  Installed: (none)\n  Candidate: (none)\n  Version table:\n"
     assert decide(subj("apt install foo"), "foo", none, [])["codes"] == ["DISTRO_PACKAGE_NOT_AVAILABLE"]
+
+
+ZYPPER = """Loading repository data...
+Reading installed packages...
+
+
+Information for package curl:
+-----------------------------
+Repository     : Main Repository (OSS)
+Name           : curl
+Version        : 8.10.1-1.1
+Arch           : x86_64
+Vendor         : openSUSE
+Summary        : A Tool for Transferring Data from URLs
+
+# | Alias            | Name                  | Enabled | GPG Check | Refresh | URI
+--+------------------+-----------------------+---------+-----------+---------+-------------------------------------------------
+1 | repo-oss         | Main Repository (OSS) | Yes     | (r ) Yes  | Yes     | http://download.opensuse.org/tumbleweed/repo/oss/
+2 | packman          | Packman               | Yes     | (r ) Yes  | Yes     | https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed/
+"""
+APK = """curl policy:
+  8.11.1-r0:
+    https://dl-cdn.alpinelinux.org/alpine/v3.21/main
+  8.9.1-r1:
+    lib/apk/db/installed
+    https://dl-cdn.alpinelinux.org/alpine/v3.20/main
+"""
+
+
+def test_zypper_uses_the_repository_uri_not_its_name():
+    s = subj("zypper in curl")
+    assert decide(s, "curl", ZYPPER, [])["verdict"] == "VERIFIED_TRUE" and s.version == "8.10.1-1.1"
+    packman = ZYPPER.replace("Repository     : Main Repository (OSS)", "Repository     : Packman")
+    assert decide(subj("zypper in curl"), "curl", packman, []) == {"url": "https://ftp.gwdg.de/pub/linux/misc/packman/suse/openSUSE_Tumbleweed"}
+    # a third-party repository renamed to look official is still judged by its URI
+    fake = ZYPPER.replace("http://download.opensuse.org/tumbleweed/repo/oss/", "https://evil.example/oss/")
+    assert decide(subj("zypper in curl"), "curl", fake, []) == {"url": "https://evil.example/oss"}
+    no_table = ZYPPER.split("# |")[0]
+    assert decide(subj("zypper in curl"), "curl", no_table, [])["codes"] == ["DISTRO_ORIGIN_NEEDED"]
+
+
+def test_apk_policy():
+    s = subj("apk add curl")
+    d = decide(s, "curl", APK, [])
+    assert d["verdict"] == "VERIFIED_TRUE" and s.version == "8.11.1-r0"
+    third = APK.replace("https://dl-cdn.alpinelinux.org/alpine/v3.21/main", "https://repo.example.com/alpine")
+    assert decide(subj("apk add curl"), "curl", third, []) == {"url": "https://repo.example.com/alpine"}
+    assert decide(subj("apk add wget"), "wget", APK, [])["codes"] == ["DISTRO_ORIGIN_MISSING_PACKAGE"]
+    assert "REPOSITORY_SELECTED_ON_COMMAND_LINE" in subj("apk add curl@testing").notes
+    assert parse_source("apk add --allow-untrusted curl").subjects[0].notes == ["SIGNATURE_CHECK_DISABLED"]
+    assert parse_source("zypper --plus-repo http://x.example in curl").codes == ["UNSUPPORTED_FLAG:--plus-repo"]

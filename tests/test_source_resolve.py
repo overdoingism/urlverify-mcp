@@ -176,3 +176,36 @@ async def test_go_vanity_import():
     assert g.url == "https://go.uber.org/zap" and "GO_IMPORT:go.uber.org/zap->https://github.com/uber-go/zap" in g.notes
     [n] = await _resolve("go install example.invalid/x@v1", {})
     assert n.codes == ["GO_IMPORT_NOT_FOUND"]
+
+
+async def test_composer_resolves_to_the_source_repository():
+    import httpx
+    from urlverify_mcp.source.parse import parse_source
+    from urlverify_mcp.source.resolve import Resolver, expand_minified
+    p2 = {"minified": "composer/2.0", "packages": {"acme/tool": [
+        {"name": "acme/tool", "version": "2.1.0", "source": {"type": "git", "url": "https://github.com/Acme/tool.git"}},
+        {"version": "2.1.0-RC1"},
+        {"version": "2.0.0", "abandoned": True},
+        {"version": "1.0.0", "source": {"type": "git", "url": "git@github.com:Acme/tool-old.git"}, "abandoned": "__unset"}]}}
+    assert [v["version"] for v in expand_minified(p2["packages"]["acme/tool"])] == ["2.1.0", "2.1.0-RC1", "2.0.0", "1.0.0"]
+    assert "abandoned" not in expand_minified(p2["packages"]["acme/tool"])[3]
+
+    def handler(req):
+        return httpx.Response(200, json=p2) if req.url.path == "/p2/acme/tool.json" else httpx.Response(404)
+    rv = Resolver(5, "t", transport=httpx.MockTransport(handler))
+    try:
+        async def one(src):
+            return (await rv.resolve(parse_source(src).subjects[0]))[0]
+        s = await one("composer require acme/tool")
+        assert (s.version, s.url, s.codes) == ("2.1.0", "https://github.com/Acme/tool", [])
+        s = await one("composer require acme/tool:2.0.0")
+        assert s.version == "2.0.0" and s.notes == ["PACKAGE_DEPRECATED"]          # abandoned on Packagist
+        s = await one("composer require acme/tool:1.0.0")
+        assert s.url == "https://github.com/Acme/tool-old"                          # scp-style remote normalised
+        assert "VERSION_NOT_ENFORCED" in (await one('composer require "acme/tool:^2.0"')).notes
+        assert (await one("composer require acme/tool:9.9.9")).codes == ["VERSION_NOT_FOUND"]
+        assert (await one("composer require acme/missing")).codes == ["PACKAGIST_PACKAGE_NOT_FOUND"]
+    finally:
+        await rv.close()
+    assert parse_source("composer require --repository=https://x.example acme/tool").codes == ["UNSUPPORTED_FLAG:--repository"]
+    assert parse_source("composer install").codes == ["SOURCE_COMMAND_UNSUPPORTED"]
