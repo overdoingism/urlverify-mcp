@@ -2,126 +2,81 @@
 
 ## Unreleased
 
-- **Security fix**: registrable domains now include the Public Suffix List's private section. A shared-hosting customer
-  (`pypdf.readthedocs.io`) used to collapse to the provider (`readthedocs.io`), which could then be established as a
-  project's official domain, so any attacker-registered `*.readthedocs.io` (or `*.netlify.app`, `*.vercel.app`,
-  `*.pages.dev`, …) site verified as that project (reproduced: VERIFIED_TRUE 0.75–0.9). Platform anchors (GitHub
-  Pages, raw.githubusercontent.com, GitLab Pages …) fall back to the provider and behave as before; tier-3 and deny
-  lists also match the provider; tier-1/2 lists never pass to a provider's customers. `RULES_VERSION` bumped, so
-  cached identities are re-verified; the Homebrew domain index is rebuilt.
+## v0.4.0 — 2026-10-11
 
-- New verified ecosystems: zypper and apk (origin report in `options.origin`, judged by repository URI / URL like apt);
-  snap (`snap install`: Snap Store publisher verification, like Flathub; `SNAP_PUBLISHER_UNVERIFIED`,
-  `SNAP_CLASSIC_CONFINEMENT`, `SNAP_DEVMODE`); composer (`composer [global] require`: the Packagist source repository is
-  verified, OSV checked as Packagist, abandoned → `PACKAGE_DEPRECATED`).
-- After the LLM investigation, third-party tier-1/2 pages it quoted without fetching are fetched by the engine (at most
-  three) and the quotes checked verbatim, instead of being discarded (Vulkan SDK: the Chocolatey page now counts).
+### Security
+- **Shared hosting is no longer an official domain.** Registrable domains now include the Public Suffix List's private
+  section: `pypdf.readthedocs.io` and `evil.readthedocs.io` are different owners. Before, a project whose site lived on
+  a shared host (`*.readthedocs.io`, `*.netlify.app`, `*.vercel.app`, `*.pages.dev`, …) could get the provider's
+  domain established as official, and any attacker-registered subdomain then verified as that project (reproduced:
+  VERIFIED_TRUE 0.75–0.9). Platform anchors (GitHub Pages, raw.githubusercontent.com, GitLab Pages) still map to their
+  platform. `RULES_VERSION` bumped: cached identities are re-verified.
+- **Known malware and registry holds** (`package_security`) for PyPI / npm / NuGet / Go / Composer packages, checked
+  before any TRUE path: an OSV.dev `MAL-` record for every version → `VERIFIED_FALSE` (`PACKAGE_KNOWN_MALICIOUS:<id>`);
+  a record for the exact version to install (a compromised release of an official package) keeps the verdict but sets
+  `MALICIOUS_VERSION_REPORTED:<id>` and `next_action: DO_NOT_PROCEED`; PyPI `quarantined` → `UNVERIFIABLE` +
+  `PACKAGE_QUARANTINED` + `DO_NOT_PROCEED`; `archived` / `deprecated` → notices.
+- Wikimedia votes only through structured records, and only for an official-website / repository value that existed
+  before the history window and has not changed since (brand-new entities used to pass as "no recent change").
 
-- Replay tests: nine new cases captured from the 2026-10-11 live run (LM Studio site / repo / homoglyph / missing
-  domain, Qwen3 official and community repos, pypdf, VLC https / http); 21 replay cases in total.
-- Known malware and registry holds (`package_security`, AGENTS §6.5), for PyPI / npm / NuGet / Go packages before any
-  TRUE path: OSV.dev `MAL-` records covering every version → `VERIFIED_FALSE` with `PACKAGE_KNOWN_MALICIOUS:<id>`; a
-  record for the exact version to install (a compromised release of an official package) keeps the verdict but sets
-  `MALICIOUS_VERSION_REPORTED:<id>` and `next_action: DO_NOT_PROCEED`; PyPI `project-status: quarantined` →
-  `UNVERIFIABLE` + `PACKAGE_QUARANTINED` + `DO_NOT_PROCEED`; `archived` / `deprecated` → notices. Lookup failures change
-  nothing. Decided stops (known malware, quarantine, missing host) use a template reason instead of the LLM (≈0.5 s
-  instead of ≈20 s).
+### New verified ecosystems
+- **Homebrew** (`brew install [--cask|--formula]`, official taps), **Scoop** (official buckets), **Go** (`go install` /
+  `go get`; custom domains verified as the module's own domain via go-import).
+- **Flatpak** (Flathub): a developer-verified app is established through its verified domain; unverified apps are
+  community packaging (`FLATHUB_UNVERIFIED`).
+- **Snap** (`snap install`): Snap Store publisher verification, like Flathub (`SNAP_PUBLISHER_UNVERIFIED`);
+  `--classic` / `--devmode` are caution notices.
+- **Composer** (`composer [global] require`): the source repository Packagist names is verified.
+- **Distribution packages**: apt, dnf, pacman, zypper, apk, from the package manager's own origin report in
+  `options.origin`; official archive → `VERIFIED_TRUE` + `DISTRO_PACKAGE`, third-party repositories verified like
+  download sites (zypper judged by repository URI, not its local name). Config `source.distro_archives` for mirrors.
 
-- A target host that does not exist (the system resolver finds nothing and the DNS-over-HTTPS resolvers answer
-  NXDOMAIN) is `UNVERIFIABLE` with `TARGET_DOMAIN_DOES_NOT_EXIST` and `next_action: FIX_INPUT_AND_RETRY`; the fixed
-  lookups and the LLM are skipped (a live case spent 163 s investigating a domain that does not resolve). An
-  unconfirmed resolver failure stays an ordinary incomplete check.
-- Live cases: `lmstudio-typosquat` accepts FALSE or UNVERIFIABLE (the domain currently does not exist);
-  `npm-lodahs-typosquat` now expects the registry fast path (npm's security team took the name over).
+### Identity and trust rules
+- **Mirrors and download CDNs**: accepted when an established official page links the exact file, or the official URL
+  redirects to the same file name with no embedded URL (`OFFICIAL_DOWNLOAD_HOST`, TRUE capped at 0.8). A redirect to an
+  unestablished host is `UNVERIFIABLE` (`REDIRECT_TO_UNESTABLISHED_HOST`), no longer `VERIFIED_FALSE`.
+- **SourceForge** is a mirror network, never a vote: a project there counts only when the independently established
+  official site links the exact file or the project (whose record links back). Its automatic mirrors are
+  `SOURCEFORGE_MIRROR`.
+- **Old, widely read Wikimedia records** may establish a domain alone (`identity.wikimedia_solo`: unchanged since a
+  random point 18–30 months ago, ≥ 2000 human page views every month for 24 months); lowest-confidence path, TRUE capped
+  at 0.6 with `WIKIMEDIA_ONLY`.
+- Fixed lookups before the LLM also cover: Homebrew casks downloading from the target domain (reverse index), the
+  official site's home and download pages (exact-file links), Flathub / Snap Store / SourceForge records.
+- Same-name Wikidata entities are left to the investigator (`WIKIMEDIA_AMBIGUOUS`); a link to the target wins, then a
+  label match, then an alias match.
+- After the LLM, third-party tier-1/2 pages it quoted without fetching are fetched by the engine (at most three) and
+  checked verbatim instead of being discarded.
+- A distribution's manifest repository (Flathub, Homebrew, Scoop, …) is the same independence family as the
+  distribution; each tier-1 manifest repository is otherwise its own family. WinGet locale manifests count as evidence.
+- A target host that does not exist (NXDOMAIN confirmed over DNS-over-HTTPS) is `UNVERIFIABLE` with
+  `TARGET_DOMAIN_DOES_NOT_EXIST` (`FIX_INPUT_AND_RETRY`), without an investigation.
+- The identity cache fingerprint includes `RULES_VERSION`, so identities established under older rules are re-verified.
 
-- Docs: README rewritten and shortened (bilingual introduction, the rest in English); the quick start moved to
-  [docs/quickstart.en.md](docs/quickstart.en.md) and [docs/quickstart.zh-TW.md](docs/quickstart.zh-TW.md).
-- Removed five unused imports.
+### Modes and performance
+- **No-LLM mode**: `llm.enabled: false` or `options.mode: "fast"` runs L0, the fixed lookups and the rules only.
+- Decided stops (known malware, quarantine, missing host) skip the LLM-written reason (≈0.5 s instead of ≈20 s).
+- Third-party 429/5xx answers are retried with backoff (`net.retries`, `net.retry_backoff_s`); CT first-seen dates are
+  cached (`net.ct_first_seen_cache_days`).
 
-- Removed the full data log (`full_log` config section, the admin Logs tab and its `/api/fulllog` endpoints, and the
-  JSONL writer). The History tab's per-verification records are what problems are diagnosed from. An old config.yaml
-  that still has a `full_log:` section loads unchanged (the section is ignored); existing log files are left on disk.
+### Fixes
+- Wikidata labels / aliases under the language-independent `mul` code were read as empty (7-Zip never matched), and
+  aliases were never requested.
+- Wikipedia infobox: bare domains are read; `{{Official URL}}` and an omitted website in `Infobox software` are
+  recognised as showing the Wikidata value.
+- TLS: an unreachable address is "unconfirmed", never a certificate failure or suspected DNS spoofing (a slow
+  get.videolan.org had come back `VERIFIED_FALSE`).
+- An unverified Flathub app plus Flathub's own build manifest no longer adds up to "official" (found with VLC).
 
-- Single-source Wikimedia rule (`identity.wikimedia_solo`): a domain whose only family is Wikimedia may be established by
-  it alone when Wikidata and the English Wikipedia infobox name it now and in a revision current at a random time 18–30
-  months ago (not the current revision, on both; an older revision is fine — the value stood longer), nothing changed recently, and the
-  article had at least 2000 human page views in every one of the last 24 months. Lowest-confidence path: TRUE capped at
-  0.6 with `WIKIMEDIA_ONLY` (tell the user first), kept in the identity cache. Thresholds are configurable. With an LLM
-  configured, such a TRUE does not skip the investigation (it may find a second family).
-- Wikipedia infobox parsing: a bare domain (`website = 7-zip.org`) is read; `{{Official URL}}` and an omitted website in
-  `Infobox software` (which shows the Wikidata value) are recorded as "from Wikidata". `wikimedia.org` (page-view API)
-  is part of the Wikimedia family.
+### Removed
+- The full data log (`full_log` config, admin Logs tab, `/api/fulllog`). History holds the per-verification records.
+  An old config.yaml with `full_log:` still loads (ignored).
 
-- SourceForge (narrow): a SourceForge project is treated as a mirror network, never as a voting source. Its REST record
-  (name, homepage, creation date) is fetched and cited only for name matching; nothing from the SourceForge family
-  votes. The project is established only through an independently established official site: a page there links the
-  exact file, or links the SourceForge project while the project's record names that site as its homepage (TRUE capped
-  at 0.8 with `OFFICIAL_DOWNLOAD_HOST`). SourceForge's automatic mirrors ("exact mirror of … not affiliated") are
-  `UNVERIFIABLE` with `SOURCEFORGE_MIRROR`; unknown projects give `SOURCEFORGE_PROJECT_NOT_FOUND`.
-- Fix: Wikidata labels / aliases stored under the language-independent `mul` code (7-Zip, many others since 2024-25)
-  were read as empty, so the entity never matched; aliases were not requested at all. Labels are now `en`, else `mul`;
-  a label match beats an alias-only match (7-Zip the program over the 7z format, which has "7zip" as an alias).
-- A same-name ambiguity in the developer lookup no longer reports `WIKIMEDIA_AMBIGUOUS` when the project itself matched.
-
-- Hardening: Wikimedia votes only through its structured records and only for an official-website (or repository)
-  value that already existed before the history window and has not changed since. Brand-new Wikidata entities,
-  changed values, other domains mentioned in a record (e.g. a developer's site) and fetched Wikipedia HTML pages no
-  longer vote (a new entity used to pass as "no recent change").
-- Fixed lookups: when several Wikidata entities match the project only by name, none is taken; their records are kept
-  and listed to the investigator, which decides which one (if any) is the project (`WIKIMEDIA_AMBIGUOUS`). An entity
-  linking to the target is still taken directly; a single name-only match too.
-
-- Fix (regression from the address fallback): when no resolved address accepts a TLS connection the error keeps the
-  "connection error" prefix, so L0 treats it as unconfirmed (UNVERIFIABLE) instead of a fatal certificate failure
-  (a slow get.videolan.org came back VERIFIED_FALSE). In the DNS cross-check an unreachable address (system or DoH
-  side) is "unknown", never a bad certificate or suspected DNS spoofing.
-
-- Mirrors and download CDNs: a download host is accepted as delegated by the official site (`OFFICIAL_DELEGATION`
-  edge, TRUE capped at 0.8 with `OFFICIAL_DOWNLOAD_HOST`: compare the published checksum) when a page from an
-  established official domain links the EXACT file URL, or when the official URL redirects to the same file name with
-  no URL embedded in any hop (open-redirect guard). Host-level mentions never count.
-
-- Distribution packages (`apt`/`apt-get`, `dnf`/`yum`, `pacman -S`): verified from the package manager's own origin
-  report passed in `options.origin`; official archive / repositories → `VERIFIED_TRUE` + `DISTRO_PACKAGE`, third-party
-  apt repositories verified like download sites, no report → `FIX_INPUT_AND_RETRY` with the command to run.
-  New config `source.distro_archives` for your distribution's other mirrors.
-
-- No-LLM mode: `llm.enabled: false` (or `options.mode: "fast"` per call) stops after the fixed lookups; undecided cases
-  are `UNVERIFIABLE` with the missing edges and `NO_LLM_MODE`; the explanation is template text; `check-env` reports
-  the LLM as disabled.
-
-- Fix: an official link that redirects to a host we cannot establish (mirror networks, download CDNs) is
-  `UNVERIFIABLE` with `REDIRECT_TO_UNESTABLISHED_HOST`, no longer `VERIFIED_FALSE` (mirrors redirect by design).
-
-- Fix (found live with VLC): a distribution's manifest repository (Flathub, Homebrew, Scoop, F-Droid, nixpkgs, ...)
-  is the same independence family as the distribution itself; and an unverified Flathub app gets no support from the
-  Flathub family at all (Flathub states such apps are not affiliated with the developer). An unverified app plus
-  Flathub's own build manifest no longer adds up to "official".
-- The identity cache fingerprint includes `rules.RULES_VERSION`: identities established under older rules are
-  re-verified (the wrong VLC identity above had been cached and was read back after the fix).
-
-- Flatpak verified (Flathub only): the Flathub developer-verification record is a platform-verified link to the
-  verified domain (or the appstream homepage when verified manually / by account); unverified apps are community
-  packaging and stay `UNVERIFIABLE` with `FLATHUB_UNVERIFIED`, and their declared homepage never votes. Platform targets
-  may match the project name against the display name in the target's own platform record.
-
-- Fixed lookup for websites: Homebrew casks that download from the target domain (reverse lookup in the cask
-  catalogue, cached in `state/brew_cask_index.json`, refreshed weekly with ETag) become evidence when their token /
-  name equals the project or their homepage is on the same domain (`identity.homebrew_reverse_lookup`).
-
-- New verified ecosystems: Homebrew (`brew install [--cask|--formula]`, official taps; cask download URL or the
-  formula's upstream source, with the formulae.brew.sh record as evidence), Scoop (official ScoopInstaller buckets;
-  no bucket = main, otherwise `SCOOP_BUCKET_AMBIGUOUS`), Go (`go install` / `go get`; hosting-platform paths map to the
-  repository, custom domains are verified as the module's own domain via go-import).
-
-- Each tier-1 manifest repository (winget-pkgs, Homebrew, Scoop, ...) is its own independence family instead of being
-  folded into "github" because it is hosted there.
-- WinGet: the default-locale manifest's PackageName / Publisher / PublisherUrl / PackageUrl lines become evidence too
-  (the curated statement of the publisher's and package's official site).
-
-- Third-party "try again later" answers (429/502/503/504) are retried with backoff (`net.retries`, `net.retry_backoff_s`,
-  Retry-After honoured up to 10 s). CT first-seen dates are cached (`net.ct_first_seen_cache_days`, default 90): the
-  date never changes and crt.sh often answers 502 for popular domains.
+### Docs and tests
+- README rewritten (bilingual introduction); quick start in [docs/quickstart.en.md](docs/quickstart.en.md) and
+  [docs/quickstart.zh-TW.md](docs/quickstart.zh-TW.md).
+- 21 offline replay cases (nine new from the 2026-10-11 live run); the live suite (`tests/fixtures/cases.yaml`, 17
+  cases) passes in full.
 
 ## v0.3.0 — 2026-09-24
 

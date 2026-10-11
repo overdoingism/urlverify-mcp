@@ -310,19 +310,26 @@ project 名相符，全數明確且良好才直接 TRUE。登錄方自己宣告�
 - 儲存：**純 JSON 檔，不用資料庫**（roger 的可攜原則，2026-09-17）。`state/` 只放可重建的快取與設定；`log/` 放所有紀錄
   （full/、history/、health.json、server/、admin/），可能含隱私，可整個刪。相對路徑以 config.yaml 所在資料夾為基準。
 
-## 9. 目錄結構（預定）
+## 9. 目錄結構（v0.4.0 實況）
 ```
 urlverify_mcp/
-  server.py          # MCP 入口
-  agent/             # 調查迴圈與英文 prompt
-  checks/            # L0：tls.py, dns.py, redirects.py, homoglyph.py, ct.py
-  identity/          # L1：graph.py, sources.py（分級）, platforms.py（GitHub/HF/registry）
-  providers/         # llm/（openai_compat）, search/（mcp_client, searxng_http）
-  rules.py           # 裁決規則引擎
-  cache/             # anchors.py（種子）, store.py
-  admin/
-tests/fixtures/      # 已知真/偽案例迴歸集，每個檢查至少一真一偽
-config.example.yaml
+  server.py / __main__.py   MCP 入口（stdio／HTTP）與 CLI（serve、admin、verify、check-env、init-config）
+  pipeline.py               單一網址的驗證流程：L0 → 套件安全 → 快速通道 → 固定預查 → LLM → 規則 → 結果
+  rules.py                  裁決規則引擎（RULES_VERSION 屬身分快取指紋）
+  evidence.py models.py presentation.py config.py storage.py health.py progress.py promptstore.py
+  checks/                   L0：dns、doh、tls、ct、redirects、injection、private（非公開位址）、urltools（eTLD+1、同形字）
+  identity/                 L1：structured（Wikidata／Wikipedia／平台紀錄）、prefetch（固定預查）、sources（分級與家族）、
+                            registry（PyPI／npm 快速通道）、provenance、package_security（OSV／PyPI 狀態）、releases（冷卻期）、
+                            aging（第三級來源定年）、brew_index
+  source/                   verify_source 介面：parse（指令解析＋旗標白名單）、resolve（registry／manifest 解析）、distro、run
+  agent/                    LLM 調查迴圈與 prompt；prompt_defaults/ 為預設 prompt 文字
+  providers/                llm、search、fetch、retry、public_http
+  cache/anchors.py          平台錨點（github、huggingface、pypi、npm、flathub、snapcraft、sourceforge…）
+  data/tier1_paths.yaml     官方套件 manifest 倉庫路徑（tier 1）
+  devtools/capture.py       重播測試擷取
+  admin/                    管理介面
+tests/                      單元＋重播（fixtures/replay）＋實跑（fixtures/cases.yaml，--live）
+docs/                       快速開始（中／英）
 ```
 
 ## 9.1 審視後補正的實作不變量（2026-09-19）
@@ -428,9 +435,11 @@ config.example.yaml
   最新穩定版（範圍 → VERSION_NOT_ENFORCED）；Packagist 標 abandoned → PACKAGE_DEPRECATED。OSV 一併查（Packagist）。
 - 支援但尚未驗證的生態系（cargo、gem、choco、conda、AUR、ollama、Install-Module、msstore、其他容器 registry、非 Flathub 的 flatpak remote）
   回 `ECOSYSTEM_NOT_YET_VERIFIED:<eco>` 並列出解析結果；`cargo install --git` 走 git 驗證。apt 家族優先度最低（信任模型是發行版簽章）。
-- next_action：FALSE → DO_NOT_PROCEED；呼叫方可修正的代碼 → FIX_INPUT_AND_RETRY；其餘非 TRUE → INFORM_USER_AND_CONFIRM；
+- next_action：FALSE，或帶已知惡意／登錄所暫扣代碼（PACKAGE_KNOWN_MALICIOUS、MALICIOUS_VERSION_REPORTED、PACKAGE_QUARANTINED，
+  不論判定）→ DO_NOT_PROCEED；呼叫方可修正的代碼 → FIX_INPUT_AND_RETRY；其餘非 TRUE → INFORM_USER_AND_CONFIRM；
   TRUE 但信心 < 0.8 或帶警示（腳本會再下載、冷卻期、雜湊檢查關閉、自我發佈上限…）→ INFORM_USER_AND_CONFIRM；否則 PROCEED。
-- v0.2 的結果代碼部分由 checks／risk_signals／engine_notes 推導（`source/run.py: result_codes`）；v0.3 的身分圖重寫改由規則直接產生。
+- 結果代碼：規則直接產生（`Decision.codes／notices`、缺少的身分邊 → `MISSING_EDGE:*`）；`source/run.py: result_codes` 只再補上
+  由 checks 推導的少數幾個（CHECK_FAILED、冷卻期、套件不存在）。
 - 開發工具：設 `URLVERIFY_CAPTURE_DIR` 時，每次規則裁決的完整輸入寫成 `*.json.gz`；`tests/test_replay.py` 以手寫的 `expect` 重播，
   改規則時先跑重播，不必每次實跑四分鐘。本地 LLM 實測只打本機 `127.0.0.1:8080`。
 
