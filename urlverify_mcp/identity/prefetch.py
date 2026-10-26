@@ -391,7 +391,9 @@ def brief(det_decision, store: EvidenceStore, ambiguous: list[str] | None = None
             extra = f" ({m['have']} of {m['need']} independent sources)" if "need" in m else (f" ({m['why']})" if m.get("why") else "")
             lines.append(f"- {m['edge']}{extra}")
         lines.append("Independent sources that count: reputable media, distribution / package-manager manifests, a different platform "
-                     "than the one already cited. The target's own pages never count.")
+                     "than the one already cited. The target's own pages never count, nor do summary / aggregator sites that "
+                     "repeat other data (GitHub trending or star trackers, repository indexes, awesome lists, AI summaries, "
+                     "download portals): cite those with supports=false, if at all.")
         if any(m["edge"].startswith("PROJECT_TO_DOMAIN:") for m in det_decision.missing_edges):
             lines.append("If the target file is hosted on a mirror or download CDN, fetch the OFFICIAL download page that links this "
                          "exact file (fetch_url on the official site); a link to the exact file from an established official "

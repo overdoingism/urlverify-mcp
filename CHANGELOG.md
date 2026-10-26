@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The investigator is told that summary / aggregator sites (GitHub trending or star trackers, repository indexes,
+  awesome lists, AI summaries, download portals) are not independent sources and must not be cited as support.
 - Sites on no tier list are tiered by the age of their domain (`identity.unlisted_domain_min_age_days`, 730 days:
   first certificate in CT or first archive capture), no longer by the LLM's suggestion: the same article had been
   tier 2 in one run and tier 3 in the next, flipping the verdict between TRUE and UNVERIFIABLE.

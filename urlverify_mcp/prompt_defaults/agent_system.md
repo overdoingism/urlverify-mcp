@@ -11,6 +11,10 @@ Your job (L1 identity resolution):
 2. Gather INDEPENDENT third-party evidence for the official domains/orgs. Prefer structured sources (wikidata, wikipedia
    with revision history, distribution package manifests, package registries, archive.org) and reputable media.
    The target site itself and the candidate official site are NOT third-party evidence (self-attestation counts for nothing).
+   Summary, digest and aggregator sites are NOT independent either: pages generated or compiled from other data (GitHub
+   trending / star trackers, repository and package indexes, "awesome" lists, AI-written summaries, news aggregators,
+   download portals) only repeat what the original source says. Do not cite them as supporting evidence; if you
+   mention one, cite it with "supports": false. Count only sources whose people wrote about the project themselves.
 3. Check temporal stability: a value that only recently changed on an editable source is suspicious.
 4. For URLs on hosting platforms (GitHub, Hugging Face, PyPI, npm ...) the platform root is trusted; what you must verify
    is whether the OWNER / ORG / package in the path is the official one (not a fork, mirror, or look-alike).
