@@ -43,9 +43,10 @@ def _squash(s: str) -> str:
 
 # Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
 # established under older rules are re-verified instead of being trusted from the cache.
-RULES_VERSION = "2026-10-27.1"
-SELF_PUBLISHED_MAX_CONFIDENCE = 0.75
-DELEGATED_MAX_CONFIDENCE = 0.8     # mirror / CDN host delegated by the official site: verify the checksum   # TRUE for an owner established only by cross-platform consistency
+RULES_VERSION = "2026-10-27.2"
+SELF_PUBLISHED_MAX_CONFIDENCE = 0.75    # TRUE for an owner established only by cross-platform consistency
+DELEGATED_MAX_CONFIDENCE = 0.8     # mirror / CDN host delegated by the official site: verify the checksum
+SINGLE_WEAK_SOURCE_MAX_CONFIDENCE = 0.75   # own platform record + one unlisted outside source (AGENTS §4)
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub", "sourceforge", "snapcraft"}
 _DOMAIN_RE = re.compile(r"\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b")
 
@@ -131,8 +132,8 @@ def verify_quotes(evidence: list[Evidence], store: dict[str, str]) -> None:
 def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str], project: str,
            cached: dict | None = None, ages: dict[str, dict] | None = None,
            target_domain_age: dict | None = None, provenance: dict | None = None,
-           registry_state: dict | None = None) -> Decision:
-    ctx: dict = {}
+           registry_state: dict | None = None, domain_ages: dict[str, int | None] | None = None) -> Decision:
+    ctx: dict = {"domain_ages": domain_ages or {}}
     solo_cfg = cfg.identity.wikimedia_solo
     solo = solo_cfg.enabled and any(k == "wikimedia_solo" for k in getattr(store, "kinds", {}).values())
     spare = sub.model_copy(deep=True) if solo else None
@@ -140,7 +141,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     if solo and d.verdict != Verdict.TRUE:
         # second pass: an old, widely read Wikimedia record may stand alone for a domain whose only family it is
         # (AGENTS §4.1). Used only if it turns the case TRUE, and then at the lowest confidence of any path.
-        ctx2: dict = {"allow_solo": True}
+        ctx2: dict = {"allow_solo": True, "domain_ages": domain_ages or {}}
         d2 = _decide(cfg, l0, spare, store, project, cached, ages, target_domain_age, provenance, registry_state, ctx2)
         if d2.verdict == Verdict.TRUE and ctx2.get("solo_domains"):
             d, ctx = d2, ctx2
@@ -152,6 +153,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
     elif cached and "WIKIMEDIA_ONLY" in (cached.get("basis_notices") or []) and d.verdict == Verdict.TRUE:
         d.notices.append("WIKIMEDIA_ONLY")
     d.org_supporting_sources = {k: set(v) for k, v in (ctx.get("org_support") or {}).items()}
+    d.notices = list(dict.fromkeys(d.notices + ctx.get("notices", [])))
     d.established_edges, d.missing_edges = identity_edges(cfg, l0, d, ctx, provenance)
     return d
 
@@ -238,7 +240,9 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
     for ev in evidence:
         # a structured tool record (JSON we fetched from an API) is platform data, not a page anyone could have written
         api_record = record_kind(store, ev.source) in STRUCTURED_KINDS
-        tier, why = classify(ev.source, ev.tier, ic, api_record=api_record)
+        tier, why = classify(ev.source, ev.tier, ic, api_record=api_record, domain_ages=ctx.get("domain_ages"))
+        if tier == 2 and why.startswith("unlisted domain") and not api_record:
+            ctx.setdefault("weak_families", set()).add(family_of(source_key(ev.source)))
         ev.tier = tier
         ev.notes.append(why)
         src_e1 = etld1_of(host_of(ev.source))
@@ -254,6 +258,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
                 promoted += 1
                 ev.tier = 2
                 ev.notes.append(f"tier-3 source promoted to tier 2: {why_age}")
+                ctx.setdefault("weak_families", set()).add(family_of(source_key(ev.source)))
                 notes.append(f"aged tier-3 source counted: {ev.source} ({why_age})")
             else:
                 if ok:
@@ -557,6 +562,14 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
                 notes.append(f"self-published project: '{owner}' is established only by consistency across hosting platforms "
                              f"({', '.join(sorted(fams))}), with no Wikimedia, registry, media or own-domain evidence; "
                              f"confidence capped at {SELF_PUBLISHED_MAX_CONFIDENCE}")
+            external = fams - PLATFORM_FAMILIES
+            if len(external) == 1 and external <= ctx.get("weak_families", set()):
+                # the account's own platform record + ONE outside source that is on no curated list (admitted only by
+                # its domain's age, or an aged forum post): enough to establish, not enough to proceed without asking
+                conf = min(conf, SINGLE_WEAK_SOURCE_MAX_CONFIDENCE)
+                notes.append(f"'{owner}' is established by its own {anchor.platform} record and one outside source ("
+                             f"{next(iter(external))}) that is on no curated list; confidence capped at {SINGLE_WEAK_SOURCE_MAX_CONFIDENCE}")
+                ctx["notices"] = ctx.get("notices", []) + ["SINGLE_UNLISTED_SOURCE"]
             if l0.platform_repo:
                 if _fork_of_other(l0, store):
                     notes.append("repository is a fork of another repository")

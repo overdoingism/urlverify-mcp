@@ -25,7 +25,7 @@ def test_replay(path):
     cfg = Config(**case["config"])
     d = decide(cfg, L0Result(**case["l0"]), LLMSubmission(**case["submission"]), EvidenceStore.from_json(case["store"]), case["project"],
                case.get("cached_identity"), case.get("ages") or {}, case.get("target_domain_age"),
-               case.get("provenance"), case.get("registry_state"))
+               case.get("provenance"), case.get("registry_state"), domain_ages=case.get("domain_ages"))
     assert d.verdict == Verdict(exp["verdict"]), (exp.get("why"), d.notes)
     assert exp.get("min_confidence", 0) <= d.confidence <= exp.get("max_confidence", 1), (d.confidence, d.notes)
 
@@ -35,7 +35,8 @@ def _replay(name):
     case = load(path)
     return decide(Config(**case["config"]), L0Result(**case["l0"]), LLMSubmission(**case["submission"]),
                   EvidenceStore.from_json(case["store"]), case["project"], case.get("cached_identity"),
-                  case.get("ages") or {}, case.get("target_domain_age"), case.get("provenance"), case.get("registry_state"))
+                  case.get("ages") or {}, case.get("target_domain_age"), case.get("provenance"), case.get("registry_state"),
+                  domain_ages=case.get("domain_ages"))
 
 
 def test_edges_reported():

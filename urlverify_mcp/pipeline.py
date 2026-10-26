@@ -69,7 +69,36 @@ async def verify(req: VerifyRequest, base_cfg: Config, store: Storage, record: b
 MAX_ENGINE_FETCHES = 3
 
 
-async def fetch_cited(sub, store, fetcher, l0, cfg: Config, notes: list[str], limit: int = MAX_ENGINE_FETCHES) -> list[str]:
+async def unlisted_domain_ages(sub, cfg: Config, store, structured, notes: list[str], limit: int = 8) -> dict[str, int | None]:
+    """Age (days since first certificate / first archive capture) of the domains of cited pages that are on no list:
+    the rules make such a site tier 2 only if its domain is old enough (identity.unlisted_domain_min_age_days).
+    CT first-seen is cached; Wayback is asked only when CT does not already prove the age."""
+    from .checks import ct as ct_mod
+    from .checks.urltools import etld1_of, host_of
+    from .identity.aging import domain_first_seen
+    from .identity.sources import is_unlisted
+    e1s = list(dict.fromkeys(etld1_of(host_of(e.source)) for e in sub.evidence
+                             if not e.facts and str(e.source).startswith("http") and is_unlisted(e.source, cfg.identity)))[:limit]
+    need = cfg.identity.unlisted_domain_min_age_days
+
+    async def one(e1: str) -> tuple[str, int | None]:
+        ct = await ct_mod.first_seen(e1, cfg.net.timeout_s, cfg.net.user_agent, store, cfg.net.ct_first_seen_cache_days,
+                                     cfg.net.retries, cfg.net.retry_backoff_s)
+        if ct.get("age_days") is not None and ct["age_days"] >= need:
+            return e1, ct["age_days"]
+        r = await domain_first_seen(e1, ct if ct.get("first_seen") else None, structured)
+        return e1, r.get("age_days")
+    out: dict[str, int | None] = {}
+    for res in await asyncio.gather(*(one(e) for e in e1s), return_exceptions=True):
+        if isinstance(res, tuple):
+            out[res[0]] = res[1]
+    if out:
+        notes.append("domain age of unlisted sources: " + ", ".join(f"{k} {v if v is not None else '?'}d" for k, v in out.items()))
+    return out
+
+
+async def fetch_cited(sub, store, fetcher, l0, cfg: Config, notes: list[str], limit: int = MAX_ENGINE_FETCHES,
+                      domain_ages: dict | None = None) -> list[str]:
     """Third-party pages the investigator quoted without fetching would be discarded as unverifiable. The engine fetches
     a few of them itself (tier 1 / 2 only; never the target's own site or a candidate official domain, which do not
     count anyway) so the quote can be checked verbatim against what is really there. Nothing is relaxed: the quote must
@@ -83,7 +112,7 @@ async def fetch_cited(sub, store, fetcher, l0, cfg: Config, notes: list[str], li
             continue
         if store.page_text(url) is not None or store.find_record(url) is not None:
             continue
-        if etld1_of(host_of(url)) in own or classify(url, ev.tier, cfg.identity)[0] > 2:
+        if etld1_of(host_of(url)) in own or classify(url, ev.tier, cfg.identity, domain_ages=domain_ages)[0] > 2:
             continue
         todo.append(url)
     fetched = []
@@ -250,6 +279,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
 
         from .models import LLMSubmission
         fixed_codes: list[str] = []
+        domain_ages: dict = {}
         if l0.fatal_failures or l0.target_missing or pkg_block:
             # No need to spend LLM budget: deterministic failure is final / there is nothing at the target to verify.
             sub = LLMSubmission(identity=IdentityGraph(product=req.project))
@@ -320,7 +350,8 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                     if dev and await pre.wikimedia(dev, l0):
                         sub = merge(pre.submission(req.project), llm_sub)
                         engine_notes.append(f"fixed lookup after the LLM: Wikimedia for developer '{dev}'")
-                    await fetch_cited(sub, inv.evidence_store, fetcher, l0, cfg, engine_notes)
+                    domain_ages = await unlisted_domain_ages(sub, cfg, store, structured, engine_notes)
+                    await fetch_cited(sub, inv.evidence_store, fetcher, l0, cfg, engine_notes, domain_ages=domain_ages)
                 except Exception as e:  # noqa: BLE001
                     sub = det_sub
                     engine_notes.append(f"investigation failed: {type(e).__name__}: {e}")
@@ -337,7 +368,7 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
         target_age: dict | None = None
         from .rules import STRUCTURED_KINDS
         tier3_urls = [e.source for e in sub.evidence
-                      if classify(e.source, e.tier, cfg.identity)[0] == 3 and e.kind not in STRUCTURED_KINDS]   # API/registry results are not pages to date
+                      if classify(e.source, e.tier, cfg.identity, domain_ages=domain_ages)[0] == 3 and e.kind not in STRUCTURED_KINDS]   # API/registry results are not pages to date
         if tier3_urls and not cfg.identity.allow_tier3:
             await progress.report(f"dating {len(tier3_urls)} tier-3 source(s)", 0.82)
             aging = Aging(max(cfg.net.timeout_s, 30), cfg.net.user_agent, structured, cfg.identity.aging_sources)
@@ -353,9 +384,11 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
             for u, a in ages.items():
                 engine_notes.append(f"aging {u[:80]}: " + (f"{a.get('age_days')}d via {a.get('method')} ({a.get('strength')})" if a.get("created_ts") else f"undated ({a.get('error')})"))
         await progress.report("rules engine: verifying evidence and deciding", 0.88)
-        dec = decide(cfg, l0, sub, inv.evidence_store, req.project, cached_identity, ages, target_age, prov, registry_state)
+        dec = decide(cfg, l0, sub, inv.evidence_store, req.project, cached_identity, ages, target_age, prov, registry_state,
+                     domain_ages=domain_ages)
         from .devtools.capture import capture
-        capture(trace_id, req.project, req.url, cfg, l0, sub, inv.evidence_store, cached_identity, ages, target_age, prov, registry_state, dec)
+        capture(trace_id, req.project, req.url, cfg, l0, sub, inv.evidence_store, cached_identity, ages, target_age, prov, registry_state, dec,
+                domain_ages=domain_ages)
         engine_notes.extend(dec.notes)
         if dec.verdict == Verdict.TRUE and any(c.name == "injection" and c.status == "skip" for c in l0.checks):
             dec.confidence = max(0.5, dec.confidence - 0.1)

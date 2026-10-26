@@ -16,7 +16,7 @@ submit_verdict args schema:
      "supports": true|false},
     {"kind": "media|page|distro",            <- fetched web page: exact URL + verbatim quote
      "source": "<exact URL you fetched>",
-     "tier": 2|3,
+     "tier": 2|3,                            <- informational only: the rules decide the tier (lists, domain age)
      "claim": "what it supports, e.g. official domain is lmstudio.ai",
      "quote": "verbatim excerpt from the page",
      "supports": true|false}

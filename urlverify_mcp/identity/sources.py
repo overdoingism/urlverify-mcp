@@ -130,9 +130,11 @@ def is_platform_endpoint(source_url: str) -> bool:
 
 
 def classify(source_url: str, llm_proposed: int | None = None, extra: "IdentityConfig | None" = None,
-             api_record: bool = False) -> tuple[int, str]:
+             api_record: bool = False, domain_ages: dict[str, int | None] | None = None) -> tuple[int, str]:
     """Return (tier, reason). Built-in lists + config extras (identity.extra_tier1/2/3).
-    The LLM may propose 2 or 3 for unknown domains; it can never produce tier 1.
+    A site on no list ("unlisted") is tier 2 when its DOMAIN is at least identity.unlisted_domain_min_age_days old
+    (first certificate / first archive capture, in `domain_ages`), else tier 3. The LLM's tier proposal is not used:
+    the same article was tier 2 in one run and tier 3 in the next, which flipped TRUE / UNVERIFIABLE (2026-10-27).
     `api_record`: the evidence is a structured tool record (JSON from our own API call), not a fetched page; such
     records keep the platform's tier even when their URL is a repository page (e.g. a Hugging Face model page)."""
     host = host_of(source_url)
@@ -165,9 +167,18 @@ def classify(source_url: str, llm_proposed: int | None = None, extra: "IdentityC
         return 2, f"{e1} is a known tier-2 source"
     if any(h in source_url.lower() for h in FORUM_HINTS):
         return 3, f"{e1} looks like a forum / discussion page"
-    if llm_proposed in (2, 3):
-        return llm_proposed, f"unknown domain {e1}; LLM proposed tier {llm_proposed}"
-    return 3, f"unknown domain {e1}; defaulted to tier 3"
+    min_days = getattr(extra, "unlisted_domain_min_age_days", 730)
+    age = (domain_ages or {}).get(e1)
+    if age is not None and age >= min_days:
+        return 2, f"unlisted domain {e1}, first seen {age} days ago (>= {min_days}): tier 2"
+    if age is not None:
+        return 3, f"unlisted domain {e1}, first seen only {age} days ago (< {min_days}): tier 3"
+    return 3, f"unlisted domain {e1}, age unknown: tier 3"
+
+
+def is_unlisted(source_url: str, extra: "IdentityConfig | None" = None) -> bool:
+    """A web page whose tier depends on its domain's age (on no list, no platform, no forum pattern)."""
+    return classify(source_url, None, extra)[1].startswith("unlisted domain")
 
 
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")

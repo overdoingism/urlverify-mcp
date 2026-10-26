@@ -712,3 +712,40 @@ def test_reason_text_may_not_invent_sources():
     assert reason_problems("由 3 個獨立來源確認。", prompt, 2) == ["states 3 sources, the rules counted 2"]
     # file names and version strings are not websites
     assert reason_problems("The README.md and setup.py of llama.cpp v1.4.357.0 were checked.", prompt, 2) == []
+
+
+def _stew(media_url, media_quote, domain_ages):
+    import json
+    store = EvidenceStore()
+    rec = {"ok": True, "owner": "stew675", "owner_info": {"login": "stew675"}, "repo_info": {"full_name": "stew675/llama-cpp-rdna-boosts", "fork": False},
+           "source": "https://github.com/stew675/llama-cpp-rdna-boosts"}
+    store.record(rec["source"], json.dumps(rec), "github")
+    store[media_url] = media_quote
+    ev = [Evidence(kind="github", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == rec["source"]]),
+          _ev(media_url, "developer stew675 publishes this repository", media_quote, tier=2)]          # the LLM said tier 2
+    ident = IdentityGraph(product="llama-cpp-rdna-boosts", official_orgs={"github": ["stew675"]})
+    l0 = _l0(host="github.com", platform="github", owner="stew675", repo="llama-cpp-rdna-boosts")
+    return decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev), store, "llama-cpp-rdna-boosts", domain_ages=domain_ages)
+
+
+JUKSY = "https://www.juksy.com/article/151976"
+JUKSY_Q = "開發者stew675釋出的rdna補丁（github.com/stew675/llama-cpp-rdna-boosts）"
+
+
+def test_unlisted_site_tier_comes_from_domain_age_not_the_llm():
+    from urlverify_mcp.identity.sources import classify
+    assert classify(JUKSY, 2, domain_ages={"juksy.com": 3000})[0] == 2
+    assert classify(JUKSY, 2, domain_ages={"juksy.com": 100})[0] == 3        # young domain: the LLM's "2" is not used
+    assert classify(JUKSY, 3, domain_ages={"juksy.com": 3000})[0] == 2       # nor its "3"
+    assert classify(JUKSY, 2)[0] == 3                                        # age unknown
+    assert classify("https://techcrunch.com/x", 3)[0] == 2                   # lists still decide listed sites
+    assert _stew(JUKSY, JUKSY_Q, {"juksy.com": 100}).verdict == Verdict.UNVERIFIABLE
+
+
+def test_own_record_plus_one_unlisted_source_does_not_proceed():
+    """stew675 (2026-10): own GitHub record + one JUKSY article gave TRUE 0.85 / PROCEED. Now TRUE capped at 0.75 with
+    SINGLE_UNLISTED_SOURCE; a listed outside source keeps the normal confidence."""
+    d = _stew(JUKSY, JUKSY_Q, {"juksy.com": 3000})
+    assert d.verdict == Verdict.TRUE and d.confidence <= 0.75 and "SINGLE_UNLISTED_SOURCE" in d.notices, d.notes
+    listed = _stew("https://techcrunch.com/rdna", "stew675 publishes github.com/stew675/llama-cpp-rdna-boosts", {})
+    assert listed.verdict == Verdict.TRUE and listed.confidence > 0.75 and "SINGLE_UNLISTED_SOURCE" not in listed.notices, listed.notes

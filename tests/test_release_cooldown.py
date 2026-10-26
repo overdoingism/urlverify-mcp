@@ -246,7 +246,7 @@ async def test_pipeline_modes_cache_and_history(monkeypatch, tmp_path, mode, reg
     monkeypatch.setattr(pipeline, 'Investigator', Investigator)
     monkeypatch.setattr(pipeline, 'RegistryFastPath', Fast)
     monkeypatch.setattr(pipeline, '_write_reason', reason)
-    monkeypatch.setattr(pipeline, 'decide', lambda *args: Decision(Verdict.TRUE, 0.8, established_orgs={registry: ['example']}))
+    monkeypatch.setattr(pipeline, 'decide', lambda *args, **kw: Decision(Verdict.TRUE, 0.8, established_orgs={registry: ['example']}))
     request = VerifyRequest(project='Example', url=url, description='安裝套件')
     result = await pipeline.verify(request, cfg, store)
     assert result.checks['release_cooldown']['detail']['state'] == 'active'

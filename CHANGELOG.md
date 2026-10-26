@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Sites on no tier list are tiered by the age of their domain (`identity.unlisted_domain_min_age_days`, 730 days:
+  first certificate in CT or first archive capture), no longer by the LLM's suggestion: the same article had been
+  tier 2 in one run and tier 3 in the next, flipping the verdict between TRUE and UNVERIFIABLE.
+- An account established by its own platform record plus a single outside source that is on no list is capped at
+  0.75 with `SINGLE_UNLISTED_SOURCE` (tell the user first) instead of proceeding.
 - The final explanation can no longer cite sources the rules did not count. The reason writer gets only the counted
   evidence and the number of source families (no investigator narrative); its text is checked mechanically (no website
   absent from its input, any stated number of sources must equal the counted one) and replaced by template text

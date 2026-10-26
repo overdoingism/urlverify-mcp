@@ -74,6 +74,7 @@ class IdentityConfig(BaseModel):
     extra_tier2: list[str] = Field(default_factory=list)
     extra_tier3: list[str] = Field(default_factory=list)
     # temporal provenance for tier-3 sources (forums / social): a post proven older than this is promoted to tier 2
+    unlisted_domain_min_age_days: int = 730    # a site on no list is tier 2 only if its domain is at least this old (else tier 3)
     tier3_min_age_days: int = 365
     tier3_aged_max_count: int = 1
     aging_sources: dict[str, str] = Field(default_factory=dict)   # domain -> method override (see identity/aging.py)

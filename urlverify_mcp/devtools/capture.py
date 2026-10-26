@@ -24,7 +24,7 @@ def capture_dir() -> Path | None:
 
 
 def capture(trace_id: str, project: str, url: str, cfg, l0, sub, store: dict[str, str], cached, ages, target_age,
-            provenance, registry_state, decision) -> Path | None:
+            provenance, registry_state, decision, domain_ages: dict | None = None) -> Path | None:
     d = capture_dir()
     if d is None:
         return None
@@ -38,7 +38,7 @@ def capture(trace_id: str, project: str, url: str, cfg, l0, sub, store: dict[str
         "l0": l0.model_dump(mode="json", exclude={"fetched_target_text"}),
         "submission": sub.model_dump(mode="json"),
         "store": store.to_json() if hasattr(store, "to_json") else dict(store), "cached_identity": cached,
-        "ages": ages, "target_domain_age": target_age, "provenance": provenance,
+        "ages": ages, "target_domain_age": target_age, "provenance": provenance, "domain_ages": domain_ages or {},
         "registry_state": {k: v for k, v in (registry_state or {}).items()} if registry_state else None,
         "observed": {"verdict": decision.verdict.value, "confidence": round(decision.confidence, 3), "notes": decision.notes},
         # filled in by hand after review: what the rules SHOULD decide for this case

@@ -132,6 +132,8 @@ CODE_TEXT = {
     "PACKAGE_DEPRECATED": ("The registry marks this project as deprecated; its maintainers recommend not using it.",
                            "登錄所將此專案標為已棄用；維護者建議不要再使用。"),
     "PACKAGIST_PACKAGE_NOT_FOUND": ("Packagist has no package with that name.", "Packagist 沒有這個套件。"),
+    "SINGLE_UNLISTED_SOURCE": ("The account is established by its own platform record and only ONE outside source, which is on no curated list (admitted by its domain's age). Confidence capped below 0.8: tell the user.",
+                               "此帳號只由它自己的平台紀錄，加上一個不在任何名單上的外部來源（依網域年齡採計）確立。信心上限低於 0.8，請先告知使用者。"),
     "LLM_UNAVAILABLE": ("The LLM endpoint could not be reached, so the investigation did not run: this result reflects the fixed lookups only. Retry when the LLM is available.",
                         "無法連上 LLM，調查沒有執行：本結果只反映固定查詢。請在 LLM 恢復後重試。"),
     "INVESTIGATION_FAILED": ("The investigation stopped with an error: this result reflects the fixed lookups only. Retry later.",

@@ -56,6 +56,9 @@ identity:
   # Temporal provenance: a tier-3 post (forum / social) proven older than this is promoted to tier 2.
   # Dates come from platform APIs / post ids / Wayback, never from the LLM. Login-walled platforms are never promoted.
   tier3_min_age_days: 365
+  # A site on no list is tier 2 only if its domain is at least this old (first certificate / first archive capture);
+  # otherwise tier 3. The LLM's tier suggestion is not used.
+  unlisted_domain_min_age_days: 730
   tier3_aged_max_count: 1
   domain_age_contradiction_years: 3
   aging_sources: {}          # domain -> reddit_api | hn_api | stackexchange_api | snowflake | discourse | github_api | jsonld | wayback | none
