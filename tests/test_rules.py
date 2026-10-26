@@ -660,3 +660,55 @@ def test_shared_hosting_subdomain_is_not_the_projects_domain():
     assert evil.verdict != Verdict.TRUE and "readthedocs.io" not in evil.established_domains, evil.notes
     own = run("pypdf.readthedocs.io")
     assert own.verdict == Verdict.TRUE and "pypdf.readthedocs.io" in own.established_domains, own.notes
+
+
+def test_wikimedia_values_age_one_by_one():
+    """llama.cpp (2026-10): P1324 went from {ggerganov/llama.cpp, ggml-org/llama.cpp} to {ggml-org/llama.cpp}. The value
+    that stayed is still aged; a newly added value is not; an http -> https edit of the same site is not a new value."""
+    from urlverify_mcp.rules import _aged_values
+    repo = {"ok": True, "current": ["github.com/ggml-org/llama.cpp"],
+            "value_days_ago": ["github.com/ggerganov/llama.cpp", "github.com/ggml-org/llama.cpp"]}
+    assert _aged_values(repo) == {"github.com/ggml-org/llama.cpp"}
+    assert _aged_values({"ok": True, "current": ["https://llama.app/"], "value_days_ago": []}, as_domain=True) == set()
+    assert _aged_values({"ok": True, "current": ["https://7-zip.org/"], "value_days_ago": ["http://www.7-zip.org/"]}, as_domain=True) == {"7-zip.org"}
+    assert _aged_values({"ok": True, "current": ["x"], "value_days_ago": None}) == set()          # entity newer than the window
+    assert _aged_values({"ok": False, "current": ["x"], "value_days_ago": ["x"]}) == set()
+
+
+def test_cached_identity_keeps_its_basis():
+    """stew675/llama-cpp-rdna-boosts (2026-10): established by its GitHub record + a JUKSY article (0.85, PROCEED); read
+    back from the cache, the run saw only the GitHub record and wrongly applied the self-published cap (0.75)."""
+    import json
+    from urlverify_mcp.pipeline import identity_basis
+    store = EvidenceStore()
+    rec = {"ok": True, "owner": "stew675", "owner_info": {"login": "stew675"}, "repo_info": {"full_name": "stew675/llama-cpp-rdna-boosts", "fork": False},
+           "source": "https://github.com/stew675/llama-cpp-rdna-boosts"}
+    store.record(rec["source"], json.dumps(rec), "github")
+    ev = [Evidence(kind="github", source="(facts)", claim="c", facts=[f for f, (s2, _, _) in store.facts.items() if s2 == rec["source"]])]
+    ident = IdentityGraph(product="llama-cpp-rdna-boosts", official_orgs={"github": ["stew675"]})
+    l0 = _l0(host="github.com", platform="github", owner="stew675", repo="llama-cpp-rdna-boosts")
+
+    def run(cached):
+        return decide(Config(), l0, LLMSubmission(identity=ident, evidence=ev), store, "llama-cpp-rdna-boosts", cached=cached)
+    old_entry = {"official_domains": [], "official_orgs": {"github": ["stew675"]}, "confidence_cap": 0.85}
+    assert run(old_entry).confidence <= 0.75                                   # no basis stored: conservative, as before
+    with_basis = {**old_entry, "basis": {"orgs": {"github:stew675": ["github", "juksy.com"]}}}
+    d = run(with_basis)
+    assert d.verdict == Verdict.TRUE and d.confidence > 0.75, d.notes
+    assert any("established earlier by: github, juksy.com" in n for n in d.notes)
+    assert identity_basis(d)["orgs"]["github:stew675"] == ["github", "juksy.com"]   # written back unchanged
+
+
+def test_reason_text_may_not_invent_sources():
+    """The investigator's narrative claimed "five independent sources (JUKSY, PTT, aiboss88, Phoronix ...)" while the rules
+    counted two. The reason writer now sees only counted evidence, and its text is checked mechanically."""
+    from urlverify_mcp.pipeline import reason_problems
+    prompt = ("Counted evidence:\n2 independent source families counted.\n- [github] https://github.com/stew675/llama-cpp-rdna-boosts\n"
+              "- [juksy.com] https://www.juksy.com/article/151976: 開發者stew675釋出的rdna補丁")
+    ok = "stew675 publishes the repository on github.com; 2 independent sources (GitHub and juksy.com) confirm it."
+    assert reason_problems(ok, prompt, 2) == []
+    assert reason_problems("Five independent sources, including JUKSY and phoronix.com, confirm it.", prompt, 2) == [
+        "names phoronix.com, which its input did not contain", "states 5 sources, the rules counted 2"]
+    assert reason_problems("由 3 個獨立來源確認。", prompt, 2) == ["states 3 sources, the rules counted 2"]
+    # file names and version strings are not websites
+    assert reason_problems("The README.md and setup.py of llama.cpp v1.4.357.0 were checked.", prompt, 2) == []

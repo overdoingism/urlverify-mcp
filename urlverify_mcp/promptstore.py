@@ -46,7 +46,7 @@ PROMPTS: dict[str, PromptMeta] = {
     "agent_fallback_actions": PromptMeta("agent_fallback_actions", "Fallback JSON-action instructions (models without tool calling)", "agent", True, ("tool_list",)),
     "agent_submission_schema": PromptMeta("agent_submission_schema", "submit_verdict schema text", "agent", True),
     "agent_reason": PromptMeta("agent_reason", "Final reason-writing prompt", "agent", True,
-                               ("project", "url", "description", "verdict", "confidence", "findings", "narrative")),
+                               ("project", "url", "description", "verdict", "confidence", "findings", "evidence")),
     "mcp_instructions": PromptMeta("mcp_instructions", "MCP server instructions (shown to the calling agent)", "mcp", False),
     "mcp_tool_verify_source": PromptMeta("mcp_tool_verify_source", "Tool description: verify_source", "mcp", False),
     "mcp_tool_get_verification": PromptMeta("mcp_tool_get_verification", "Tool description: get_verification", "mcp", False),

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import hashlib
 import time
 import uuid
@@ -95,6 +96,16 @@ async def fetch_cited(sub, store, fetcher, l0, cfg: Config, notes: list[str], li
     if fetched:
         notes.append("engine fetched pages the investigator cited without fetching (quotes are checked verbatim): " + ", ".join(fetched))
     return fetched
+
+
+def identity_basis(dec) -> dict:
+    """The source families each established domain / org rests on, stored with the cached identity so a later run
+    that reads it back judges the same basis (e.g. not "self-published" when media evidence established it)."""
+    from .identity.sources import family_of
+    fam = lambda srcs: sorted({family_of(x) for x in srcs})   # noqa: E731
+    orgs = {f"{p}:{o.lower()}" for p, os_ in dec.established_orgs.items() for o in os_}
+    return {"domains": {d: fam(dec.supporting_sources.get(d, set())) for d in dec.established_domains if dec.supporting_sources.get(d)},
+            "orgs": {k: fam(v) for k, v in dec.org_supporting_sources.items() if k in orgs and v}}
 
 
 def _package_from_l0(l0) -> dict | None:
@@ -313,6 +324,8 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                 except Exception as e:  # noqa: BLE001
                     sub = det_sub
                     engine_notes.append(f"investigation failed: {type(e).__name__}: {e}")
+                    # say so in the result: an UNVERIFIABLE because the LLM was down is not a judgement about the source
+                    pkg_notices.append("LLM_UNAVAILABLE" if type(e).__module__.startswith("openai") else "INVESTIGATION_FAILED")
         if not l0.fatal_failures:
             from .models import Evidence
             for seed in req.seeds:
@@ -356,11 +369,12 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
                 "evidence": [e.model_dump() for e in dec.evidence if e.verified_quote],
                 "established_at": time.time(), "policy_fingerprint": policy, "confidence_cap": dec.confidence,
                 "basis_notices": [n for n in dec.notices if n == "WIKIMEDIA_ONLY"],
+                "basis": identity_basis(dec),
             }, cfg.cache.identity_ttl_hours * 3600)
 
         await progress.report(f"decision {dec.verdict.value}; writing reason", 0.92)
         if cfg.llm.enabled and not (pkg_block or l0.target_missing):     # those are fully stated by their codes
-            reason = await _write_reason(llm, req, dec.verdict, dec.confidence, engine_notes, l0, sub)
+            reason = await _write_reason(llm, req, dec.verdict, dec.confidence, engine_notes, l0, sub, dec)
         elif (pkg_block or l0.target_missing) and dec.notes:
             reason = f"{dec.verdict.value}: {dec.notes[-1]}"          # the deciding note is the last one written
         else:
@@ -383,18 +397,77 @@ async def _verify(req: VerifyRequest, cfg: Config, store: Storage, trace_id: str
     return result
 
 
-async def _write_reason(llm: LLM, req: VerifyRequest, verdict: Verdict, confidence: float, notes: list[str], l0, sub) -> str:
+def counted_evidence(dec) -> tuple[list[str], int]:
+    """The evidence the rules actually counted for the established identity, one line per source family, and the
+    number of families. Discarded, excluded and self-attesting evidence is not listed (AGENTS §6.1)."""
+    from .identity.sources import family_of, source_key
+    fams: set[str] = set()
+    for d in dec.established_domains:
+        fams |= {family_of(x) for x in dec.supporting_sources.get(d, set())}
+    for p, orgs in dec.established_orgs.items():
+        for o in orgs:
+            fams |= {family_of(x) for x in dec.org_supporting_sources.get(f"{p}:{o.lower()}", set())}
+    lines, seen = [], set()
+    for ev in dec.evidence:
+        if not (ev.verified_quote and ev.supports) or ev.source in seen:
+            continue
+        f = family_of(source_key(ev.source))
+        if f in fams and not any("not counted" in n or "excluded" in n for n in ev.notes):
+            seen.add(ev.source)
+            lines.append(f"- [{f}] {ev.source}: {(ev.quote or ev.claim)[:240]}")
+    named = {ln.split("]")[0][3:] for ln in lines}
+    lines += [f"- [{f}] (basis recorded with the cached identity)" for f in sorted(fams - named)]
+    return lines, len(fams)
+
+
+_FILE_EXT = {"md", "py", "exe", "zip", "json", "yaml", "yml", "txt", "sh", "ps1", "cpp", "h", "gz", "tar", "msi", "dmg",
+             "deb", "rpm", "whl", "js", "ts", "toml", "cfg", "ini", "rs", "so", "dll", "bin", "gguf", "safetensors"}
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+              "一": 1, "二": 2, "兩": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+
+def _hosts_in(text: str) -> set[str]:
+    from .checks.urltools import etld1_of, _extract
+    out = set()
+    for tok in re.findall(r"(?i)\b((?:[a-z0-9-]+\.)+[a-z]{2,})\b", text or ""):
+        t = tok.lower()
+        if t.rsplit(".", 1)[-1] in _FILE_EXT or not _extract(t).suffix:
+            continue
+        out.add(etld1_of(t))
+    return out
+
+
+def reason_problems(text: str, prompt: str, n_counted: int) -> list[str]:
+    """Deterministic check of the LLM-written reason: it may not name a website its input did not contain, and any
+    number of sources it states must be the number the rules counted."""
+    bad = sorted(_hosts_in(text) - _hosts_in(prompt))
+    probs = [f"names {', '.join(bad)}, which its input did not contain"] if bad else []
+    for m in re.finditer(r"(?i)\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:independent\s+|separate\s+|distinct\s+)?(?:source|sources|source families)\b"
+                         r"|(\d+|[一二兩三四五六七八九十])\s*(?:個|家)\s*(?:獨立|不同)?\s*(?:來源|來源家族)", text or ""):
+        word = (m.group(1) or m.group(2) or "").lower()
+        n = int(word) if word.isdigit() else _NUM_WORDS.get(word)
+        if n is not None and n != n_counted:
+            probs.append(f"states {n} sources, the rules counted {n_counted}")
+    return probs
+
+
+async def _write_reason(llm: LLM, req: VerifyRequest, verdict: Verdict, confidence: float, notes: list[str], l0, sub, dec=None) -> str:
+    """The LLM writes the explanation from what the rules decided: their notes, the checks and the counted evidence only.
+    The investigator's narrative is NOT given (it holds the LLM's own unverified claims); the text is then checked."""
     findings = "\n".join(f"- {n}" for n in notes)
     findings += "\n" + "\n".join(f"- check {c.name}: {c.status}{' (' + c.message + ')' if c.message else ''}" for c in l0.checks)
+    lines, n = counted_evidence(dec) if dec is not None else ([], 0)
+    evidence = f"{n} independent source famil{'y' if n == 1 else 'ies'} counted.\n" + ("\n".join(lines) if lines else "- (none)")
     prompt = reason_prompt().format(project=req.project, url=req.url, description=req.description, verdict=verdict.value,
-                                  confidence=confidence, findings=findings, narrative=sub.identity.narrative or sub.proposed_reason)
+                                  confidence=confidence, findings=findings, evidence=evidence,
+                                  narrative="(not provided: use the counted evidence)")   # older prompt overrides
     try:
         msg = await llm.chat([{"role": "user", "content": prompt}], temperature=0.2)
-        text = (msg.content or "").strip()
-        import re
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
-        if text:
+        text = re.sub(r"<think>.*?</think>", "", (msg.content or "").strip(), flags=re.S).strip()
+        probs = reason_problems(text, prompt, n) if text else ["empty"]
+        if not probs:
             return text
+        notes.append("LLM-written explanation rejected (" + "; ".join(probs) + "); template text used")
     except Exception:  # noqa: BLE001
         pass
     return f"{verdict.value}: " + "; ".join(notes[:6])

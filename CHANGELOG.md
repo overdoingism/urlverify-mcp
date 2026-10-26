@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- The final explanation can no longer cite sources the rules did not count. The reason writer gets only the counted
+  evidence and the number of source families (no investigator narrative); its text is checked mechanically (no website
+  absent from its input, any stated number of sources must equal the counted one) and replaced by template text
+  otherwise. (A run said "five independent sources" where two were counted.)
+- Wikimedia values age one by one: a value present before the history window and still present counts, even if another
+  value was removed (llama.cpp dropped `github.com/ggerganov/llama.cpp` and kept `github.com/ggml-org/llama.cpp`; the
+  official repository verifies without the LLM again).
+- The identity cache stores the source families each identity was established by, and restores them: a cached identity
+  established with media evidence is no longer treated as "self-published" (0.85 → 0.75 inconsistency).
+- `LLM_UNAVAILABLE` / `INVESTIGATION_FAILED` notices when the investigation could not run; the "LLM claims" note is
+  reworded (it also appeared when no LLM ran).
+
 ## v0.4.0 — 2026-10-11
 
 ### Security

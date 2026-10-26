@@ -27,6 +27,7 @@ class Decision:
     codes: list[str] = field(default_factory=list)            # fixed reason codes for a FALSE (what contradicts)
     notices: list[str] = field(default_factory=list)          # fixed informational codes (e.g. OFFICIAL_DOWNLOAD_HOST)
     delegation: str | None = None                             # host the official domain delegated the download to
+    org_supporting_sources: dict[str, set[str]] = field(default_factory=dict)   # "platform:org" -> source keys
     established_edges: list[str] = field(default_factory=list)
     missing_edges: list[dict] = field(default_factory=list)
 
@@ -42,7 +43,7 @@ def _squash(s: str) -> str:
 
 # Bumped whenever the rules change what they establish. Part of the identity-cache fingerprint, so identities
 # established under older rules are re-verified instead of being trusted from the cache.
-RULES_VERSION = "2026-10-11.1"
+RULES_VERSION = "2026-10-27.1"
 SELF_PUBLISHED_MAX_CONFIDENCE = 0.75
 DELEGATED_MAX_CONFIDENCE = 0.8     # mirror / CDN host delegated by the official site: verify the checksum   # TRUE for an owner established only by cross-platform consistency
 STRUCTURED_KINDS = {"wikidata", "wikipedia", "github", "huggingface", "wayback", "package_registry", "distro", "flathub", "sourceforge", "snapcraft"}
@@ -150,6 +151,7 @@ def decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str],
         d.notes.extend(ctx2.get("solo_notes", []))
     elif cached and "WIKIMEDIA_ONLY" in (cached.get("basis_notices") or []) and d.verdict == Verdict.TRUE:
         d.notices.append("WIKIMEDIA_ONLY")
+    d.org_supporting_sources = {k: set(v) for k, v in (ctx.get("org_support") or {}).items()}
     d.established_edges, d.missing_edges = identity_edges(cfg, l0, d, ctx, provenance)
     return d
 
@@ -393,17 +395,25 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
             org_support.setdefault(f"{l0.platform}:{l0.platform_owner.lower()}", set()).add("signed-provenance")
             notes.append(f"{l0.platform} package '{l0.platform_owner}' established by signed build provenance from {provenance.get('repo_url')} "
                          f"(owner '{powner}' is an established GitHub org)" + ("; corroborated by deps.dev" if provenance.get("depsdev_verified") else ""))
-    # previously established identity (cache) is trusted until it expires
+    # previously established identity (cache) is trusted until it expires. Its basis (the source families it was
+    # established by) comes back with it, so caps that depend on the basis (self-published) judge the real basis.
     if cached:
+        basis = cached.get("basis") or {}
         for d in cached.get("official_domains", []):
+            fams = (basis.get("domains") or {}).get(d) or []
             if d not in established:
                 established.append(d)
-                notes.append(f"official domain {d} taken from identity cache")
+                notes.append(f"official domain {d} taken from identity cache" + (f" (established earlier by: {', '.join(fams)})" if fams else ""))
+            support.setdefault(d, set()).update(fams)
         for platform, orgs in (cached.get("official_orgs") or {}).items():
             for org in orgs:
+                key = f"{platform}:{org.lower()}"
+                fams = (basis.get("orgs") or {}).get(key) or []
+                org_support.setdefault(key, set()).update(fams)
                 if org.lower() not in [o.lower() for o in est_orgs.get(platform, [])]:
                     est_orgs.setdefault(platform, []).append(org.lower())
-                    notes.append(f"official {platform} org '{org}' taken from identity cache")
+                    notes.append(f"official {platform} org '{org}' taken from identity cache"
+                                 + (f" (established earlier by: {', '.join(fams)})" if fams else ""))
     for d in established:
         if d in support:
             notes.append(f"official domain {d} established by {_distinct(support[d])} independent source(s)")
@@ -563,7 +573,7 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
             notes.append(f"path owner '{owner}' differs from the established official {anchor.platform} org(s) {platform_orgs}")
             return Decision(Verdict.FALSE, 0.8, notes, evidence, support, established, est_orgs, codes=["OWNER_NOT_OFFICIAL"])
         if owner in claimed_orgs:
-            notes.append(f"LLM claims '{owner}' is official on {anchor.platform} but independent support is insufficient")
+            notes.append(f"candidate official {anchor.platform} org '{owner}' (proposed by the lookups / investigator) lacks independent support")
         return Decision(Verdict.UNVERIFIABLE, 0.3, notes, evidence, support, established, est_orgs)
 
     if in_official:
@@ -725,18 +735,23 @@ def _bidirectional(org: str, platform: str, established: list[str], store: dict[
 _PLATFORM_HOSTS = {"github": "github.com", "huggingface": "huggingface.co", "gitlab": "gitlab.com"}
 
 
-def _aged_and_unchanged(stab: dict | None) -> bool:
-    """A Wikimedia value counts only if a revision from before the history window already had it (so the entity /
-    article is at least that old) and it has not changed since. Consistent recent revisions alone are not enough: a
-    brand-new entity with three quick edits is still brand-new."""
+def _aged_values(stab: dict | None, as_domain: bool = False) -> set[str]:
+    """The Wikimedia values that count: those a revision from before the history window already had AND the current
+    revision still has (so the value is at least that old and still stated). A value added inside the window does not
+    count; removing a DIFFERENT value (llama.cpp dropped github.com/ggerganov, kept github.com/ggml-org) does not cancel
+    the ones that stayed. Consistent recent revisions alone are never enough: a brand-new entity is still brand-new.
+    Official websites compare by registrable domain (an http -> https edit is not a new value)."""
     if not isinstance(stab, dict) or not stab.get("ok", True):
-        return False
+        return set()
     old, cur = stab.get("value_days_ago"), stab.get("current")
-    return old is not None and bool(cur) and sorted(old) == sorted(cur) and not stab.get("recent_change")
+    if old is None or not cur:
+        return set()
+    norm = (lambda v: etld1_of(host_of(v if "://" in v else "https://" + v))) if as_domain else (lambda v: v.lower())
+    return ({norm(str(v)) for v in cur} & {norm(str(v)) for v in old}) - {""}
 
 
 def _wikimedia_validated_domains(source: str, store: dict[str, str]) -> set[str]:
-    """eTLD+1s of the official-website value of the Wikimedia record at `source` that pass _aged_and_unchanged."""
+    """eTLD+1s of the official-website values of the Wikimedia record at `source` that are aged and still stated."""
     raw = store.get(source)
     if not raw or record_kind(store, source) not in ("wikipedia", "wikidata"):
         return set()
@@ -747,11 +762,7 @@ def _wikimedia_validated_domains(source: str, store: dict[str, str]) -> set[str]
     recs = [e for e in data.get("entities", []) if e.get("source") == source] if isinstance(data.get("entities"), list) else [data]
     out: set[str] = set()
     for rec in recs:
-        stab = rec.get("stability")
-        if _aged_and_unchanged(stab):
-            for v in stab.get("current") or []:
-                v = str(v)
-                out.add(etld1_of(host_of(v if "://" in v else "https://" + v)))
+        out |= _aged_values(rec.get("stability"), as_domain=True)
     return out
 
 
@@ -769,11 +780,7 @@ def _wikimedia_repo_names_org(org: str, platform: str, source: str, store: dict[
     records = [e for e in data.get("entities", []) if e.get("source") == source] if isinstance(data.get("entities"), list) else [data]
     prefix = f"{host}/{org.lower()}"
     for rec in records:
-        stab = rec.get("repo_stability") or {}
-        if not _aged_and_unchanged(stab):
-            continue
-        for repo in rec.get("official_repos") or []:
-            r = str(repo).lower()
+        for r in _aged_values(rec.get("repo_stability")):
             if r == prefix or r.startswith(prefix + "/"):
                 return True
     return False

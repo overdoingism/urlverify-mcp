@@ -55,7 +55,7 @@ def test_optional_tokens_render_and_leave_json_intact(tmp_path):
     rendered = s.render("agent_system")
     assert "{current_date}" not in rendered and "Current date: 20" in rendered
     # reason prompt still formats after rendering (required placeholders survive)
-    r = s.render("agent_reason").format(project="p", url="u", description="d", verdict="V", confidence=0.5, findings="f", narrative="n")
+    r = s.render("agent_reason").format(project="p", url="u", description="d", verdict="V", confidence=0.5, findings="f", evidence="e")
     assert "Current date: 20" in r and "{" not in r.split("Current date")[0]
     # tokens are optional: removing them from an override must not fail validation
     s.set("agent_system", "no tokens at all\n")
