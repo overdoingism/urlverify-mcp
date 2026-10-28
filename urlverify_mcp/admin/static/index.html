@@ -34,6 +34,16 @@
   pre { background:var(--bg); padding:10px; border-radius:6px; overflow:auto; font-size:12px; max-height:480px; }
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; } @media (max-width:800px){ .grid{grid-template-columns:1fr;} }
   .muted { color:var(--muted); font-size:12px; }
+  main:has(#tab-history.active) { max-width:1600px; }
+  #tab-history.active { display:grid; grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:16px; align-items:start; }
+  #tab-history .card { margin-bottom:0; }
+  #h-detail { position:sticky; top:12px; } #h-raw { max-height:calc(100vh - 90px); margin:0; }
+  #h-table tr.sel td { background:var(--tab-bg); }
+  /* fixed column widths: long URLs / commands wrap inside their own column instead of pushing Verdict and view out */
+  #h-table { table-layout:fixed; } #h-table th, #h-table td { padding:6px 5px; } #h-table td:nth-child(3) { word-break:break-all; }
+  #h-table th:nth-child(1) { width:88px; } #h-table th:nth-child(2) { width:16%; } #h-table th:nth-child(4) { width:112px; }
+  #h-table th:nth-child(5) { width:40px; } #h-table th:nth-child(6) { width:48px; }
+  @media (max-width:1100px){ #tab-history.active { grid-template-columns:minmax(0,1fr); } #h-detail { position:static; } }
   .pill { display:inline-block; padding:1px 8px; border-radius:10px; border:1px solid var(--line); font-size:11px; margin-right:4px; }
 </style>
 </head>
@@ -108,7 +118,7 @@
   </section>
 
   <section id="tab-history"><div class="card"><h3>History <button class="small" id="h-refresh">refresh</button> <button class="small" id="h-clear">clear</button></h3><table id="h-table"><thead><tr><th>Time</th><th>Project</th><th>URL</th><th>Verdict</th><th>Conf</th><th></th></tr></thead><tbody></tbody></table></div>
-    <div class="card" id="h-detail" style="display:none"><pre id="h-raw"></pre></div></section>
+    <div class="card" id="h-detail"><p class="muted" id="h-hint">Click "view" on a row to show its JSON here.</p><pre id="h-raw" style="display:none"></pre></div></section>
 
   <section id="tab-config">
     <div class="card"><h3>GitHub token (optional)</h3>
@@ -207,9 +217,14 @@ function showResult(r){
 }
 
 $('#h-refresh').onclick = loadHistory;
-$('#h-clear').onclick = async () => { if(confirm('Delete all verification history (log/history)?')){ await api('/api/history', {method:'DELETE'}); $('#h-detail').style.display='none'; loadHistory(); } };
-async function loadHistory(){ const rows = await api('/api/history'); $('#h-table tbody').innerHTML = rows.map(h => `<tr><td>${new Date(h.ts*1000).toLocaleString()}</td><td>${esc(h.project)}</td><td class="muted">${esc(h.url).slice(0,70)}</td><td class="${h.verdict}">${h.verdict}</td><td>${h.confidence}</td><td><button class="small" data-trace="${h.trace_id}">view</button></td></tr>`).join('');
-  $('#h-table').querySelectorAll('button').forEach(b => b.onclick = async () => { const d = await api('/api/history/'+b.dataset.trace); $('#h-detail').style.display='block'; $('#h-raw').textContent = JSON.stringify(d.result, null, 2); }); }
+$('#h-clear').onclick = async () => { if(confirm('Delete all verification history (log/history)?')){ await api('/api/history', {method:'DELETE'}); showHistory(null); loadHistory(); } };
+let hSel = null;
+function showHistory(trace, result){ hSel = trace; $('#h-hint').style.display = trace ? 'none' : ''; $('#h-raw').style.display = trace ? '' : 'none';
+  $('#h-raw').textContent = trace ? JSON.stringify(result, null, 2) : ''; $('#h-raw').scrollTop = 0;
+  $('#h-table').querySelectorAll('tbody tr').forEach(tr => tr.classList.toggle('sel', !!trace && tr.dataset.trace === trace)); }
+async function loadHistory(){ const rows = await api('/api/history'); $('#h-table tbody').innerHTML = rows.map(h => `<tr data-trace="${h.trace_id}"><td>${new Date(h.ts*1000).toLocaleString()}</td><td>${esc(h.project)}</td><td class="muted">${esc(h.url).slice(0,70)}</td><td class="${h.verdict}">${h.verdict}</td><td>${h.confidence}</td><td><button class="small" data-trace="${h.trace_id}">view</button></td></tr>`).join('');
+  $('#h-table').querySelectorAll('button').forEach(b => b.onclick = async () => { const d = await api('/api/history/'+b.dataset.trace); showHistory(b.dataset.trace, d.result); });
+  $('#h-table').querySelectorAll('tbody tr').forEach(tr => tr.classList.toggle('sel', tr.dataset.trace === hSel)); }
 
 
 async function loadGithubToken(){ const t = await api('/api/github_token'); $('#gt-status').textContent = t.set ? `token stored (${t.hint})` : 'no token stored (60 requests/hour)'; }

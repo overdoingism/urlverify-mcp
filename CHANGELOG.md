@@ -8,6 +8,7 @@
   `VERIFIED_FALSE` / `DO_NOT_PROCEED` (`OWNER_NOT_OFFICIAL`) for a legitimate package.
 - A domain established by the identity cache is no longer also reported as a weak candidate ("has only 4 independent
   source(s) (need 2)").
+- Admin UI: the History tab shows the list and the selected entry's JSON side by side (stacked below 1100 px).
 - The investigator is told that summary / aggregator sites (GitHub trending or star trackers, repository indexes,
   awesome lists, AI summaries, download portals) are not independent sources and must not be cited as support.
 - Sites on no tier list are tiered by the age of their domain (`identity.unlisted_domain_min_age_days`, 730 days:
