@@ -188,6 +188,8 @@ _PREFIX_TEXT = {
                                    "OSV.dev 將要安裝的這個版本列為惡意發佈（{x}；此套件曾被入侵發佈）。請勿安裝此版本，改指定未被列出的版本。"),
     "UNSUPPORTED_FLAG": ("Unsupported flag {x}: it could change what gets installed. Remove it or ask for support.",
                          "不支援的參數 {x}：可能改變實際安裝的東西。請移除或提出支援需求。"),
+    "INPUT_MULTIPLE_PROJECTS": ("{x} may belong to a project other than `project`: one call verifies one project. Verify each project in its own call, with that project's name.",
+                                "{x} 可能屬於 `project` 以外的專案：一次呼叫只驗證一個專案。請每個專案分開呼叫，並填入該專案的名稱。"),
     "UNSUPPORTED_ENV": ("Environment variable {x} is not interpreted.", "不解讀環境變數 {x}。"),
     "FLAG_MISSING_VALUE": ("Flag {x} is missing its value.", "參數 {x} 缺少值。"),
     "REGISTRY_UNSUPPORTED": ("Registry {x} is not a public registry this tool can verify (mirrors are not assumed to match).",

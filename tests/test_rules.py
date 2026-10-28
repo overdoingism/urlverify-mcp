@@ -54,6 +54,18 @@ def test_unverifiable_with_one_source():
     assert d.verdict == Verdict.UNVERIFIABLE
 
 
+def test_cache_established_domain_is_not_reported_weak():
+    """FastAPI (2026-10): this run had one source for tiangolo.com, the cache had four; the notes said
+    "candidate tiangolo.com has only 4 independent source(s) (need 2)"."""
+    sub = LLMSubmission(identity=IDENT, evidence=[
+        _ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac")], proposed_verdict="VERIFIED_TRUE")
+    cached = {"official_domains": ["lmstudio.ai"], "official_orgs": {}, "basis": {"domains": {"lmstudio.ai": ["techcrunch.com", "wikimedia"]}}}
+    d = decide(Config(), _l0(), sub, STORE, "LM Studio", cached=cached)
+    assert d.verdict == Verdict.TRUE
+    assert not any("has only" in n for n in d.notes), d.notes
+    assert any("lmstudio.ai established by 2 independent source(s)" in n for n in d.notes)
+
+
 def test_tier3_excluded_by_default_but_allowed_by_option():
     evs = lambda: [_ev("https://techcrunch.com/x", "official domain is lmstudio.ai", "available at lmstudio.ai for Mac"),
                    _ev("https://someforum.example/thread/1", "official domain is lmstudio.ai", "lmstudio.ai is legit trust me", tier=3)]

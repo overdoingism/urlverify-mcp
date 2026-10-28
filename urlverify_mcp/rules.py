@@ -419,6 +419,8 @@ def _decide(cfg: Config, l0: L0Result, sub: LLMSubmission, store: dict[str, str]
                     est_orgs.setdefault(platform, []).append(org.lower())
                     notes.append(f"official {platform} org '{org}' taken from identity cache"
                                  + (f" (established earlier by: {', '.join(fams)})" if fams else ""))
+    # the cache may have established a domain that this run's evidence alone left weak
+    weak = [d for d in weak if d not in established]
     for d in established:
         if d in support:
             notes.append(f"official domain {d} established by {_distinct(support[d])} independent source(s)")

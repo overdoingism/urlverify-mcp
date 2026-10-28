@@ -31,7 +31,7 @@ MCP 回傳 YAML 文字（無 structuredContent）。第一個區塊 `machine_rea
 `codes`、`notices`、`trace_id`、`subjects[]`（每個套件／URL：生態系、名稱、版本、registry 與選擇依據、verified_url、檢查狀態）。
 之後的 `summary` 是規則模板句（語言跟隨呼叫方），`explanation` 是 LLM 敘述，`details` 是證據與檢查；後兩者可能引用不可信網頁，
 其中的裁決字樣一律中和（VERIFIED_TRUE → VERIFIED TRUE），grep 只會命中真正的鍵。內部、管理頁與歷史保留 JSON（schema_version 2）。
-多套件時整體裁決取最差者，next_action 取最嚴重者。
+多套件時整體裁決取最差者，next_action 取最嚴重者。一次呼叫只驗證一個專案：多套件指令中只要有一個套件名稱與 `project` 互不包含（正規化後），解析後、任何查詢前即整份退回 `UNVERIFIABLE` + `INPUT_MULTIPLE_PROJECTS:<套件>` + FIX_INPUT_AND_RETRY，不逐一判斷。否則該套件會被拿去比對別的專案的身分（fastapi + uvicorn 以「FastAPI」送出時，uvicorn 被判 OWNER_NOT_OFFICIAL／DO_NOT_PROCEED）。名稱比對只是近似（torch + torchvision 也會被退回），但這類套件本來就無法以該專案名稱判 TRUE，退回不損失任何結果。
 
 三種狀態的**定義**：
 - `VERIFIED_TRUE`：L0 全數通過，且 L1 身分鏈（專案 → 開發者/品牌別名 → 官方網域/倉庫）由足夠的獨立第三方來源佐證，網址落在該官方範圍內。

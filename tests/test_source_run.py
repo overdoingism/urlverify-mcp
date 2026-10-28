@@ -57,10 +57,20 @@ async def test_input_validation(env):
 
 async def test_multi_subject_worst_wins(env):
     calls, store = env
-    r = await verify_source(req(source="pip install good evil-pkg"), Config(), store)
+    r = await verify_source(req(project="pkg", source="pip install pkg-good evil-pkg"), Config(), store)
     assert [s.verdict for s in r.subjects] == [Verdict.TRUE, Verdict.FALSE]
     assert (r.verdict, r.next_action) == (Verdict.FALSE, "DO_NOT_PROCEED")
-    assert len(calls) == 2 and all("requested as: pip install good evil-pkg" in c.description for c in calls)
+    assert len(calls) == 2 and all("requested as: pip install pkg-good evil-pkg" in c.description for c in calls)
+
+
+async def test_multiple_projects_rejected(env):
+    calls, store = env
+    r = await verify_source(req(project="FastAPI", source="python -m pip install fastapi uvicorn[standard]"), Config(), store)
+    assert (r.verdict, r.next_action, r.codes) == (Verdict.UNVERIFIABLE, "FIX_INPUT_AND_RETRY", ["INPUT_MULTIPLE_PROJECTS:uvicorn"])
+    assert not calls and not r.subjects                          # rejected before any lookup
+    assert "uvicorn" in to_yaml(r)
+    r = await verify_source(req(project="FastAPI", source="pip install fastapi fastapi-cli"), Config(), store)
+    assert r.verdict == Verdict.TRUE and len(calls) == 2         # every package carries the project name: verified
 
 
 async def test_version_argument(env):

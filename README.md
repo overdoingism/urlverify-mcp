@@ -85,7 +85,8 @@ details: ...                    # evidence, checks, identity, notes
 
 Parsed but not verified yet (`ECOSYSTEM_NOT_YET_VERIFIED`): cargo, gem, choco, conda, AUR, ollama, Install-Module,
 msstore, other container registries. Always rejected: lock / requirement files, local paths,
-extra indexes, chained commands (`&&`, `;`). Unknown flags are reported, never ignored.
+extra indexes, chained commands (`&&`, `;`), and several packages of which one does not carry the project name
+(`pip install fastapi uvicorn` as `FastAPI`: `INPUT_MULTIPLE_PROJECTS`; one call verifies one project). Unknown flags are reported, never ignored.
 
 ## Trust rules in brief
 

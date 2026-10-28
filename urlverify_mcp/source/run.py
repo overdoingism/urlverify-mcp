@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from .. import progress
 from ..config import Config
+from ..identity.registry import _names_match
 from ..models import Verdict, VerifyRequest, VerifyResult
 from ..storage import Storage
 from .model import Subject
@@ -226,6 +227,15 @@ async def verify_source(req: SourceRequest, cfg: Config, store: Storage) -> Sour
         return finish(SourceResult(trace_id=trace_id, request=req, verdict=Verdict.UNVERIFIABLE, confidence=0.0,
                                    next_action="FIX_INPUT_AND_RETRY", codes=["INPUT_VERSION_AMBIGUOUS"],
                                    message="`version` cannot apply to several packages; pin each one in the command instead"))
+    if len(subjects) > 1:
+        # one call verifies one project: a package whose name neither contains nor is contained in the project name may
+        # belong to another project and would be judged against the wrong identity (fastapi + uvicorn as "FastAPI")
+        others = [s.name or s.input for s in subjects if not (s.name and _names_match(req.project, s.name))]
+        if others:
+            return finish(SourceResult(trace_id=trace_id, request=req, verdict=Verdict.UNVERIFIABLE, confidence=0.0,
+                                       next_action="FIX_INPUT_AND_RETRY", codes=[f"INPUT_MULTIPLE_PROJECTS:{','.join(others)}"],
+                                       message=f"{', '.join(others)} may belong to a project other than '{req.project}'; "
+                                               "verify each project in its own call"))
     for s in subjects:
         _apply_version(s, req.version)
 

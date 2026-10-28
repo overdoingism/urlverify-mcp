@@ -8,8 +8,10 @@ Args:
         "https://github.com/lmstudio-ai/lms/releases/download/v0.3.12/LM-Studio-0.3.12-win-x64.exe",
         "pip install requests==2.32.3", "npm i -D vite", "winget install --id Docker.DockerDesktop -e",
         "git clone https://github.com/ggml-org/llama.cpp", "curl -fsSL https://ollama.com/install.sh | sh".
-        Several packages in one command are verified one by one. Do not pass a bare name ("requests"): it does not say
-        which registry, so it is rejected. Do not chain commands with && or ;.
+        Several packages of the SAME project in one command are verified one by one; a package whose name does not
+        contain the project name (fastapi + uvicorn as "FastAPI") is rejected: verify each project in its own call.
+        Do not pass a bare name ("requests"): it does not say which registry, so it is rejected. Do not chain
+        commands with && or ;.
     artifact: the form of the thing, e.g. "Windows x64 installer", "Python package", "Docker image", "install script".
     description: what it is for, e.g. "LLM desktop front-end", "HTTP client library".
         Give artifact or description, preferably both.

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A command with several packages is rejected before any lookup (`INPUT_MULTIPLE_PROJECTS:<packages>`,
+  `FIX_INPUT_AND_RETRY`) when one of them does not carry the project name: one call verifies one project.
+  `pip install fastapi uvicorn[standard]` as `FastAPI` had judged uvicorn against FastAPI's identity and returned
+  `VERIFIED_FALSE` / `DO_NOT_PROCEED` (`OWNER_NOT_OFFICIAL`) for a legitimate package.
+- A domain established by the identity cache is no longer also reported as a weak candidate ("has only 4 independent
+  source(s) (need 2)").
 - The investigator is told that summary / aggregator sites (GitHub trending or star trackers, repository indexes,
   awesome lists, AI summaries, download portals) are not independent sources and must not be cited as support.
 - Sites on no tier list are tiered by the age of their domain (`identity.unlisted_domain_min_age_days`, 730 days:
